@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AgentBridge -> Cortex Code handler (runs on the CoCo/remote machine). v5
+"""AgentBridge -> Cortex Code handler (runs on the CoCo/remote machine). v7
 
 Wired into bridge.py via config:
     "handler_cmd": "python C:\\AgentBridge\\handler_coco.py {body_file} {seq}",
@@ -8,7 +8,11 @@ Wired into bridge.py via config:
 For each inbound message, `bridge.py watch` calls this script, which:
   1. runs Cortex headlessly on the message (`cortex -p ... --output-format
      stream-json`), resuming the same Cortex session across messages;
-  2. sends Cortex's final reply back to Claude via bridge.py automatically,
+  2. LIVESTREAM (v7): tails the stream-json events as they arrive and
+     publishes a compact progress file to the shared folder
+     (status/<role>_run.json, single writer: this side) so the GUI on the
+     other end can show "CoCo is working on X" in real time;
+  3. sends Cortex's final reply back to Claude via bridge.py automatically,
      attaching any files CoCo saved into outbox/.
 
 Security posture (user-approved 2026-07-03, BLOCKLIST model):
@@ -32,9 +36,11 @@ Test without Cortex:  python handler_coco.py --dry-run <somefile> 1
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -128,6 +134,131 @@ def stage_message(body_file, seq):
     return staged
 
 
+# ---------------------------------------------------------------- livestream
+
+def summarize_event(obj):
+    """One human line per stream-json event, for the progress feed."""
+    t = obj.get("type")
+    if t == "system" and obj.get("subtype") == "init":
+        return "Session started"
+    if t == "assistant":
+        for c in (obj.get("message") or {}).get("content") or []:
+            if c.get("type") == "tool_use":
+                name = c.get("name", "tool")
+                inp = c.get("input") or {}
+                detail = (inp.get("query") or inp.get("command")
+                          or inp.get("file_path") or inp.get("description") or "")
+                detail = " ".join(str(detail).split())[:90]
+                return f"Running {name}" + (f": {detail}" if detail else "")
+            if c.get("type") == "text":
+                txt = " ".join((c.get("text") or "").split())[:90]
+                if txt:
+                    return txt
+    if t == "result":
+        return "Writing the reply"
+    return None
+
+
+class FeedWriter:
+    """Publishes status/<role>_run.json into the shared folder while Cortex
+    runs. Single-writer rule holds: only this side ever writes this file.
+    Every method swallows its own errors — the feed is best-effort and must
+    never break message handling."""
+
+    def __init__(self, seq):
+        self.path = None
+        self.seq = seq
+        self.turns = 0
+        self.activity = "Starting up…"
+        self.recent = []
+        self.started = self._now()
+        self._last_write = 0.0
+        try:
+            cfg = json.loads((Path.home() / ".agentbridge" / "config.json")
+                             .read_text(encoding="utf-8-sig"))
+            role = cfg.get("role", "coco")
+            self.path = Path(cfg["shared_dir"]) / "status" / f"{role}_run.json"
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            self.path = None
+        self.write(state="running", force=True)
+
+    @staticmethod
+    def _now():
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    def event(self, obj):
+        try:
+            if obj.get("type") == "assistant":
+                self.turns += 1
+            line = summarize_event(obj)
+            if line:
+                self.activity = line
+                self.recent = (self.recent + [line])[-8:]
+            self.write(state="running")
+        except Exception:
+            pass
+
+    def write(self, state, force=False):
+        if self.path is None:
+            return
+        if not force and time.time() - self._last_write < 1.5:
+            return  # throttle: OneDrive doesn't need a write per token
+        try:
+            doc = {"state": state, "seq": self.seq, "started": self.started,
+                   "updated": self._now(), "turns": self.turns,
+                   "activity": self.activity, "recent": self.recent}
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, self.path)
+            self._last_write = time.time()
+        except Exception:
+            pass
+
+    def finish(self, state, note=None):
+        if note:
+            self.activity = note
+        self.write(state=state, force=True)
+
+
+def run_cortex_streaming(cmd, feed, timeout):
+    """Popen + line-by-line stdout so feed events publish as they happen.
+    Returns (returncode, stdout_text, stderr_text); raises TimeoutExpired."""
+    proc = subprocess.Popen(
+        cmd, shell=True if sys.platform == "win32" else False,
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
+    timed_out = threading.Event()
+
+    def _kill():
+        timed_out.set()
+        proc.kill()
+    watchdog = threading.Timer(timeout, _kill)
+    watchdog.daemon = True
+    watchdog.start()
+    err_chunks = []
+    reader = threading.Thread(
+        target=lambda: err_chunks.append(proc.stderr.read()), daemon=True)
+    reader.start()
+    out_lines = []
+    try:
+        for line in proc.stdout:
+            out_lines.append(line)
+            s = line.strip()
+            if s.startswith("{"):
+                try:
+                    feed.event(json.loads(s))
+                except json.JSONDecodeError:
+                    pass
+        rc = proc.wait(timeout=60)
+    finally:
+        watchdog.cancel()
+    if timed_out.is_set():
+        raise subprocess.TimeoutExpired(cmd, timeout)
+    reader.join(timeout=10)
+    return rc, "".join(out_lines), (err_chunks[0] if err_chunks else "")
+
+
 def reply_from_stream(stdout_text):
     """Fallback: extract the final agent response from stream-json stdout
     (the last {"type":"result", ...} line) if -o did not produce a file."""
@@ -213,16 +344,15 @@ def main():
         return 0
 
     REPLY.unlink(missing_ok=True)
+    feed = FeedWriter(seq)
     try:
-        r = subprocess.run(cmd, shell=True if sys.platform == "win32" else False,
-                           capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=CORTEX_TIMEOUT)
-        failed = r.returncode != 0
-        tail = (r.stdout or "")[-2000:] + "\n" + (r.stderr or "")[-2000:]
+        rc, out, errtext = run_cortex_streaming(cmd, feed, CORTEX_TIMEOUT)
+        failed = rc != 0
+        tail = (out or "")[-2000:] + "\n" + (errtext or "")[-2000:]
         # -o may not fire in stream-json mode; recover the reply from the stream
         if not failed and (not REPLY.is_file()
                            or not REPLY.read_text(encoding="utf-8-sig").strip()):
-            recovered = reply_from_stream(r.stdout)
+            recovered = reply_from_stream(out)
             if recovered:
                 REPLY.write_text(recovered, encoding="utf-8")
     except subprocess.TimeoutExpired:
@@ -231,6 +361,7 @@ def main():
         failed, tail = True, "cortex executable not found on PATH"
 
     if not failed and REPLY.is_file() and REPLY.read_text(encoding="utf-8-sig").strip():
+        feed.finish("done", "Reply sent")
         save_session_id(sid, bsha)
         outfiles = [p for p in OUTBOX.iterdir() if p.is_file()]
         bridge_send(REPLY, attachments=outfiles)
@@ -239,6 +370,7 @@ def main():
         for p in outfiles:
             shutil.move(str(p), str(sent / f"s{seq}_{p.name}"))
     else:
+        feed.finish("error", "Run failed — error report sent")
         err = BRIDGE_DIR / "handler_error.md"
         err.write_text(
             f"[handler] Cortex run for message seq {seq} produced no reply "

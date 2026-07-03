@@ -1,22 +1,25 @@
-"""Generate gui/static/app.ico — orange rounded square with the white bridge arc.
+"""Generate the app icons — orange rounded square with the white bridge arc.
 
-Stdlib only (hand-rolled PNG encoder + PNG-in-ICO container, Vista+ format).
-Run once and commit the output; shortcuts created by the installer point at it.
+Outputs (all committed, consumed by installer shortcuts and the web manifest):
+    gui/static/app.ico       256px PNG-in-ICO (Vista+), shortcut icon
+    gui/static/app-192.png   manifest icon
+    gui/static/app-512.png   manifest icon
+
+Stdlib only (hand-rolled PNG encoder). Run once and commit the output.
 """
 
 import struct
 import zlib
 from pathlib import Path
 
-SIZE = 256
 ACCENT = (216, 59, 1)        # #D83B01
-CORNER_R = 56                # rx 7 in the 32px viewBox, scaled x8
-STROKE = 24                  # stroke-width 3, scaled x8
 
-# Bridge glyph from the app's SVG (viewBox 32, scaled x8):
+# Bridge glyph in the 32px viewBox of the app's SVG:
 # arc  M4 22 c 3.5 -8, 20.5 -8, 24 0   posts M4 22 v-4  M28 22 v-4
-ARC = ((32, 176), (60, 112), (196, 112), (224, 176))
-POSTS = (((32, 176), (32, 144)), ((224, 176), (224, 144)))
+ARC32 = ((4, 22), (7.5, 14), (24.5, 14), (28, 22))
+POSTS32 = (((4, 22), (4, 18)), ((28, 22), (28, 18)))
+CORNER32 = 7
+STROKE32 = 3
 
 
 def cubic_points(p0, p1, p2, p3, n=240):
@@ -37,33 +40,30 @@ def seg_points(a, b, n=40):
             for i in range(n + 1)]
 
 
-GLYPH = cubic_points(*ARC)
-for a, b in POSTS:
-    GLYPH += seg_points(a, b)
+def render(size):
+    f = size / 32
+    glyph = cubic_points(*[(x * f, y * f) for x, y in ARC32])
+    for a, b in POSTS32:
+        glyph += seg_points((a[0] * f, a[1] * f), (b[0] * f, b[1] * f))
+    corner = CORNER32 * f
+    stroke = STROKE32 * f
 
+    def glyph_dist(x, y):
+        return min((x - gx) ** 2 + (y - gy) ** 2 for gx, gy in glyph) ** 0.5
 
-def glyph_dist(x, y):
-    return min((x - gx) ** 2 + (y - gy) ** 2 for gx, gy in GLYPH) ** 0.5
+    def rect_coverage(x, y):
+        dx = max(corner - x, x - (size - 1 - corner), 0)
+        dy = max(corner - y, y - (size - 1 - corner), 0)
+        d = (dx * dx + dy * dy) ** 0.5 - corner
+        return max(0.0, min(1.0, 0.5 - d / 1.5))
 
+    def stroke_coverage(d):
+        return max(0.0, min(1.0, (stroke / 2 + 0.75 - d) / 1.5))
 
-def rect_coverage(x, y):
-    """1 inside the rounded square, 0 outside, smooth 1.5px edge."""
-    r = CORNER_R
-    dx = max(r - x, x - (SIZE - 1 - r), 0)
-    dy = max(r - y, y - (SIZE - 1 - r), 0)
-    d = (dx * dx + dy * dy) ** 0.5 - r
-    return max(0.0, min(1.0, 0.5 - d / 1.5))
-
-
-def stroke_coverage(d):
-    return max(0.0, min(1.0, (STROKE / 2 + 0.75 - d) / 1.5))
-
-
-def render():
     rows = []
-    for y in range(SIZE):
+    for y in range(size):
         row = bytearray()
-        for x in range(SIZE):
+        for x in range(size):
             bg = rect_coverage(x, y)
             if bg <= 0:
                 row += b"\x00\x00\x00\x00"
@@ -82,8 +82,8 @@ def png_chunk(tag, data):
             + struct.pack(">I", zlib.crc32(tag + data)))
 
 
-def to_png(rows):
-    ihdr = struct.pack(">IIBBBBB", SIZE, SIZE, 8, 6, 0, 0, 0)
+def to_png(rows, size):
+    ihdr = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)
     raw = b"".join(b"\x00" + r for r in rows)
     return (b"\x89PNG\r\n\x1a\n"
             + png_chunk(b"IHDR", ihdr)
@@ -91,13 +91,19 @@ def to_png(rows):
             + png_chunk(b"IEND", b""))
 
 
-def to_ico(png):
+def to_ico(png, size):
     header = struct.pack("<HHH", 0, 1, 1)
-    entry = struct.pack("<BBBBHHII", 0, 0, 0, 0, 1, 32, len(png), 22)
+    wh = 0 if size >= 256 else size
+    entry = struct.pack("<BBBBHHII", wh, wh, 0, 0, 1, 32, len(png), 22)
     return header + entry + png
 
 
 if __name__ == "__main__":
-    out = Path(__file__).resolve().parents[1] / "gui" / "static" / "app.ico"
-    out.write_bytes(to_ico(to_png(render())))
-    print(f"wrote {out} ({out.stat().st_size} bytes)")
+    static = Path(__file__).resolve().parents[1] / "gui" / "static"
+    for size in (192, 512):
+        png = to_png(render(size), size)
+        (static / f"app-{size}.png").write_bytes(png)
+        print(f"wrote app-{size}.png ({len(png)} bytes)")
+    ico = to_ico(to_png(render(256), 256), 256)
+    (static / "app.ico").write_bytes(ico)
+    print(f"wrote app.ico ({len(ico)} bytes)")

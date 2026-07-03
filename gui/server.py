@@ -37,6 +37,7 @@ CONTENT_TYPES = {
     ".svg": "image/svg+xml",
     ".png": "image/png",
     ".ico": "image/x-icon",
+    ".json": "application/json",
 }
 
 HOME = bridge.DEFAULT_HOME  # overridable via --home in __main__
@@ -46,8 +47,11 @@ HOME = bridge.DEFAULT_HOME  # overridable via --home in __main__
 # macOS/Linux personal build without touching feature code.
 
 # Without this flag, every subprocess from a pythonw-launched server flashes
-# a console window on screen.
+# a console window on screen. And without stdin redirected, subprocess calls
+# under pythonw can fail outright ("the handle is invalid") — pythonw has no
+# std handles, and capture_output only covers stdout/stderr.
 NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+SUBPROC = {"stdin": subprocess.DEVNULL, "creationflags": NO_WINDOW}
 
 
 def open_path(path):
@@ -66,8 +70,7 @@ def sync_client_running():
         try:
             out = subprocess.run(
                 ["tasklist", "/FI", "IMAGENAME eq OneDrive.exe"],
-                capture_output=True, text=True, timeout=15,
-                creationflags=NO_WINDOW).stdout
+                capture_output=True, text=True, timeout=15, **SUBPROC).stdout
             return "OneDrive.exe" in out
         except Exception:
             return None
@@ -159,6 +162,28 @@ def api_log(params):
         e["ts_local"] = bridge.localts(e.get("ts"))
         e["mine"] = e.get("from") == br.role
     return {"entries": entries, "role": br.role, "peer": br.peer}
+
+
+def api_livefeed():
+    """Live progress of the peer's current run, if its handler publishes one.
+    The remote handler tails Cortex stream-json events into
+    status/<peer>_run.json in the shared folder (single writer: that side)."""
+    br = get_bridge()
+    if br is None:
+        return {"present": False}
+    d = bridge.read_json(br.shared / "status" / f"{br.peer}_run.json")
+    if not isinstance(d, dict) or not d.get("state"):
+        return {"present": False}
+    age = None
+    try:
+        import calendar
+        age = max(0.0, time.time() - calendar.timegm(
+            time.strptime(d.get("updated", ""), "%Y-%m-%dT%H:%M:%SZ")))
+    except (ValueError, TypeError):
+        pass
+    d["present"] = True
+    d["age_s"] = age
+    return d
 
 
 def api_inbound():
@@ -269,8 +294,7 @@ def api_pick_folder():
             "print(filedialog.askdirectory() or '')")
     try:
         r = subprocess.run([sys.executable, "-c", code],
-                           capture_output=True, text=True, timeout=600,
-                           creationflags=NO_WINDOW)
+                           capture_output=True, text=True, timeout=600, **SUBPROC)
         path = r.stdout.strip()
         return {"path": path.replace("/", os.sep) if path else None}
     except Exception as e:
@@ -360,8 +384,7 @@ def api_pick_file():
             "print(filedialog.askopenfilename() or '')")
     try:
         r = subprocess.run([sys.executable, "-c", code],
-                           capture_output=True, text=True, timeout=600,
-                           creationflags=NO_WINDOW)
+                           capture_output=True, text=True, timeout=600, **SUBPROC)
         path = r.stdout.strip()
         if not path:
             return {"path": None}
@@ -462,8 +485,7 @@ def api_install_app(data):
         )
         try:
             r = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
-                               capture_output=True, text=True, timeout=60,
-                               creationflags=NO_WINDOW)
+                               capture_output=True, text=True, timeout=60, **SUBPROC)
             shortcuts_ok = r.returncode == 0
         except Exception:
             shortcuts_ok = False
@@ -483,10 +505,20 @@ def find_edge():
 
 # ---------------------------------------------------------------- http plumbing
 
+def api_shutdown():
+    """Let a newer launch replace a running instance (single-instance UX:
+    without this, a relaunch silently lands on a random port while the stale
+    window keeps answering on the standard one)."""
+    if HTTPD is not None:
+        threading.Thread(target=HTTPD.shutdown, daemon=True).start()
+    return {"ok": True, "bye": GUI_VERSION}
+
+
 GET_ROUTES = {
     "/api/state": lambda params: api_state(),
     "/api/log": api_log,
     "/api/inbound": lambda params: api_inbound(),
+    "/api/livefeed": lambda params: api_livefeed(),
     "/api/doctor": lambda params: api_doctor(),
     "/api/remote_guide": lambda params: api_remote_guide(),
 }
@@ -504,6 +536,7 @@ POST_ROUTES = {
     "/api/send_remote_kit": lambda data: api_send_remote_kit(),
     "/api/open": api_open,
     "/api/open_attachment": api_open_attachment,
+    "/api/shutdown": lambda data: api_shutdown(),
 }
 
 
@@ -569,12 +602,48 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
+HTTPD = None
+
+
+def request_shutdown(port, host="127.0.0.1"):
+    """If another AgentBridge GUI holds the port, ask it to exit. Returns True
+    if a shutdown was requested (the port should free up shortly)."""
+    import urllib.request
+    base = f"http://{host}:{port}"
+    try:
+        with urllib.request.urlopen(f"{base}/api/state", timeout=2) as r:
+            info = json.loads(r.read().decode("utf-8"))
+        if "gui_version" not in info:
+            return False  # some other program owns the port — leave it alone
+    except Exception:
+        return False
+    try:
+        req = urllib.request.Request(f"{base}/api/shutdown", data=b"{}",
+                                     headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=3)
+        return True
+    except Exception:
+        return False  # older version without the endpoint
+
+
 def serve(port, host="127.0.0.1"):
+    global HTTPD
+    httpd = None
     try:
         httpd = ThreadingHTTPServer((host, port), Handler)
     except OSError:
-        httpd = ThreadingHTTPServer((host, 0), Handler)  # port busy → ephemeral
+        if request_shutdown(port, host):
+            for _ in range(20):  # up to ~4s for the old instance to let go
+                time.sleep(0.2)
+                try:
+                    httpd = ThreadingHTTPServer((host, port), Handler)
+                    break
+                except OSError:
+                    continue
+    if httpd is None:
+        httpd = ThreadingHTTPServer((host, 0), Handler)  # last resort: ephemeral
     httpd.daemon_threads = True
+    HTTPD = httpd
     return httpd
 
 

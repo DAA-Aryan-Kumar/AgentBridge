@@ -18,7 +18,7 @@ window.App = App;  // console/debug access
 function freshWizard() {
   return { step: 0, mode: "install", dest: "", installed: null,
            shared: "", validated: null, role: "claude", peer: "coco",
-           initDone: false, skills: null, kitSent: false };
+           relation: "drive", initDone: false, skills: null, kitSent: false };
 }
 App.wizard = freshWizard();
 
@@ -327,20 +327,33 @@ function attButton(f) {
     </button>`;
 }
 
-function typingBubble(s, entries) {
-  // Activity, merged into the chat: after your message goes out, show what the
-  // remote side is up to. (The live task feed will plug in here later.)
-  const lastMsg = [...entries].reverse().find((e) => e.seq != null);
-  if (!lastMsg || !lastMsg.mine) return "";
-  const ageH = (Date.now() - new Date(lastMsg.ts)) / 3.6e6;
-  if (isNaN(ageH) || ageH > 4) return "";
-  const label = s.outbound_undelivered
-    ? "Delivering your message…" : `${dn(s.peer)} is working…`;
+function typingBubble(s, entries, feed) {
+  // Activity, merged into the chat: while the remote side works, its handler
+  // livestreams progress into the shared folder and it shows up right here.
+  let label = null, sub = null;
+  if (feed?.present && feed.state === "running") {
+    const stale = feed.age_s != null && feed.age_s > 180;
+    label = `${dn(s.peer)} is working…`;
+    if (stale) label += ` (no updates for ${Math.round(feed.age_s / 60)} min)`;
+    sub = feed.activity || "";
+    if (feed.turns) sub += `${sub ? "  ·  " : ""}step ${feed.turns}`;
+  } else {
+    // no feed published — fall back to the delivery heuristic
+    const lastMsg = [...entries].reverse().find((e) => e.seq != null);
+    if (!lastMsg || !lastMsg.mine) return "";
+    const ageH = (Date.now() - new Date(lastMsg.ts)) / 3.6e6;
+    if (isNaN(ageH) || ageH > 4) return "";
+    label = s.outbound_undelivered
+      ? "Delivering your message…" : `${dn(s.peer)} is working…`;
+  }
   return `
     <div class="msg">
       <div class="sender">${esc(dn(s.peer))}</div>
-      <div class="bubble typing"><span class="tdot"></span><span class="tdot"></span>
-        <span class="tdot"></span><span class="typing-label">${esc(label)}</span></div>
+      <div class="bubble typing">
+        <div class="typing-row"><span class="tdot"></span><span class="tdot"></span>
+          <span class="tdot"></span><span class="typing-label">${esc(label)}</span></div>
+        ${sub ? `<div class="typing-sub">${esc(sub)}</div>` : ""}
+      </div>
     </div>`;
 }
 
@@ -349,9 +362,11 @@ async function renderMessages(force) {
   if (!s.configured) { location.hash = "#/setup"; return; }
   const log = await api(`/api/log?tail=200`);
   const inbound = s.inbound_waiting ? await api("/api/inbound") : { waiting: false };
-  const typing = typingBubble(s, log.entries);
+  const feed = await api("/api/livefeed");
+  const typing = typingBubble(s, log.entries, feed);
   const key = JSON.stringify([log.entries.length, log.entries.at(-1)?.seq,
-    log.entries.at(-1)?.from, inbound.seq, s.outbound_undelivered, !!typing]);
+    log.entries.at(-1)?.from, inbound.seq, s.outbound_undelivered,
+    feed.state, feed.activity, feed.turns, !!typing]);
   if (!force && key === App.logKey && App.page === "messages") return;
   App.logKey = key;
 
@@ -703,12 +718,19 @@ async function renderWizardStep() {
     body.innerHTML = `<div class="card"><h2>Identity</h2>
       <p>Who is this machine, and who is on the other side? The defaults fit
       the standard analyst setup (your Claude ⇄ remote CoCo).</p>
-      <dl class="kv" style="max-width:380px">
+      <dl class="kv" style="max-width:480px">
         <dt>My role</dt><dd><input type="text" id="role-input" value="${esc(w.role)}"></dd>
         <dt>Remote role</dt><dd><input type="text" id="peer-input" value="${esc(w.peer)}"></dd>
+        <dt>How they work</dt><dd>
+          <select id="relation-input" style="max-width:100%">
+            <option value="drive" ${w.relation === "drive" ? "selected" : ""}>This side drives the remote agent</option>
+            <option value="sym" ${w.relation === "sym" ? "selected" : ""}>Symmetrical — both sides autonomous</option>
+            <option value="manual" ${w.relation === "manual" ? "selected" : ""}>Manual — humans relay on both sides</option>
+          </select></dd>
       </dl>
       <p class="hint">Custom names work too (e.g. analyst ⇄ sqlbot) — any pair,
-      as long as they differ.</p>
+      as long as they differ. "Drives" just means the other side answers
+      automatically (it runs a handler); the protocol itself is symmetrical.</p>
       ${wizardNav(true, true)}</div>`;
     bindWizardNav(async () => {
       const role = $("#role-input").value.trim();
@@ -718,6 +740,7 @@ async function renderWizardStep() {
         return false;
       }
       w.role = role; w.peer = peer;
+      w.relation = $("#relation-input").value;
       return true;
     });
   }
@@ -821,9 +844,11 @@ async function renderWizardStep() {
         <button onclick="openTarget('remote_md')">Open the full guide</button>
       </div>
 
-      <div class="guide-step"><h3><span class="n">5</span> Full automation (optional)</h3>
+      <div class="guide-step"><h3><span class="n">5</span> Full automation
+        ${w.relation === "manual" ? "(skip — you chose manual relay)" : "(optional)"}</h3>
         <p class="hint">A handler can run the remote agent automatically for every
-        message. Send the kit through the bridge, then run the command below on
+        message.${w.relation === "sym" ? " You chose a symmetrical bridge — repeat this on <b>both</b> machines so each side answers on its own." : ""}
+        Send the kit through the bridge, then run the command below on
         the remote machine. <b>Careful:</b> this init must always include the
         handler flags — running a plain init afterwards silently removes them.</p>
         <div class="row" style="margin-bottom:6px">

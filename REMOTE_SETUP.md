@@ -140,6 +140,14 @@ the bridge — it first asks CoCo to enumerate its tool names, then sends the ex
    ```
 4. Restart the watch daemon (it reads the config once at startup).
 
+Livestream (handler v7): while Cortex runs, the handler tails its stream-json
+events and publishes a small progress file to the shared folder
+(`status/<role>_run.json`, single writer: this side). The GUI on the other end
+renders it as a live "CoCo is working on X" bubble in the chat. Best-effort by
+design — feed failures never affect message handling. Updating the handler is
+one file copy (`files/handler_coco.py` → `C:\AgentBridge\`); it takes effect on
+the next message, no restart or re-init needed.
+
 Handler behaviour: runs `cortex -p` per inbound message with `--sql-read-only`,
 `--auto-accept-plans`, `--max-turns 40`, and `--allowed-tools` from the whitelist;
 keeps one continuous Cortex session across messages (`--resume`); captures the final

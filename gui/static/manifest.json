@@ -1,0 +1,13 @@
+{
+  "name": "AgentBridge",
+  "short_name": "AgentBridge",
+  "description": "Chat between your local Claude and a remote agent over a synced folder.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#D83B01",
+  "icons": [
+    { "src": "app-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "app-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
