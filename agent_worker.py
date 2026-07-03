@@ -35,6 +35,7 @@ its reply text and mesh.post() parses mentions the same way for every user.
 """
 
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -66,6 +67,17 @@ CMD_TEMPLATES = {
                '{blocklist} -p "{prompt}"'),
 }
 
+# Fallback when a CLI update rejects the flags above (usage error): only the
+# conveniences are dropped (-w: cwd covers it; -o: reply is recovered from the
+# stream; --auto-accept-plans). SAFETY flags — --sql-read-only and the
+# blocklist — are never dropped.
+CMD_TEMPLATES_MINIMAL = {
+    "cortex": ('cortex --sql-read-only --max-turns 60 '
+               '--output-format stream-json {blocklist} -p "{prompt}"'),
+    "claude": ('claude --output-format stream-json --verbose --max-turns 60 '
+               '{blocklist} -p "{prompt}"'),
+}
+
 PROMPT = (
     "You are {display} (@{agent}), an AI agent in the multi-user chat "
     "'{chat_name}' (members: {members}). New message(s) arrived that you "
@@ -87,6 +99,94 @@ def render_context(msgs, agent):
                  if m.get("files") else "")
         lines.append(f"[{m.get('ts')}] {who}: {m.get('body', '')}{files}")
     return "\n".join(lines)
+
+
+def summarize_event(obj):
+    """One human line per stream-json event, for the livestream feed."""
+    t = obj.get("type")
+    if t == "system" and obj.get("subtype") == "init":
+        return "Session started"
+    if t == "assistant":
+        for c in (obj.get("message") or {}).get("content") or []:
+            if c.get("type") == "tool_use":
+                name = c.get("name", "tool")
+                inp = c.get("input") or {}
+                detail = (inp.get("query") or inp.get("command")
+                          or inp.get("file_path") or inp.get("description") or "")
+                detail = " ".join(str(detail).split())[:90]
+                return f"Running {name}" + (f": {detail}" if detail else "")
+            if c.get("type") == "text":
+                txt = " ".join((c.get("text") or "").split())[:90]
+                if txt:
+                    return txt
+    if t == "result":
+        return "Writing the reply"
+    return None
+
+
+class FeedWriter:
+    """Publishes mesh/status/<agent>_run.json while the agent works, so the
+    GUI can show a live "working on X" + streaming-draft bubble in the chat.
+    Single writer: this agent's machine. Best-effort — every method swallows
+    its own errors; the feed must never break message handling."""
+
+    def __init__(self, mesh_root, agent, chat_id):
+        self.agent = agent
+        self.chat_id = chat_id
+        self.turns = 0
+        self.activity = "Starting up…"
+        self.draft = ""
+        self.recent = []
+        self.started = self._now()
+        self._last_write = 0.0
+        try:
+            self.path = Path(mesh_root) / "status" / f"{agent}_run.json"
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            self.path = None
+        self.write(state="running", force=True)
+
+    @staticmethod
+    def _now():
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    def event(self, obj):
+        try:
+            if obj.get("type") == "assistant":
+                self.turns += 1
+                for c in (obj.get("message") or {}).get("content") or []:
+                    if c.get("type") == "text" and c.get("text"):
+                        self.draft = (self.draft + c["text"].strip()
+                                      + "\n\n")[-4000:]
+            line = summarize_event(obj)
+            if line:
+                self.activity = line
+                self.recent = (self.recent + [line])[-8:]
+            self.write(state="running")
+        except Exception:
+            pass
+
+    def write(self, state, force=False):
+        if self.path is None:
+            return
+        if not force and time.time() - self._last_write < 1.5:
+            return  # throttle: OneDrive doesn't need a write per token
+        try:
+            doc = {"state": state, "agent": self.agent, "chat_id": self.chat_id,
+                   "started": self.started, "updated": self._now(),
+                   "turns": self.turns, "activity": self.activity,
+                   "draft": self.draft, "recent": self.recent}
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, self.path)
+            self._last_write = time.time()
+        except Exception:
+            pass
+
+    def finish(self, state, note=None):
+        if note:
+            self.activity = note
+        self.write(state=state, force=True)
 
 
 def msg_ns(m):
@@ -128,9 +228,10 @@ def reply_from_stream(stdout_text):
     return result
 
 
-def run_agent(cmd, timeout=3300, cwd=None):
+def run_agent(cmd, timeout=3300, cwd=None, feed=None):
     """Streamed run (stdout consumed line-wise; watchdog kill on timeout).
-    cwd should be the worker dir — CLI agents load project context from it."""
+    cwd should be the worker dir — CLI agents load project context from it.
+    Stream-json events are forwarded to the livestream feed as they arrive."""
     proc = subprocess.Popen(cmd, shell=True, stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             text=True, encoding="utf-8", errors="replace",
@@ -147,6 +248,13 @@ def run_agent(cmd, timeout=3300, cwd=None):
     try:
         for line in proc.stdout:
             out.append(line)
+            if feed is not None:
+                s = line.strip()
+                if s.startswith("{"):
+                    try:
+                        feed.event(json.loads(s))
+                    except json.JSONDecodeError:
+                        pass
         rc = proc.wait(timeout=60)
     finally:
         watchdog.cancel()
@@ -184,9 +292,10 @@ class Worker:
         self.state["replies"][chat_id] = recent
         return len(recent) < cap
 
-    def build_cmd(self, prompt, reply_file):
+    def build_cmd(self, prompt, reply_file, minimal=False):
         tmpl = self.cfg.get("agent_cmd", "cortex")
-        tmpl = CMD_TEMPLATES.get(tmpl, tmpl)
+        source = CMD_TEMPLATES_MINIMAL if minimal else CMD_TEMPLATES
+        tmpl = source.get(tmpl, tmpl)
         blocked = self.cfg.get("disallowed_tools") or []
         blocklist = " ".join(f'--disallowed-tools "{t}"' for t in blocked)
         return tmpl.format(prompt=prompt.replace('"', "'"),
@@ -231,16 +340,34 @@ class Worker:
             say(f"[dry-run] {chat_id} rule={rule} would run: {cmd[:160]}…")
             return False
         say(f"[worker] {chat_id}: rule={rule} → running agent")
-        rc, out, err = run_agent(cmd, int(self.cfg.get("timeout", 3300)),
-                                 cwd=self.workdir)
+        feed = FeedWriter(self.mesh.root, self.agent, chat_id)
+        timeout = int(self.cfg.get("timeout", 3300))
+        if self.state.get("minimal_flags"):
+            cmd = self.build_cmd(prompt, reply_file, minimal=True)
+        rc, out, err = run_agent(cmd, timeout, cwd=self.workdir, feed=feed)
+        usage_err = rc not in (0, None) and "Usage:" in (err or "")
+        if usage_err and not self.state.get("minimal_flags"):
+            # a CLI update rejected our flags — retry once with the minimal
+            # set (safety flags kept) and remember what worked
+            say(f"[worker] {chat_id}: flags rejected — retrying minimal")
+            feed.activity = "CLI rejected flags — retrying with minimal set"
+            feed.write(state="running", force=True)
+            cmd = self.build_cmd(prompt, reply_file, minimal=True)
+            rc, out, err = run_agent(cmd, timeout, cwd=self.workdir, feed=feed)
+            if rc == 0:
+                self.state["minimal_flags"] = True
         reply = None
         if reply_file.is_file():
             reply = reply_file.read_text(encoding="utf-8-sig").strip()
         if not reply:
             reply = reply_from_stream(out)
         if rc != 0 or not reply:
-            reply = (f"(worker) I could not produce a reply "
-                     f"(rc={rc}): {str(err)[:400]}")
+            reply = (f"(worker) I could not produce a reply (rc={rc}).\n\n"
+                     f"Command: `{cmd[:300]}`\n\n"
+                     f"Error output:\n```\n{str(err)[:1500]}\n```")
+            feed.finish("error", "Run failed — error report posted")
+        else:
+            feed.finish("done", "Reply posted")
         outfiles = [p for p in self.outbox.iterdir() if p.is_file()] \
             if self.outbox.is_dir() else []
         self.mesh.post(chat_id, self.agent, reply,

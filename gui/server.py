@@ -688,6 +688,34 @@ def api_mesh_agent(data):
     return {"ok": True, "agent": _public_user(rec)}
 
 
+def api_mesh_livefeed(params):
+    """Running livestream feeds (mesh/status/<agent>_run.json) for a chat —
+    what each agent is doing right now, plus its forming reply draft."""
+    m = get_mesh()
+    if m is None or not m.exists():
+        return {"feeds": []}
+    chat_id = params.get("id", "")
+    feeds = []
+    status_dir = m.root / "status"
+    if status_dir.is_dir():
+        import calendar
+        for p in status_dir.glob("*_run.json"):
+            d = bridge.read_json(p)
+            if not isinstance(d, dict) or d.get("state") != "running":
+                continue
+            if chat_id and d.get("chat_id") != chat_id:
+                continue
+            try:
+                d["age_s"] = max(0.0, time.time() - calendar.timegm(
+                    time.strptime(d.get("updated", ""), "%Y-%m-%dT%H:%M:%SZ")))
+            except (ValueError, TypeError):
+                d["age_s"] = None
+            if d["age_s"] is not None and d["age_s"] > 7200:
+                continue  # a run that died without a finish write
+            feeds.append(d)
+    return {"feeds": feeds}
+
+
 def api_mesh_open_file(data):
     m = get_mesh()
     user = session_user(m)
@@ -728,6 +756,7 @@ GET_ROUTES = {
     "/api/remote_guide": lambda params: api_remote_guide(),
     "/api/mesh/state": lambda params: api_mesh_state(),
     "/api/mesh/chat": api_mesh_chat,
+    "/api/mesh/livefeed": api_mesh_livefeed,
 }
 
 POST_ROUTES = {

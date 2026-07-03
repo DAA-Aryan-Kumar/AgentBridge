@@ -711,8 +711,10 @@ async function renderMeshChat(force) {
   const chatId = Mesh.chatId;
   const data = await api(`/api/mesh/chat?id=${encodeURIComponent(chatId)}`);
   if (data.error) { toast(data.error, true); location.hash = "#/chats"; return; }
+  const feeds = (await api(`/api/mesh/livefeed?id=${encodeURIComponent(chatId)}`)).feeds || [];
   const key = JSON.stringify([data.messages.length, data.messages.at(-1)?.id,
-    data.meta.archived, (data.meta.members || []).length]);
+    data.meta.archived, (data.meta.members || []).length,
+    feeds.map((f) => [f.agent, f.turns, f.activity, (f.draft || "").length])]);
   if (!force && key === Mesh.chatKey && App.page === "chats") return;
   const hadNew = key !== Mesh.chatKey;
   Mesh.chatKey = key;
@@ -748,6 +750,26 @@ async function renderMeshChat(force) {
         <div class="meta">${esc(timeOnly(msg.ts))}</div>
       </div>`);
   }
+  // agents working right now: typing indicator + the reply forming live
+  for (const f of feeds) {
+    const draft = (f.draft || "").trim();
+    const stale = f.age_s != null && f.age_s > 180;
+    let label = `${meshDn(f.agent)} is ${draft ? "writing" : "working"}…`;
+    if (stale) label += ` (no updates for ${Math.round(f.age_s / 60)} min)`;
+    let sub = f.activity || "";
+    if (f.turns) sub += `${sub ? "  ·  " : ""}step ${f.turns}`;
+    parts.push(`
+      <div class="msg">
+        <div class="sender">${esc(meshDn(f.agent))}</div>
+        <div class="bubble typing">
+          <div class="typing-row"><span class="tdot"></span><span class="tdot"></span>
+            <span class="tdot"></span><span class="typing-label">${esc(label)}</span></div>
+          ${draft ? `<div class="typing-draft">${md(draft)}<span class="caret">▍</span></div>` : ""}
+          ${sub ? `<div class="typing-sub">${esc(sub)}</div>` : ""}
+        </div>
+      </div>`);
+  }
+
   const bubbles = parts.join("") ||
     `<div class="empty">No messages yet — say hello.</div>`;
 
