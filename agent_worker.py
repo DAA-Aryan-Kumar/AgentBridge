@@ -80,15 +80,28 @@ CMD_TEMPLATES_MINIMAL = {
 
 PROMPT = (
     "You are {display} (@{agent}), an AI agent in the multi-user chat "
-    "'{chat_name}' (members: {members}). New message(s) arrived that you "
-    "must answer; the conversation so far is in the file {context_file} - "
+    "'{chat_name}'. Roster and reply behaviour: {roster}. New message(s) "
+    "arrived; the conversation so far is in the file {context_file} - "
     "read it first. Rules: your final message is posted to the chat as-is, "
     "so it must contain ONLY the chat message — no narration about what you "
     "are doing or preamble; to address or notify someone, "
     "tag them like @username (humans and agents alike); to share files, "
     "save them into {outbox} and mention them by name; never edit anything "
     "in the shared mesh folder by hand. If a request is unclear, say so in "
-    "the chat rather than guessing.")
+    "the chat rather than guessing. Tagging etiquette: tagging an agent that "
+    "replies-only-when-tagged FORCES it to run — only tag such agents when "
+    "you genuinely need something from them, and ask a direct question when "
+    "you do; never tag them as a courtesy or FYI. Reply etiquette: a reply "
+    "is OPTIONAL — if the new messages need no substantive response from "
+    "you (courtesy mentions, thanks, acknowledgments, FYIs), output exactly "
+    "NO_REPLY and nothing else, and no message will be posted. Do not keep "
+    "acknowledgment chains going.")
+
+RULE_DESC = {
+    "all": "an agent that replies to every message",
+    "tagged": "an agent that replies only when tagged",
+    "humans": "an agent that replies only to humans",
+}
 
 
 def render_context(msgs, agent):
@@ -328,9 +341,21 @@ class Worker:
         context_file.write_text(render_context(msgs, self.agent),
                                 encoding="utf-8")
         me = users.get(self.agent) or {}
+        roster = []
+        for member in meta.get("members", []):
+            u = users.get(member)
+            if not u:
+                continue
+            if member == self.agent:
+                roster.append(f"@{member} (you)")
+            elif u["kind"] == "human":
+                roster.append(f"@{member} (human)")
+            else:
+                rule = self.mesh.reply_rule(member, chat_id)
+                roster.append(f"@{member} ({RULE_DESC.get(rule, rule)})")
         prompt = PROMPT.format(
             display=me.get("display", self.agent), agent=self.agent,
-            chat_name=meta.get("name"), members=", ".join(meta.get("members", [])),
+            chat_name=meta.get("name"), roster="; ".join(roster),
             context_file=context_file, outbox=self.outbox)
         reply_file = self.workdir / "reply.md"
         reply_file.unlink(missing_ok=True)
@@ -361,6 +386,13 @@ class Worker:
             reply = reply_file.read_text(encoding="utf-8-sig").strip()
         if not reply:
             reply = reply_from_stream(out)
+        if rc == 0 and reply and reply.strip().strip("`'\"") == "NO_REPLY":
+            # the agent judged no substantive response is needed — stay quiet
+            feed.finish("done", "No reply needed")
+            self.mesh.mark_read(chat_id, self.agent)
+            self.save_state()
+            say(f"[worker] {chat_id}: agent chose NO_REPLY — staying quiet")
+            return False
         if rc != 0 or not reply:
             reply = (f"(worker) I could not produce a reply (rc={rc}).\n\n"
                      f"Command: `{cmd[:300]}`\n\n"
@@ -386,7 +418,15 @@ class Worker:
               f"{len(outfiles)} file(s))")
         return True
 
+    def paused(self):
+        """Human stand-down switch (mesh/control.json) — every worker checks
+        it each cycle, any human can flip it from the chat details page."""
+        d = read_json(self.mesh.root / "control.json")
+        return bool(d and d.get("paused"))
+
     def cycle(self, dry_run=False):
+        if self.paused():
+            return False  # standing down; cursors hold, one batch-reply on resume
         users = self.mesh.users()
         acted = False
         for meta in self.mesh.chats_for(self.agent):

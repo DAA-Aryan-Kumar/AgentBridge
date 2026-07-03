@@ -105,14 +105,19 @@ function toast(msg, isError) {
    tables, and plain-ASCII tables ruled with dashes. Render the common cases;
    everything is HTML-escaped before any tags are introduced. */
 
+// usernames worth highlighting as mentions (set per chat render: the chat's
+// members plus humans, who are implicitly in every chat); null = highlight all
+let MD_TAGGABLE = null;
+
 function mdInline(t) {
   t = t.replace(/`([^`]+)`/g, "<code>$1</code>");
   t = t.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
   t = t.replace(/(^|[\s(])\*([^*\s][^*]*?)\*(?=[\s).,;:!?]|$)/g, "$1<i>$2</i>");
   t = t.replace(/(https?:\/\/[^\s<]+[^\s<.,)])/g,
     '<a href="$1" target="_blank" rel="noopener">$1</a>');
-  t = t.replace(/(^|[\s(&gt;])@([a-z][a-z0-9_]{1,31})/g,
-    '$1<span class="mention">@$2</span>');
+  t = t.replace(/(^|[\s(&gt;])@([a-z][a-z0-9_]{1,31})/g, (m, pre, u) =>
+    (!MD_TAGGABLE || MD_TAGGABLE.has(u))
+      ? `${pre}<span class="mention">@${u}</span>` : `${pre}@${u}`);
   return t;
 }
 
@@ -206,7 +211,7 @@ function channelStateText(s) {
 function renderChrome() {
   const s = App.state;
   if (!s) return;
-  $("#paused-badge").hidden = !s.paused;
+  $("#paused-badge").hidden = !(s.paused || Mesh?.state?.paused);
 }
 
 // theme (basic dark mode; persisted, defaults to the OS preference)
@@ -718,11 +723,13 @@ async function renderMeshChat(force) {
   if (!force && key === Mesh.chatKey && App.page === "chats") return;
   const hadNew = key !== Mesh.chatKey;
   Mesh.chatKey = key;
+  const meta = data.meta;
 
-  const oldTr = $("#transcript");
-  const nearBottom = !oldTr ||
-    (oldTr.scrollHeight - oldTr.scrollTop - oldTr.clientHeight < 120);
-  const prevScrollTop = oldTr ? oldTr.scrollTop : null;
+  // mentions highlight only people actually in this chat (plus humans,
+  // who are implicitly in every chat)
+  const humanNames = Object.values(ms.users)
+    .filter((u) => u.kind === "human").map((u) => u.username);
+  MD_TAGGABLE = new Set([...(meta.members || []), ...humanNames]);
 
   const parts = [];
   let prevFrom = null, prevDay = null;
@@ -773,8 +780,22 @@ async function renderMeshChat(force) {
   const bubbles = parts.join("") ||
     `<div class="empty">No messages yet — say hello.</div>`;
 
-  const meta = data.meta;
-  const isOwner = meta.owner === ms.user;
+  // partial path: same chat, composer already alive — refresh only the
+  // transcript so the text box (draft, caret, focus) is never disturbed
+  const structKey = chatId + "|" + !!meta.archived;
+  if (Mesh.structKey === structKey && $("#transcript")) {
+    const tr = $("#transcript");
+    const nearBottom = tr.scrollHeight - tr.scrollTop - tr.clientHeight < 120;
+    const prevTop = tr.scrollTop;
+    tr.innerHTML = bubbles;
+    bindMeshAttachments(chatId);
+    if (nearBottom) tr.scrollTop = tr.scrollHeight;
+    else tr.scrollTop = prevTop;
+    if (hadNew) api("/api/mesh/read", { chat_id: chatId });
+    return;
+  }
+  Mesh.structKey = structKey;
+
   const memberChips = (meta.members || []).map((u) =>
     `<span class="member-chip">${esc(meshDn(u))}</span>`).join(" ");
   const draft = meshDraft(chatId);
@@ -790,16 +811,17 @@ async function renderMeshChat(force) {
       <button id="chat-details-btn" title="Chat details">Details</button>
     </div>
     <div id="transcript">${bubbles}</div>
-    <div id="pending-area">${draft.att ? `
-      <span class="pending-att">${extIcon(draft.att.name)} ${esc(draft.att.name)}
-        · ${fmtSize(draft.att.bytes)} <button id="remove-matt" title="Remove">✕</button></span>` : ""}</div>
+    <div id="pending-area"></div>
     ${meta.archived ? "" : `
     <div id="composer">
-      <button id="mesh-attach-btn" title="Attach a file">📎</button>
+      <button id="mesh-attach-btn" title="Attach a file">
+        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05 12.25 20.2a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg>
+      </button>
       <textarea id="mesh-body"></textarea>
       <button class="primary send-icon" id="mesh-send-btn" title="Send (Ctrl+Enter)">
         <svg viewBox="0 0 24 24" width="20" height="20"><path d="M3.4 20.4 20.85 12 3.4 3.6 3.4 10.2 15 12 3.4 13.8z" fill="currentColor"/></svg>
       </button>
+      <div id="tag-pop" hidden></div>
     </div>`}`;
 
   $("#content").classList.add("chat-mode");
@@ -811,6 +833,55 @@ async function renderMeshChat(force) {
   if (body) {
     body.value = draft.body;
     body.addEventListener("input", (e) => { draft.body = e.target.value; });
+
+    // @tag autofill: chat members + humans, keyboard + mouse
+    const taggable = [...MD_TAGGABLE].filter((u) => u !== ms.user)
+      .map((u) => ({ u, d: meshDn(u) }));
+    const pop = $("#tag-pop");
+    let tagCtx = null;
+    const closePop = () => { tagCtx = null; pop.hidden = true; };
+    const pickTag = (i) => {
+      const t = tagCtx && tagCtx.items[i];
+      if (!t) return;
+      const pos = body.selectionStart;
+      body.value = body.value.slice(0, tagCtx.start) + t.u + " " + body.value.slice(pos);
+      const caret = tagCtx.start + t.u.length + 1;
+      body.setSelectionRange(caret, caret);
+      draft.body = body.value;
+      closePop();
+      body.focus();
+    };
+    const renderPop = () => {
+      if (!tagCtx || !tagCtx.items.length) { closePop(); return; }
+      pop.innerHTML = tagCtx.items.map((t, i) => `
+        <div class="tag-opt ${i === tagCtx.idx ? "sel" : ""}" data-i="${i}">
+          <span class="tag-av">${esc((t.d[0] || "?").toUpperCase())}</span>
+          <span>${esc(t.d)}</span><span class="hint">@${esc(t.u)}</span>
+        </div>`).join("");
+      pop.hidden = false;
+      pop.querySelectorAll(".tag-opt").forEach((el) => {
+        el.addEventListener("mousedown", (e) => { e.preventDefault(); pickTag(+el.dataset.i); });
+      });
+    };
+    body.addEventListener("input", () => {
+      const pos = body.selectionStart;
+      const m2 = body.value.slice(0, pos).match(/(^|[\s(])@([a-z0-9_]*)$/i);
+      if (!m2) { closePop(); return; }
+      const prefix = m2[2].toLowerCase();
+      const items = taggable.filter((t) => t.u.startsWith(prefix)
+        || t.d.toLowerCase().startsWith(prefix)).slice(0, 6);
+      tagCtx = { start: pos - prefix.length, items, idx: 0 };
+      renderPop();
+    });
+    body.addEventListener("keydown", (e) => {
+      if (!tagCtx) return;
+      if (e.key === "ArrowDown") { e.preventDefault(); tagCtx.idx = (tagCtx.idx + 1) % tagCtx.items.length; renderPop(); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); tagCtx.idx = (tagCtx.idx - 1 + tagCtx.items.length) % tagCtx.items.length; renderPop(); }
+      else if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickTag(tagCtx.idx); }
+      else if (e.key === "Escape") { closePop(); }
+    });
+    body.addEventListener("blur", () => setTimeout(closePop, 150));
+
     const doSend = async () => {
       if (!body.value.trim() && !draft.att) return;
       $("#mesh-send-btn").disabled = true;
@@ -821,29 +892,49 @@ async function renderMeshChat(force) {
       $("#mesh-send-btn").disabled = false;
       if (r.error) { toast(r.error, true); return; }
       Mesh.drafts[chatId] = { body: "", att: null };
+      body.value = "";
+      renderMeshPending(chatId);
       renderMeshChat(true);
     };
     $("#mesh-send-btn").addEventListener("click", doSend);
-    body.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.ctrlKey) doSend(); });
+    body.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && e.ctrlKey && !tagCtx) doSend();
+    });
     $("#mesh-attach-btn").addEventListener("click", async () => {
       const r = await api("/api/mesh/pick_attach", {});
       if (r.error) toast(r.error, true);
-      else if (r.path) { draft.att = r; renderMeshChat(true); }
+      else if (r.path) { draft.att = r; renderMeshPending(chatId); }
     });
   }
-  const rmAtt = $("#remove-matt");
-  if (rmAtt) rmAtt.addEventListener("click", () => { draft.att = null; renderMeshChat(true); });
+  renderMeshPending(chatId);
+  bindMeshAttachments(chatId);
+
+  const tr = $("#transcript");
+  tr.scrollTop = tr.scrollHeight;
+  if (hadNew) api("/api/mesh/read", { chat_id: chatId });
+}
+
+function renderMeshPending(chatId) {
+  const area = $("#pending-area");
+  if (!area) return;
+  const draft = meshDraft(chatId);
+  area.innerHTML = draft.att ? `
+    <span class="pending-att">${extIcon(draft.att.name)} ${esc(draft.att.name)}
+      · ${fmtSize(draft.att.bytes)} <button id="remove-matt" title="Remove">✕</button></span>` : "";
+  const rm = $("#remove-matt");
+  if (rm) rm.addEventListener("click", () => {
+    draft.att = null;
+    renderMeshPending(chatId);
+  });
+}
+
+function bindMeshAttachments(chatId) {
   document.querySelectorAll(".mesh-att").forEach((b) => {
     b.addEventListener("click", async () => {
       const r = await api("/api/mesh/open_file", { chat_id: chatId, path: b.dataset.path });
       if (r.error) toast(r.error, true);
     });
   });
-
-  const tr = $("#transcript");
-  if (nearBottom) tr.scrollTop = tr.scrollHeight;
-  else if (prevScrollTop != null) tr.scrollTop = prevScrollTop;
-  if (hadNew) api("/api/mesh/read", { chat_id: chatId });
 }
 
 // ---------------------------------------------------------------- chat details
@@ -869,6 +960,12 @@ async function renderChatDetails() {
   const myAgentsHere = Object.values(ms.users).filter((u) =>
     u.kind === "agent" && (u.owners || []).includes(ms.user)
     && (meta.members || []).includes(u.username));
+  // only re-render when something actually changed — a poll redraw would
+  // knock dropdowns and toggles out from under the user
+  const dKey = JSON.stringify([meta, media.length, ms.paused,
+    myAgentsHere.map((a) => a.settings)]);
+  if (dKey === Mesh.detailsKey && App.page === "chats") return;
+  Mesh.detailsKey = dKey;
   const ruleSel = (a) => {
     const current = ((a.settings || {}).rules || {})[chatId] || "";
     const defRule = (a.settings || {}).default_rule || "tagged";
@@ -910,6 +1007,19 @@ async function renderChatDetails() {
       <p class="hint" style="margin-bottom:0">Rule changes apply from the agent's next check.</p>
     </div>` : ""}
     <div class="card" style="max-width:640px">
+      <h2>Emergency stand-down</h2>
+      <div class="row">
+        <label class="switch">
+          <input type="checkbox" id="cd-pause" ${ms.paused ? "checked" : ""}>
+          <span class="slider"></span>
+        </label>
+        <span><b>Stand down all agents</b> — every agent in every chat holds
+        until resumed</span>
+      </div>
+      <p class="hint" style="margin-bottom:0">Any human can flip this. Pending
+      requests get one consolidated reply per chat after resuming.</p>
+    </div>
+    <div class="card" style="max-width:640px">
       <h2>Media and files</h2>
       ${media.length ? media.map((f) => `
         <button class="att-btn cd-file" data-path="${esc(f.path)}" title="Open ${esc(f.name)}"
@@ -937,6 +1047,13 @@ async function renderChatDetails() {
     if (r.error) { toast(r.error, true); return; }
     toast(r.archived ? "Chat archived" : "Chat restored");
     renderChatDetails();
+  });
+  $("#cd-pause").addEventListener("change", async (e) => {
+    const r = await api("/api/mesh/pause", { paused: e.target.checked });
+    if (r.error) { toast(r.error, true); return; }
+    Mesh.state.paused = r.paused;
+    renderChrome();
+    toast(r.paused ? "All agents standing down" : "Agents resumed");
   });
   document.querySelectorAll(".cd-rule").forEach((sel) => {
     sel.addEventListener("change", async () => {
@@ -1576,6 +1693,8 @@ function route() {
       Mesh.detailsView = details;
       Mesh.chatKey = "";
       Mesh.listKey = "";
+      Mesh.detailsKey = "";
+      Mesh.structKey = "";
     }
   }
   $("#content").classList.toggle("chat-mode",

@@ -554,7 +554,9 @@ def api_mesh_state():
     if not m.exists():
         return {"available": False, "reason": "mesh not initialized"}
     user = session_user(m)
+    ctl = bridge.read_json(m.root / "control.json") or {}
     out = {"available": True, "user": user,
+           "paused": bool(ctl.get("paused")),
            "users": {k: _public_user(v) for k, v in m.users().items()}}
     if user:
         chats = []
@@ -688,6 +690,21 @@ def api_mesh_agent(data):
     return {"ok": True, "agent": _public_user(rec)}
 
 
+def api_mesh_pause(data):
+    """Stand-down switch for ALL agents: any signed-in human can flip it.
+    Workers check mesh/control.json every cycle and hold their triggers."""
+    m = get_mesh()
+    user = session_user(m)
+    if not user:
+        return {"error": "Sign in first"}
+    ctl = bridge.read_json(m.root / "control.json") or {}
+    ctl["paused"] = bool(data.get("paused"))
+    ctl["by"] = user
+    ctl["ts"] = bridge.utcnow()
+    bridge.atomic_write_json(m.root / "control.json", ctl)
+    return {"ok": True, "paused": ctl["paused"]}
+
+
 def api_mesh_livefeed(params):
     """Running livestream feeds (mesh/status/<agent>_run.json) for a chat —
     what each agent is doing right now, plus its forming reply draft."""
@@ -785,6 +802,7 @@ POST_ROUTES = {
     "/api/mesh/agent": api_mesh_agent,
     "/api/mesh/open_file": api_mesh_open_file,
     "/api/mesh/pick_attach": api_mesh_pick_attach,
+    "/api/mesh/pause": api_mesh_pause,
 }
 
 
