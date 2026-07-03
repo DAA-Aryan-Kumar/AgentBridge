@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+
+# Runtime artifacts (produced during bridge operation, not source)
+bridge.prev.py
+handler_error.md
+outbox/*
+!outbox/.gitkeep
+
+# Distribution zips are rebuilt from the skill folders
+skills/*.zip

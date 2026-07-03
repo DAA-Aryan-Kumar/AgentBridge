@@ -1,0 +1,13 @@
+[
+  "Read",
+  "Write",
+  "Edit",
+  "Glob",
+  "Grep",
+  "Tgrep",
+  "ToolSearch",
+  "TodoWrite",
+  "SnowflakeSqlExecute",
+  "SnowflakeObjectSearch",
+  "SnowflakeProductDocs"
+]
