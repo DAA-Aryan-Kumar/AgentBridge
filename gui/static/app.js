@@ -796,28 +796,26 @@ async function renderMeshChat(force) {
   }
   Mesh.structKey = structKey;
 
-  const memberChips = (meta.members || []).map((u) =>
-    `<span class="member-chip">${esc(meshDn(u))}</span>`).join(" ");
   const draft = meshDraft(chatId);
 
   $("#content").innerHTML = `
     <div class="chat-head">
-      <div id="chat-info-btn" style="min-width:0;cursor:pointer" title="Chat details">
+      <div id="chat-info-btn" class="chat-title-btn" title="Open chat info">
         <div class="chat-head-name">${esc(meta.name)}
           ${meta.archived ? '<span class="kind-tag">archived</span>' : ""}</div>
-        <div class="chat-head-members">${memberChips}</div>
       </div>
       <span class="spacer"></span>
-      <button id="chat-details-btn" title="Chat details">Details</button>
     </div>
     <div id="transcript">${bubbles}</div>
     <div id="pending-area"></div>
     ${meta.archived ? "" : `
     <div id="composer">
-      <button id="mesh-attach-btn" title="Attach a file">
-        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05 12.25 20.2a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg>
-      </button>
-      <textarea id="mesh-body"></textarea>
+      <div id="composer-pill">
+        <textarea id="mesh-body" rows="1"></textarea>
+        <button id="mesh-attach-btn" title="Attach a file">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05 12.25 20.2a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg>
+        </button>
+      </div>
       <button class="primary send-icon" id="mesh-send-btn" title="Send (Ctrl+Enter)">
         <svg viewBox="0 0 24 24" width="20" height="20"><path d="M3.4 20.4 20.85 12 3.4 3.6 3.4 10.2 15 12 3.4 13.8z" fill="currentColor"/></svg>
       </button>
@@ -825,14 +823,19 @@ async function renderMeshChat(force) {
     </div>`}`;
 
   $("#content").classList.add("chat-mode");
-  const openDetails = () => { location.hash = `#/chats/${chatId}/details`; };
-  $("#chat-info-btn").addEventListener("click", openDetails);
-  $("#chat-details-btn").addEventListener("click", openDetails);
+  $("#chat-info-btn").addEventListener("click", () => {
+    location.hash = `#/chats/${chatId}/details`;
+  });
 
   const body = $("#mesh-body");
   if (body) {
     body.value = draft.body;
-    body.addEventListener("input", (e) => { draft.body = e.target.value; });
+    const autosize = () => {
+      body.style.height = "auto";
+      body.style.height = Math.min(body.scrollHeight, 160) + "px";
+    };
+    autosize();
+    body.addEventListener("input", (e) => { draft.body = e.target.value; autosize(); });
 
     // @tag autofill: chat members + humans, keyboard + mouse
     const taggable = [...MD_TAGGABLE].filter((u) => u !== ms.user)
@@ -893,6 +896,7 @@ async function renderMeshChat(force) {
       if (r.error) { toast(r.error, true); return; }
       Mesh.drafts[chatId] = { body: "", att: null };
       body.value = "";
+      autosize();
       renderMeshPending(chatId);
       renderMeshChat(true);
     };
@@ -979,24 +983,24 @@ async function renderChatDetails() {
   $("#content").innerHTML = `
     <div class="chat-head">
       <button id="cd-back" title="Back to chat">←</button>
-      <div class="chat-head-name">${esc(meta.name)} — details</div>
-    </div>
-    <div class="card" style="max-width:640px">
-      <h2>About</h2>
-      <dl class="kv">
-        <dt>Created by</dt><dd>${esc(meshDn(meta.created_by))}</dd>
-        <dt>Owner</dt><dd>${esc(meshDn(meta.owner))}</dd>
-        <dt>Created</dt><dd>${esc(fmtTime(meta.created))}</dd>
-        <dt>State</dt><dd>${meta.archived ? "Archived" : "Active"}</dd>
-      </dl>
-      ${isOwner ? `<div class="row" style="margin-top:10px">
-        <button id="cd-archive">${meta.archived ? "Unarchive chat" : "Archive chat"}</button>
-      </div>` : ""}
+      <div class="chat-head-name">${esc(meta.name)}</div>
     </div>
     <div class="card" style="max-width:640px">
       <h2>Members</h2>
       ${(meta.members || []).map((u) => `<span class="member-chip">${esc(meshDn(u))}
         ${ms.users[u]?.kind === "agent" ? '<span class="kind-tag">agent</span>' : ""}</span>`).join(" ")}
+    </div>
+    <div class="card" style="max-width:640px">
+      <h2>Media and files</h2>
+      ${media.length ? media.map((f) => `
+        <button class="att-btn cd-file" data-path="${esc(f.path)}" title="Open ${esc(f.name)}"
+                style="max-width:100%;margin-top:6px">
+          <span class="att-icon">${extIcon(f.name)}</span>
+          <span style="min-width:0">
+            <div class="att-name">${esc(f.name)}</div>
+            <div class="att-size">${fmtSize(f.bytes)} · ${esc(meshDn(f.from))} · ${esc(fmtTime(f.ts))}</div>
+          </span>
+        </button>`).join("") : `<div class="empty">Nothing shared yet.</div>`}
     </div>
     ${myAgentsHere.length ? `
     <div class="card" style="max-width:640px">
@@ -1020,24 +1024,24 @@ async function renderChatDetails() {
       requests get one consolidated reply per chat after resuming.</p>
     </div>
     <div class="card" style="max-width:640px">
-      <h2>Media and files</h2>
-      ${media.length ? media.map((f) => `
-        <button class="att-btn cd-file" data-path="${esc(f.path)}" title="Open ${esc(f.name)}"
-                style="max-width:100%;margin-top:6px">
-          <span class="att-icon">${extIcon(f.name)}</span>
-          <span style="min-width:0">
-            <div class="att-name">${esc(f.name)}</div>
-            <div class="att-size">${fmtSize(f.bytes)} · ${esc(meshDn(f.from))} · ${esc(fmtTime(f.ts))}</div>
-          </span>
-        </button>`).join("") : `<div class="empty">Nothing shared yet.</div>`}
-    </div>
-    <div class="card" style="max-width:640px">
       <h2>Connection</h2>
       <dl class="kv">
         <dt>Folder synced</dt><dd>${s.shared_ok ? "✓ Yes" : "✗ No — check OneDrive"}</dd>
         <dt>OneDrive</dt><dd>${s.onedrive_running === null ? "Unknown" : s.onedrive_running ? "✓ Running" : "✗ Not running"}</dd>
         <dt>Versions</dt><dd>App v${esc(s.gui_version)} · Bridge v${esc(s.bridge_version)}</dd>
       </dl>
+    </div>
+    <div class="card" style="max-width:640px">
+      <h2>About</h2>
+      <dl class="kv">
+        <dt>Created by</dt><dd>${esc(meshDn(meta.created_by))}</dd>
+        <dt>Owner</dt><dd>${esc(meshDn(meta.owner))}</dd>
+        <dt>Created</dt><dd>${esc(fmtTime(meta.created))}</dd>
+        <dt>State</dt><dd>${meta.archived ? "Archived" : "Active"}</dd>
+      </dl>
+      ${isOwner ? `<div class="row" style="margin-top:10px">
+        <button id="cd-archive">${meta.archived ? "Unarchive chat" : "Archive chat"}</button>
+      </div>` : ""}
     </div>`;
 
   $("#cd-back").addEventListener("click", () => { location.hash = `#/chats/${chatId}`; });
@@ -1719,6 +1723,23 @@ window.addEventListener("hashchange", route);
 (async function start() {
   initTheme();
   $("#side-new").addEventListener("click", () => { location.hash = "#/new"; });
+  // resizable sidebar, width persisted
+  const savedW = parseInt(localStorage.getItem("sidebarW"), 10);
+  if (savedW) $("#navrail").style.width = savedW + "px";
+  $("#side-resizer").addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    const move = (ev) => {
+      const w = Math.min(480, Math.max(220, ev.clientX));
+      $("#navrail").style.width = w + "px";
+      localStorage.setItem("sidebarW", w);
+    };
+    const up = () => {
+      document.removeEventListener("mousemove", move);
+      document.removeEventListener("mouseup", up);
+    };
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", up);
+  });
   App.state = await api("/api/state");
   if (!location.hash) {
     location.hash = App.state.configured ? "#/chats" : "#/setup";
