@@ -113,6 +113,9 @@ def render_context(msgs, agent, staged=None):
     attachments must be referenced by their staged copies."""
     lines = []
     for m in msgs[-30:]:
+        if m.get("kind") == "info":   # membership notes read as events
+            lines.append(f"[{m.get('ts')}] · {m.get('body', '')}")
+            continue
         who = f"@{m.get('from')}" + (" (you)" if m.get("from") == agent else "")
         names = []
         for f in (m.get("files") or []):
@@ -376,8 +379,17 @@ class Worker:
             return False
         # always advance the cursor — rule says whether we ANSWER, not re-scan
         self.state["cursors"][chat_id] = msg_ns(new[-1])
+        # if this agent was ADDED later (vs founding member), only messages
+        # after the latest (re-)add may trigger it — being re-added must not
+        # replay mentions from while it was out (seen live 2026-07-05).
+        # Membership events themselves (kind=info) never trigger anyone.
+        joined_ns = max([msg_ns(m) for m in msgs
+                         if m.get("kind") == "info"
+                         and m.get("event") == "add_member"
+                         and m.get("target") == self.agent] or [0])
         rule = self.mesh.reply_rule(self.agent, chat_id)
-        trigger = any(should_reply(rule, m, self.agent, users) for m in new)
+        trigger = any(should_reply(rule, m, self.agent, users) for m in new
+                      if m.get("kind") != "info" and msg_ns(m) > joined_ns)
         if not trigger or msgs[-1].get("from") == self.agent:
             self.save_state()
             return False

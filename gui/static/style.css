@@ -536,10 +536,7 @@ input[type=text], select, textarea {
   white-space: pre-wrap; word-wrap: break-word;
   color: var(--text); pointer-events: none;
 }
-#composer-hl .hl-tag {
-  color: var(--accent); background: var(--accent-soft); border-radius: 4px;
-  box-shadow: 0 0 0 1.5px var(--accent-soft);
-}
+#composer-hl .hl-tag { color: var(--accent); font-weight: inherit; }
 #composer #mesh-attach-btn {
   width: 30px; height: 30px; flex: none; padding: 0;
   border: none; border-radius: 50%; background: transparent;
@@ -785,6 +782,8 @@ pre.configdump {
 .csel {
   position: relative; display: inline-block; max-width: 100%; min-width: 0;
 }
+.csel-slot { width: 100%; min-width: 0; }
+.csel-slot .csel { display: block; }   /* fill the form column, text left */
 .csel > button {
   display: flex; align-items: center; gap: 8px; width: 100%;
   padding: 6px 10px; text-align: left;
@@ -824,7 +823,68 @@ pre.configdump {
   padding: 16px 18px;
   animation: slide-in-right .18s ease;
 }
-#details-pane .card { max-width: none; }
+/* chat info reads as one sheet: borderless sections split by dividers */
+#details-pane .card {
+  max-width: none;
+  background: transparent; border: none; box-shadow: none;
+  border-radius: 0; padding: 14px 4px; margin: 0;
+  border-bottom: 1px solid var(--border);
+}
+#details-pane .ci-identity { border-bottom: 1px solid var(--border); }
+#details-pane .danger-card { border-bottom: none; }
+
+.ci-desc { font-size: 13px; color: var(--text); margin-bottom: 4px; }
+.ci-desc-btn {
+  border: none; background: none; padding: 2px 4px;
+  color: var(--accent); font: inherit; font-size: 12.5px; cursor: pointer;
+}
+.ci-desc-btn:hover, [data-theme="dark"] .ci-desc-btn:hover {
+  background: none; text-decoration: underline;
+}
+
+/* media strip (chat info) + media browser pane */
+.media-sec { display: block; width: 100%; text-align: left; cursor: pointer;
+  font: inherit; color: var(--text); }
+.media-sec:hover, [data-theme="dark"] .media-sec:hover { background: var(--bg-alt); }
+.media-strip { display: flex; gap: 6px; overflow: hidden; }
+.media-tile {
+  width: 74px; height: 74px; flex: none; border-radius: 8px;
+  background: var(--bg-alt); border: 1px solid var(--border);
+  display: grid; place-items: center; overflow: hidden;
+}
+.media-tile img { width: 100%; height: 100%; object-fit: cover; }
+.media-tile.file { grid-template-rows: 1fr auto; padding: 8px 4px 6px; }
+.media-tile .mt-ext { font-size: 10px; font-weight: 600; color: var(--text-dim); }
+
+.media-tabs {
+  display: flex; gap: 0; border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+.media-tab {
+  flex: 1; padding: 9px 0; border: none; background: none;
+  font: inherit; font-weight: 600; color: var(--text-dim); cursor: pointer;
+  border-bottom: 2.5px solid transparent;
+}
+.media-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.media-month {
+  font-size: 11.5px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .5px; color: var(--text-dim); margin: 14px 0 8px;
+}
+.media-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 6px;
+}
+.media-cell {
+  aspect-ratio: 1; border: 1px solid var(--border); border-radius: 8px;
+  padding: 0; overflow: hidden; cursor: pointer; background: var(--bg-alt);
+}
+.media-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.link-row {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 8px 4px; border-radius: 6px;
+}
+.link-row + .link-row { border-top: 1px solid var(--bg-alt); }
+.link-row a { color: var(--accent); word-break: break-all; font-size: 13px; }
 @keyframes slide-in-right {
   from { opacity: .4; transform: translateX(26px); }
 }
@@ -876,26 +936,29 @@ pre.configdump {
 .mem-head span { flex: 1; }
 .mem-row {
   display: flex; align-items: center; gap: 12px;
-  padding: 8px 4px; border-radius: 6px; position: relative;
+  padding: 8px 6px; border-radius: 6px; position: relative;
 }
+.mem-row:hover { background: var(--bg-alt); }
 .mem-chevron {
   width: 28px; height: 28px; flex: none;
   visibility: hidden;
 }
 .mem-row:hover .mem-chevron { visibility: visible; }
 .mem-menu {
-  top: calc(100% - 6px); right: 6px; min-width: 190px;
+  top: 100%; right: 0; min-width: 190px;
 }
 .mem-menu .danger-item, .menu .danger-item { color: var(--bad); }
 .mem-menu .danger-item svg, .menu .danger-item svg { color: var(--bad); }
 .mem-row + .mem-row { border-top: 1px solid var(--bg-alt); }
-.mem-row .mem-avatar {
+/* NOT scoped to .mem-row: the Add-member row's icon circle needs the same
+   size (unscoped, it collapsed to a small green square) */
+.mem-avatar {
   width: 34px; height: 34px; border-radius: 50%; flex: none;
   background: var(--accent); color: #fff; font-weight: 700; font-size: 14px;
   display: grid; place-items: center;
 }
-.mem-row .mem-name { font-weight: 600; font-size: 13.5px; }
-.mem-row .mem-sub { color: var(--text-dim); font-size: 11.5px; }
+.mem-name { font-weight: 600; font-size: 13.5px; }
+.mem-sub { color: var(--text-dim); font-size: 11.5px; }
 .owner-chip {
   margin-left: auto; flex: none;
   font-size: 10.5px; font-weight: 600; color: var(--accent);
@@ -904,12 +967,12 @@ pre.configdump {
 }
 .mem-add {
   display: flex; align-items: center; gap: 12px; width: 100%;
-  padding: 8px 4px; border: none; background: none; border-radius: 6px;
+  padding: 8px 6px; border: none; background: none; border-radius: 6px;
   font: inherit; color: var(--text); cursor: pointer; text-align: left;
 }
 .mem-add:hover { background: var(--bg-alt); }
 .mem-add .mem-avatar { background: var(--good); }
-.mem-add .mem-avatar svg { width: 17px; height: 17px; }
+.mem-add .mem-avatar svg { width: 18px; height: 18px; }
 
 /* dangerous actions at the bottom of chat info (WhatsApp-style list) */
 .danger-card { padding: 6px 8px; }
@@ -919,7 +982,7 @@ pre.configdump {
   background: none; font: inherit; font-weight: 600;
   color: var(--bad); cursor: pointer; text-align: left;
 }
-.danger-row svg { flex: none; color: var(--bad); }
+.danger-row svg { flex: none; width: 17px; height: 17px; color: var(--bad); }
 .danger-row.neutral, .danger-row.neutral svg { color: var(--text); }
 .danger-row:hover { background: var(--bg-alt); }
 .danger-row + .danger-row { border-top: 1px solid var(--bg-alt); }

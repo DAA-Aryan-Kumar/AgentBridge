@@ -42,8 +42,15 @@ CONTENT_TYPES = {
     ".js": "text/javascript; charset=utf-8",
     ".svg": "image/svg+xml",
     ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
     ".ico": "image/x-icon",
     ".json": "application/json",
+    ".pdf": "application/pdf",
+    ".txt": "text/plain; charset=utf-8",
+    ".csv": "text/csv; charset=utf-8",
 }
 
 HOME = bridge.DEFAULT_HOME  # overridable via --home in __main__
@@ -696,6 +703,16 @@ def api_mesh_add_member(data):
     return {"ok": True, "members": meta["members"]}
 
 
+def api_mesh_set_description(data):
+    m = get_mesh()
+    user = session_user(m)
+    if not user:
+        return {"error": "Sign in first"}
+    meta = m.set_description(data.get("chat_id") or "",
+                             by=user, description=data.get("description"))
+    return {"ok": True, "description": meta.get("description", "")}
+
+
 def api_mesh_remove_member(data):
     """Owner removes anyone; anyone removes themselves (exit chat)."""
     m = get_mesh()
@@ -843,6 +860,7 @@ POST_ROUTES = {
     "/api/mesh/add_member": api_mesh_add_member,
     "/api/mesh/remove_member": api_mesh_remove_member,
     "/api/mesh/delete_chat": api_mesh_delete_chat,
+    "/api/mesh/set_description": api_mesh_set_description,
     "/api/mesh/create_agent": api_mesh_create_agent,
     "/api/mesh/agent": api_mesh_agent,
     "/api/mesh/open_file": api_mesh_open_file,
@@ -871,7 +889,9 @@ class Handler(BaseHTTPRequestHandler):
         for pair in query.split("&"):
             if "=" in pair:
                 k, _, v = pair.partition("=")
-                params[k] = v
+                params[k] = unquote(v)
+        if path == "/api/mesh/file":
+            return self._chat_file(params)
         route = GET_ROUTES.get(path)
         if route:
             try:
@@ -901,6 +921,33 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": f"{type(e).__name__}: {e}"}, 500)
         status = 200 if "error" not in result else 400
         return self._json(result, status)
+
+    def _chat_file(self, params):
+        """Serve a chat attachment inline (image thumbnails in the media
+        pane) — same path validation as open_file, read-only."""
+        m = get_mesh()
+        if m is None or not m.exists() or not session_user(m):
+            return self._json({"error": "Sign in first"}, 403)
+        chat_id = params.get("id", "")
+        rel = (params.get("path") or "").replace("\\", "/")
+        root = m.chat_dir(chat_id)
+        if root is None:
+            return self._json({"error": "No local file access"}, 400)
+        files_root = (root / "files").resolve()
+        target = (root / rel).resolve()
+        if files_root != target and files_root not in target.parents:
+            return self._json({"error": "Outside the chat's files"}, 400)
+        if not target.is_file():
+            return self._json({"error": "Not found"}, 404)
+        ctype = CONTENT_TYPES.get(target.suffix.lower(),
+                                  "application/octet-stream")
+        data = target.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Cache-Control", "max-age=300")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     MAX_UPLOAD = 512 * 1024 * 1024
 

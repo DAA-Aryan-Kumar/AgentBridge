@@ -425,8 +425,9 @@ function renderChatListSidebar() {
       <div class="chat-avatar ${c.archived ? "arch" : ""}">${esc((c.name[0] || "#").toUpperCase())}</div>
       <div class="chat-mid">
         <div class="chat-name">${esc(c.name)}</div>
-        <div class="chat-last">${c.last
-          ? esc(meshDn(c.last.from)) + ": " + esc(c.last.body || "📎 file") : "No messages yet"}</div>
+        <div class="chat-last">${!c.last ? "No messages yet"
+          : c.last.kind === "info" ? esc(c.last.body || "")
+          : esc(meshDn(c.last.from)) + ": " + esc(c.last.body || "📎 file")}</div>
       </div>
       <div class="chat-side">
         <div class="chat-time">${c.last ? esc(fmtTime(c.last.ts)) : ""}</div>
@@ -486,7 +487,9 @@ function meshDn(username) {
 }
 
 function meshDraft(chatId) {
-  return Mesh.drafts[chatId] || (Mesh.drafts[chatId] = { body: "", att: null });
+  const d = Mesh.drafts[chatId] || (Mesh.drafts[chatId] = { body: "", atts: [] });
+  if (!d.atts) d.atts = d.att ? [d.att] : [];   // pre-multifile drafts
+  return d;
 }
 
 async function renderChats(force) {
@@ -715,7 +718,7 @@ async function renderMeshChat(force) {
           <div id="composer-hl" aria-hidden="true"></div>
           <textarea id="mesh-body" rows="1"></textarea>
         </div>
-        <input type="file" id="mesh-file" hidden>
+        <input type="file" id="mesh-file" multiple hidden>
         <button id="mesh-attach-btn">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05 12.25 20.2a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg>
         </button>
@@ -859,11 +862,11 @@ async function renderMeshChat(force) {
     body.addEventListener("blur", () => setTimeout(closePop, 150));
 
     const doSend = async () => {
-      if (!body.value.trim() && !draft.att) return;
+      if (!body.value.trim() && !draft.atts.length) return;
       $("#mesh-send-btn").disabled = true;
       const r = await api("/api/mesh/post", {
         chat_id: chatId, body: body.value.trim(),
-        attachments: draft.att ? [draft.att.path] : [],
+        attachments: draft.atts.map((a) => a.path),
       });
       $("#mesh-send-btn").disabled = false;
       if (r.error) { toast(r.error, true); return; }
@@ -872,7 +875,7 @@ async function renderMeshChat(force) {
       // posting the already-consumed staged path (the "attach errors
       // forever after the first file" bug)
       draft.body = "";
-      draft.att = null;
+      draft.atts.length = 0;
       body.value = "";
       autosize();
       renderMeshPending(chatId);
@@ -883,17 +886,18 @@ async function renderMeshChat(force) {
       if (e.key === "Enter" && e.ctrlKey && !tagCtx) doSend();
     });
     // attach: browser file input (works everywhere, including mobile) —
-    // the file uploads to a local staging area, then rides the next post
+    // files upload to a local staging area, then ride the next post
     $("#mesh-attach-btn").addEventListener("click", () => $("#mesh-file").click());
     $("#mesh-file").addEventListener("change", async (e) => {
-      const f = e.target.files[0];
+      const files = [...e.target.files];
       e.target.value = "";
-      if (!f) return;
-      const r = await fetch(`/api/mesh/upload?name=${encodeURIComponent(f.name)}`,
-        { method: "POST", body: f });
-      const j = await r.json();
-      if (j.error) { toast(j.error, true); return; }
-      draft.att = j;
+      for (const f of files) {
+        const r = await fetch(`/api/mesh/upload?name=${encodeURIComponent(f.name)}`,
+          { method: "POST", body: f });
+        const j = await r.json();
+        if (j.error) { toast(j.error, true); continue; }
+        draft.atts.push(j);
+      }
       renderMeshPending(chatId);
     });
   }
@@ -910,13 +914,14 @@ function renderMeshPending(chatId) {
   const area = $("#pending-area");
   if (!area) return;
   const draft = meshDraft(chatId);
-  area.innerHTML = draft.att ? `
-    <span class="pending-att">${extIcon(draft.att.name)} ${esc(draft.att.name)}
-      · ${fmtSize(draft.att.bytes)} <button id="remove-matt">✕</button></span>` : "";
-  const rm = $("#remove-matt");
-  if (rm) rm.addEventListener("click", () => {
-    draft.att = null;
-    renderMeshPending(chatId);
+  area.innerHTML = draft.atts.map((a, i) => `
+    <span class="pending-att">${extIcon(a.name)} ${esc(a.name)}
+      · ${fmtSize(a.bytes)} <button class="remove-matt" data-i="${i}">✕</button></span>`).join(" ");
+  area.querySelectorAll(".remove-matt").forEach((rm) => {
+    rm.addEventListener("click", () => {
+      draft.atts.splice(+rm.dataset.i, 1);
+      renderMeshPending(chatId);
+    });
   });
 }
 
@@ -955,12 +960,14 @@ async function renderChatDetails() {
   // only re-render when something actually changed — a poll redraw would
   // knock dropdowns and toggles out from under the user
   const dKey = JSON.stringify([meta, media.length, ms.paused,
-    myAgentsHere.map((a) => a.settings), !!Mesh.searchView]);
+    myAgentsHere.map((a) => a.settings), !!Mesh.searchView,
+    !!Mesh.mediaView, Mesh.mediaTab]);
   if (dKey === Mesh.detailsKey && App.page === "chats") return;
   Mesh.detailsKey = dKey;
 
-  // in-chat search slides in over chat info, in the same pane
+  // search and the media browser slide in over chat info, same pane
   if (Mesh.searchView) return renderChatSearch(data);
+  if (Mesh.mediaView) return renderChatMedia(data, media);
 
   const isMember = (meta.members || []).includes(ms.user);
   const memberRow = (u) => {
@@ -996,18 +1003,20 @@ async function renderChatDetails() {
           <span class="ci-act-circle">${ICONS.search}</span>Search</button>
       </div>
     </div>
-    <div class="card">
-      <h2>Media and files</h2>
-      ${media.length ? media.map((f) => `
-        <button class="att-btn cd-file" data-path="${esc(f.path)}"
-                style="max-width:100%;margin-top:6px">
-          <span class="att-icon">${extIcon(f.name)}</span>
-          <span style="min-width:0">
-            <div class="att-name">${esc(f.name)}</div>
-            <div class="att-size">${fmtSize(f.bytes)} · ${esc(meshDn(f.from))} · ${esc(fmtTime(f.ts))}</div>
-          </span>
-        </button>`).join("") : `<div class="empty">Nothing shared yet.</div>`}
+    <div class="card" id="ci-desc-wrap" style="text-align:center">
+      ${meta.description ? `<div class="ci-desc">${esc(meta.description)}</div>` : ""}
+      ${isOwner ? `<button class="ci-desc-btn" id="ci-desc-edit">
+        ${meta.description ? "Edit description" : "Add chat description"}</button>`
+        : (meta.description ? "" : `<div class="hint">No description</div>`)}
     </div>
+    <button class="card media-sec" id="media-sec">
+      <div class="mem-head" style="margin-bottom:${media.length ? 8 : 0}px">
+        <span>Media and files</span><span class="hint">${media.length}</span>
+      </div>
+      ${media.length ? `<div class="media-strip">
+        ${media.slice(-6).reverse().map((f) => mediaThumb(chatId, f)).join("")}
+      </div>` : ""}
+    </button>
     ${myAgentsHere.length ? `
     <div class="card">
       <h2>Your agents in this chat</h2>
@@ -1040,7 +1049,9 @@ async function renderChatDetails() {
         <button class="icon-btn" id="mem-search">${ICONS.search}</button>
       </div>
       ${isMember ? `<button class="mem-add" id="ci-add2">
-        <span class="mem-avatar">${ICONS.addUser}</span><b>Add member</b></button>` : ""}
+        <span class="mem-avatar">${ICONS.addUser}</span>
+        <span style="min-width:0"><div class="mem-name">Add member</div></span>
+      </button>` : ""}
       ${(meta.members || []).map(memberRow).join("")}
     </div>
     <div class="card">
@@ -1072,6 +1083,35 @@ async function renderChatDetails() {
   const add2 = $("#ci-add2");
   if (add2) add2.addEventListener("click", () => showAddMembers(chatId));
   $("#mem-search").addEventListener("click", () => showSearchMembers(chatId));
+  $("#media-sec").addEventListener("click", () => {
+    Mesh.mediaView = true;
+    Mesh.mediaTab = Mesh.mediaTab || "media";
+    Mesh.detailsKey = "";
+    renderChatDetails();
+  });
+  const descEdit = $("#ci-desc-edit");
+  if (descEdit) descEdit.addEventListener("click", () => {
+    $("#ci-desc-wrap").innerHTML = `
+      <input type="text" id="ci-desc-input" maxlength="300" style="width:100%"
+             placeholder="What is this chat for?" value="${esc(meta.description || "")}">
+      <div class="row" style="justify-content:center;margin-top:8px">
+        <button class="primary" id="ci-desc-save">Save</button>
+        <button id="ci-desc-cancel">Cancel</button>
+      </div>`;
+    $("#ci-desc-input").focus();
+    $("#ci-desc-cancel").addEventListener("click", () => {
+      Mesh.detailsKey = "";
+      renderChatDetails();
+    });
+    $("#ci-desc-save").addEventListener("click", async () => {
+      const r = await api("/api/mesh/set_description",
+        { chat_id: chatId, description: $("#ci-desc-input").value });
+      if (r.error) { toast(r.error, true); return; }
+      toast("Description saved");
+      Mesh.detailsKey = "";
+      renderChatDetails();
+    });
+  });
   // owner-only remove: chevron appears on hover, opens a small menu
   document.querySelectorAll(".mem-chevron").forEach((b) => {
     b.addEventListener("click", (e) => {
@@ -1145,6 +1185,112 @@ async function renderChatDetails() {
     else toast(`@${slot.dataset.agent}: ${RULE_LABELS[v].toLowerCase()} here`);
   });
   document.querySelectorAll(".cd-file").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const r = await api("/api/mesh/open_file", { chat_id: chatId, path: b.dataset.path });
+      if (r.error) toast(r.error, true);
+    });
+  });
+}
+
+// ---------------------------------------------------------------- media pane
+
+const IMG_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
+const isImg = (name) => IMG_EXTS.has((name || "").split(".").pop().toLowerCase());
+const fileUrl = (chatId, path) =>
+  `/api/mesh/file?id=${encodeURIComponent(chatId)}&path=${encodeURIComponent(path)}`;
+
+function mediaThumb(chatId, f) {
+  return isImg(f.name)
+    ? `<span class="media-tile"><img src="${fileUrl(chatId, f.path)}" alt="" loading="lazy"></span>`
+    : `<span class="media-tile file"><span style="font-size:19px">${extIcon(f.name)}</span>
+       <span class="mt-ext">${esc((f.name.split(".").pop() || "").toUpperCase().slice(0, 5))}</span></span>`;
+}
+
+function monthLabel(ts) {
+  const d = new Date(ts), now = new Date();
+  if (isNaN(d)) return "";
+  if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) {
+    return "This month";
+  }
+  const m = d.toLocaleDateString([], { month: "long" });
+  return d.getFullYear() === now.getFullYear() ? m : `${m} ${d.getFullYear()}`;
+}
+
+// dedicated media browser (tabs: Media / Docs / Links, grouped by month)
+function renderChatMedia(data, media) {
+  const chatId = Mesh.chatId;
+  const tab = Mesh.mediaTab || "media";
+  const links = [];
+  const linkRe = /https?:\/\/[^\s<>"')\]]+/g;
+  for (const m of data.messages) {
+    if (m.kind === "info") continue;
+    for (const url of (m.body || "").match(linkRe) || []) {
+      links.push({ url, ts: m.ts, from: m.from });
+    }
+  }
+  const items = tab === "media" ? media.filter((f) => isImg(f.name)).slice().reverse()
+    : tab === "docs" ? media.filter((f) => !isImg(f.name)).slice().reverse()
+    : links.slice().reverse();
+  const groups = [];
+  for (const it of items) {
+    const label = monthLabel(it.ts);
+    if (!groups.length || groups[groups.length - 1].label !== label) {
+      groups.push({ label, items: [] });
+    }
+    groups[groups.length - 1].items.push(it);
+  }
+  const render = {
+    media: (g) => `<div class="media-grid">${g.items.map((f) => `
+      <button class="media-cell cd-file" data-path="${esc(f.path)}">
+        <img src="${fileUrl(chatId, f.path)}" alt="${esc(f.name)}" loading="lazy">
+      </button>`).join("")}</div>`,
+    docs: (g) => g.items.map((f) => `
+      <button class="att-btn cd-file" data-path="${esc(f.path)}"
+              style="max-width:100%;margin-top:6px">
+        <span class="att-icon">${extIcon(f.name)}</span>
+        <span style="min-width:0">
+          <div class="att-name">${esc(f.name)}</div>
+          <div class="att-size">${fmtSize(f.bytes)} · ${esc(meshDn(f.from))} · ${esc(fmtTime(f.ts))}</div>
+        </span>
+      </button>`).join(""),
+    links: (g) => g.items.map((l) => `
+      <div class="link-row">
+        <span class="att-icon">🔗</span>
+        <span style="min-width:0">
+          <div><a href="${esc(l.url)}" target="_blank" rel="noopener">${
+            esc(l.url.length > 58 ? l.url.slice(0, 58) + "…" : l.url)}</a></div>
+          <div class="att-size">${esc(meshDn(l.from))} · ${esc(fmtTime(l.ts))}</div>
+        </span>
+      </div>`).join(""),
+  };
+  const body = !items.length
+    ? `<div class="empty" style="padding:30px 0">Nothing here yet</div>`
+    : groups.map((g) => `
+        <div class="media-month">${esc(g.label)}</div>${render[tab](g)}`).join("");
+  $("#details-pane").innerHTML = `
+    <div class="pane-head">
+      <button class="icon-btn" id="cm-back">${ICONS.back}</button>
+      <span class="pane-title">Media and files</span>
+    </div>
+    <div class="media-tabs">
+      ${["media", "docs", "links"].map((t) => `
+        <button class="media-tab ${t === tab ? "active" : ""}" data-tab="${t}">
+          ${t[0].toUpperCase() + t.slice(1)}</button>`).join("")}
+    </div>
+    <div class="media-body">${body}</div>`;
+  $("#cm-back").addEventListener("click", () => {
+    Mesh.mediaView = false;
+    Mesh.detailsKey = "";
+    renderChatDetails();
+  });
+  document.querySelectorAll(".media-tab").forEach((b) => {
+    b.addEventListener("click", () => {
+      Mesh.mediaTab = b.dataset.tab;
+      Mesh.detailsKey = "";
+      renderChatDetails();
+    });
+  });
+  document.querySelectorAll("#details-pane .cd-file").forEach((b) => {
     b.addEventListener("click", async () => {
       const r = await api("/api/mesh/open_file", { chat_id: chatId, path: b.dataset.path });
       if (r.error) toast(r.error, true);
@@ -1289,7 +1435,6 @@ async function showAddMembers(chatId) {
       <input type="text" class="modal-q" placeholder="Search" autocomplete="off"></div>
     <div class="modal-list">
       ${section("Agents", agents)}${section("Members", humans)}
-      ${!addable.length ? '<div class="empty">Everyone is already here.</div>' : ""}
     </div>
     ${addable.length ? '<button class="primary modal-cta" id="am-go" disabled>Add member</button>' : ""}`);
   box.querySelector("#am-close").addEventListener("click", closeModal);
@@ -1892,7 +2037,7 @@ function route() {
     }
     if (details !== Mesh.detailsView) {
       Mesh.detailsKey = "";
-      if (!details) { Mesh.searchView = false; Mesh.addingMember = false; Mesh.searchQ = ""; }
+      if (!details) { Mesh.searchView = false; Mesh.mediaView = false; Mesh.searchQ = ""; }
     }
     Mesh.chatId = chatId;
     Mesh.detailsView = details;
@@ -1900,7 +2045,7 @@ function route() {
     Mesh.chatId = null;
     Mesh.detailsView = false;
     Mesh.searchView = false;
-    Mesh.addingMember = false;
+    Mesh.mediaView = false;
     Mesh.structKey = "";
   }
   $("#side-new").hidden = page !== "chats";

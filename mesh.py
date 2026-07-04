@@ -335,6 +335,20 @@ class Mesh:
         self.cx.write_json(f"chats/{chat_id}/meta.json", meta)
         return meta
 
+    def post_event(self, chat_id, actor, text, event, target=None):
+        """Membership notes etc. — rendered as centered pills, never a
+        trigger for agents (kind 'info', no tags). Written to the ACTOR's
+        message file: single-writer holds."""
+        ns = time.time_ns()
+        if ns <= Mesh._last_ns:
+            ns = Mesh._last_ns + 1
+        Mesh._last_ns = ns
+        msg = {"id": f"{ns:x}-{actor}", "ns": ns, "ts": utcnow(),
+               "from": actor, "kind": "info", "event": event,
+               "target": target, "body": text, "tags": [], "files": []}
+        self.cx.append_jsonl(f"chats/{chat_id}/msgs/{actor}.jsonl", msg)
+        return msg
+
     def add_member(self, chat_id, username, by):
         """by = human adding their own agent, or the chat owner adding humans."""
         meta = self.get_chat(chat_id)
@@ -348,6 +362,9 @@ class Mesh:
         if username not in meta["members"]:
             meta["members"].append(username)
             self.cx.write_json(f"chats/{chat_id}/meta.json", meta)
+            by_dn = (self.get_user(by) or {}).get("display", by)
+            self.post_event(chat_id, by, f"{by_dn} added {u.get('display', username)}",
+                            "add_member", target=username)
         return meta
 
     def remove_member(self, chat_id, username, by):
@@ -363,6 +380,23 @@ class Mesh:
         if username in (meta.get("members") or []):
             meta["members"].remove(username)
             self.cx.write_json(f"chats/{chat_id}/meta.json", meta)
+            by_dn = (self.get_user(by) or {}).get("display", by)
+            u_dn = (self.get_user(username) or {}).get("display", username)
+            self.post_event(chat_id, by,
+                            f"{by_dn} left" if by == username
+                            else f"{by_dn} removed {u_dn}",
+                            "remove_member", target=username)
+        return meta
+
+    def set_description(self, chat_id, by, description):
+        """Owner-only, like archive."""
+        meta = self.get_chat(chat_id)
+        if not meta:
+            raise MeshError("No such chat")
+        if meta.get("owner") != by:
+            raise MeshError("Only the chat's owner can edit the description")
+        meta["description"] = (description or "").strip()
+        self.cx.write_json(f"chats/{chat_id}/meta.json", meta)
         return meta
 
     def delete_chat(self, chat_id, by):
@@ -436,8 +470,10 @@ class Mesh:
             if not src.is_file():
                 raise MeshError(f"Attachment not found: {src}")
             dest_name = src.name
-            if self.cx.exists(f"chats/{chat_id}/files/{dest_name}"):
-                dest_name = f"{src.stem}_{secrets.token_hex(3)}{src.suffix}"
+            n = 2
+            while self.cx.exists(f"chats/{chat_id}/files/{dest_name}"):
+                dest_name = f"{src.stem} ({n}){src.suffix}"
+                n += 1
             dest_key = f"chats/{chat_id}/files/{dest_name}"
             self.cx.put_file(src, dest_key)
             files.append({"name": dest_name, "path": f"files/{dest_name}",
