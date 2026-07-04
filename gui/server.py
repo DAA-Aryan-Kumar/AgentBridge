@@ -16,6 +16,7 @@ monitor; acking is an explicit button.
 
 import json
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -703,6 +704,33 @@ def api_mesh_add_member(data):
     return {"ok": True, "members": meta["members"]}
 
 
+def api_mesh_chat_info(params):
+    """Light payload for the chat-info pane: meta + files + links, one
+    server-side walk — the pane used to pull 1000 full messages on every
+    open and poll just to derive this."""
+    m = get_mesh()
+    user = session_user(m)
+    if not user:
+        return {"error": "Sign in first"}
+    chat_id = params.get("id", "")
+    meta = m.get_chat(chat_id)
+    if not meta:
+        return {"error": "No such chat"}
+    link_re = re.compile(r"https?://[^\s<>\"')\]]+")
+    files, links = [], []
+    msgs = m.messages(chat_id, tail=0)
+    for msg in msgs:
+        if msg.get("kind") == "info":
+            continue
+        for f in (msg.get("files") or []):
+            files.append(dict(f, **{"from": msg.get("from"),
+                                    "ts": msg.get("ts")}))
+        for url in link_re.findall(msg.get("body") or ""):
+            links.append({"url": url, "from": msg.get("from"),
+                          "ts": msg.get("ts")})
+    return {"meta": meta, "files": files, "links": links, "count": len(msgs)}
+
+
 def api_mesh_create_dm(data):
     m = get_mesh()
     user = session_user(m)
@@ -852,6 +880,7 @@ GET_ROUTES = {
     "/api/mesh/state": lambda params: api_mesh_state(),
     "/api/mesh/chat": api_mesh_chat,
     "/api/mesh/livefeed": api_mesh_livefeed,
+    "/api/mesh/chat_info": api_mesh_chat_info,
 }
 
 POST_ROUTES = {

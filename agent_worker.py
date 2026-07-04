@@ -377,6 +377,22 @@ class Worker:
         new = [m for m in msgs if msg_ns(m) > cursor]
         if not new:
             return False
+        # a message can OUTRUN its attachment through the sync client (big
+        # files especially): the .jsonl line lands before the file body.
+        # Hold the whole batch until new messages' files verify (size match),
+        # with a 10-minute grace so a lost file can't wedge the chat forever.
+        chat_local = self.mesh.chat_dir(chat_id)
+        if chat_local:
+            for m in new:
+                if time.time() - msg_ns(m) / 1e9 > 600:
+                    continue
+                for f in (m.get("files") or []):
+                    src = chat_local / (f.get("path") or "")
+                    if not src.is_file() or (f.get("bytes") is not None
+                                             and src.stat().st_size != f["bytes"]):
+                        say(f"[worker] {chat_id}: attachment "
+                            f"'{f.get('name')}' still syncing — waiting")
+                        return False   # cursor holds; retry next poll
         # always advance the cursor — rule says whether we ANSWER, not re-scan
         self.state["cursors"][chat_id] = msg_ns(new[-1])
         # if this agent was ADDED later (vs founding member), only messages
@@ -399,9 +415,9 @@ class Worker:
             return False
 
         # stage inbound attachments into the workdir — headless CLI agents
-        # can only read inside it (same trick the legacy handler used)
+        # can only read inside it (same trick the legacy handler used).
+        # Size-verified: a half-synced file never reaches the agent.
         staged = {}
-        chat_local = self.mesh.chat_dir(chat_id)
         if chat_local:
             inbox = self.workdir / "inbox_files"
             for m in msgs[-30:]:
@@ -409,6 +425,9 @@ class Worker:
                     src = chat_local / (f.get("path") or "")
                     if not f.get("name") or not src.is_file():
                         continue
+                    if f.get("bytes") is not None \
+                            and src.stat().st_size != f["bytes"]:
+                        continue  # still syncing; context shows the bare name
                     try:
                         inbox.mkdir(exist_ok=True)
                         dest = inbox / f["name"]

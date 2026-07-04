@@ -238,6 +238,10 @@ const ICONS = {
   addUser: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="10" cy="8" r="3.4"/><path d="M3.4 19.5c1.4-3.4 11.8-3.4 13.2 0M18.5 8v6M15.5 11h6"/></svg>',
   more: '<svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor"><circle cx="12" cy="5.2" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="18.8" r="1.7"/></svg>',
   chevD: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 9.5 12 15l5.5-5.5"/></svg>',
+  pencil: '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>',
+  check: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5 10 18 19.5 7"/></svg>',
+  media: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="M6.5 18.5 12 13l3 3 2.5-2.5 3 3"/></svg>',
+  hand: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7.2 11.6V6.1a1.25 1.25 0 0 1 2.5 0v4M9.7 10.1V4.6a1.25 1.25 0 0 1 2.5 0v5.2M12.2 9.8V5.4a1.25 1.25 0 0 1 2.5 0v5M14.7 10.9V7.2a1.25 1.25 0 0 1 2.5 0v6.9c0 3.8-2.5 6.2-5.9 6.2-2.7 0-4.3-1.3-5.6-3.5l-1.6-2.9c-.5-.9-.3-1.8.5-2.3.7-.4 1.5-.2 2 .5l.6.9"/></svg>',
   trash: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13M10 11v5M14 11v5"/></svg>',
   exit: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 4H5.8a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h3.7M15 8l4 4-4 4M19 12H9.5"/></svg>',
 };
@@ -792,6 +796,10 @@ async function renderMeshChat(force) {
     ${meta.archived || !isMember ? "" : `
     <div id="composer">
       <div id="composer-pill">
+        ${Object.values(ms.users).some((u) => u.kind === "agent"
+            && (u.owners || []).includes(ms.user)
+            && (meta.members || []).includes(u.username))
+          ? `<button id="agents-perm-btn" title="Agent permissions">${ICONS.hand}</button>` : ""}
         <div id="composer-ta-wrap">
           <div id="composer-hl" aria-hidden="true"></div>
           <textarea id="mesh-body" rows="1"></textarea>
@@ -817,6 +825,11 @@ async function renderMeshChat(force) {
   });
   $("#chat-back").addEventListener("click", () => { location.hash = "#/chats"; });
   $("#chat-more").addEventListener("click", () => { menu.hidden = !menu.hidden; });
+  const permBtn = $("#agents-perm-btn");
+  if (permBtn) permBtn.addEventListener("click", () => {
+    Mesh.agentsView = true;
+    location.hash = `#/chats/${chatId}/details`;
+  });
   document.addEventListener("click", function away(e) {
     if (!e.target.closest("#chat-more") && !e.target.closest("#chat-menu")) {
       if (!menu.isConnected) { document.removeEventListener("click", away); return; }
@@ -1022,29 +1035,31 @@ const RULE_LABELS = {
 async function renderChatDetails() {
   const ms = Mesh.state;
   const chatId = Mesh.chatId;
-  const data = await api(`/api/mesh/chat?id=${encodeURIComponent(chatId)}&tail=1000`);
+  // an open inline edit (name/description) survives polls — it only closes
+  // when saved or when the pane goes away
+  if (document.querySelector("#ci-name-input, #ci-desc-input")) return;
+  // chat_info is the LIGHT payload (meta + files + links) — the pane used
+  // to pull 1000 full messages on every open and poll
+  const data = await api(`/api/mesh/chat_info?id=${encodeURIComponent(chatId)}`);
   if (data.error) { toast(data.error, true); location.hash = "#/chats"; return; }
   const meta = data.meta;
   const s = App.state;
   const isOwner = meta.owner === ms.user;
-  const media = [];
-  for (const m of data.messages) {
-    for (const f of (m.files || [])) media.push({ ...f, from: m.from, ts: m.ts });
-  }
+  const media = data.files || [];
   const myAgentsHere = Object.values(ms.users).filter((u) =>
     u.kind === "agent" && (u.owners || []).includes(ms.user)
     && (meta.members || []).includes(u.username));
   // only re-render when something actually changed — a poll redraw would
   // knock dropdowns and toggles out from under the user
-  const dKey = JSON.stringify([meta, media.length, ms.paused,
+  const dKey = JSON.stringify([meta, media.length, (data.links || []).length,
     myAgentsHere.map((a) => a.settings), !!Mesh.searchView,
     !!Mesh.mediaView, Mesh.mediaTab, !!Mesh.agentsView]);
   if (dKey === Mesh.detailsKey && App.page === "chats") return;
   Mesh.detailsKey = dKey;
 
   // search / media browser / agents page slide in over chat info, same pane
-  if (Mesh.searchView) return renderChatSearch(data);
-  if (Mesh.mediaView) return renderChatMedia(data, media);
+  if (Mesh.searchView) return renderChatSearch();
+  if (Mesh.mediaView) return renderChatMedia(data);
   if (Mesh.agentsView) return renderChatAgents(myAgentsHere);
 
   const isMember = (meta.members || []).includes(ms.user);
@@ -1067,6 +1082,11 @@ async function renderChatDetails() {
   const isDm = meta.kind === "dm";
   const title = chatDisplay(meta, ms.user);
   const noun = isDm ? "chat" : "group";
+  // me first, then the owner, then everyone else
+  const ordered = [...(meta.members || [])].sort((a, b) => {
+    const rank = (u) => (u === ms.user ? 0 : u === meta.owner ? 1 : 2);
+    return rank(a) - rank(b);
+  });
   $("#details-pane").innerHTML = `
     <div class="pane-head">
       <span class="pane-title">${isDm ? "Chat info" : "Group info"}</span>
@@ -1074,11 +1094,11 @@ async function renderChatDetails() {
     </div>
     <div class="ci-identity">
       <div class="ci-avatar">${esc((title[0] || "#").toUpperCase())}</div>
-      <div class="ci-name">${esc(title)}
-        ${!isDm && isOwner ? `<button class="icon-btn ci-rename" id="ci-rename">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
-        </button>` : ""}
-        ${meta.archived ? '<span class="kind-tag">archived</span>' : ""}</div>
+      <div class="ci-name-row" id="ci-name-row">
+        <span class="ci-name">${esc(title)}
+          ${meta.archived ? '<span class="kind-tag">archived</span>' : ""}</span>
+        ${!isDm && isOwner ? `<button class="icon-btn ci-pencil" id="ci-rename">${ICONS.pencil}</button>` : ""}
+      </div>
       <div class="ci-sub">${isDm ? "@" + esc(dmOther(meta, ms.user))
         : `Group · ${(meta.members || []).length} members`}</div>
       <div class="ci-actions">
@@ -1089,15 +1109,18 @@ async function renderChatDetails() {
       </div>
     </div>
     ${isDm ? "" : `
-    <div class="card" id="ci-desc-wrap" style="text-align:center">
-      ${meta.description ? `<div class="ci-desc">${esc(meta.description)}</div>` : ""}
-      ${isOwner ? `<button class="ci-desc-btn" id="ci-desc-edit">
-        ${meta.description ? "Edit description" : "Add group description"}</button>`
-        : (meta.description ? "" : `<div class="hint">No description</div>`)}
+    <div class="card" id="ci-desc-wrap">
+      <div class="ci-desc-row">
+        <div class="ci-desc-text">${meta.description ? esc(meta.description)
+          : (isOwner ? '<span class="ci-desc-add">Add group description</span>'
+                     : '<span class="hint">No description</span>')}</div>
+        ${isOwner ? `<button class="icon-btn ci-pencil" id="ci-desc-edit">${ICONS.pencil}</button>` : ""}
+      </div>
     </div>`}
     <div class="card" style="padding-top:8px;padding-bottom:10px">
       <button class="sec-head" id="media-sec">
-        <span>Media and files</span><span class="sec-count">${media.length}</span>
+        ${ICONS.media}<span class="sec-label">Media and files</span>
+        <span class="sec-count">${media.length}</span>
       </button>
       ${media.length ? `<div class="media-strip">
         ${media.slice(-6).reverse().map((f) => `
@@ -1108,22 +1131,10 @@ async function renderChatDetails() {
     ${myAgentsHere.length ? `
     <div class="card" style="padding-top:8px;padding-bottom:8px">
       <button class="sec-head" id="agents-sec">
-        <span>Your agents in this ${noun}</span><span class="sec-count">${myAgentsHere.length}</span>
+        ${ICONS.bot}<span class="sec-label">Your agents in this ${noun}</span>
+        <span class="sec-count">${myAgentsHere.length}</span>
       </button>
     </div>` : ""}
-    <div class="card">
-      <h2>Emergency stand-down</h2>
-      <div class="row">
-        <label class="switch">
-          <input type="checkbox" id="cd-pause" ${ms.paused ? "checked" : ""}>
-          <span class="slider"></span>
-        </label>
-        <span><b>Stand down all agents</b> — every agent in every chat holds
-        until resumed</span>
-      </div>
-      <p class="hint" style="margin-bottom:0">Any human can flip this. Pending
-      requests get one consolidated reply per chat after resuming.</p>
-    </div>
     ${isDm ? "" : `
     <div class="card">
       <div class="mem-head">
@@ -1134,7 +1145,7 @@ async function renderChatDetails() {
         <span class="mem-avatar">${ICONS.addUser}</span>
         <span style="min-width:0"><div class="mem-name">Add member</div></span>
       </button>` : ""}
-      ${(meta.members || []).map(memberRow).join("")}
+      ${ordered.map(memberRow).join("")}
     </div>`}
     <div class="card">
       <h2>Connection</h2>
@@ -1186,47 +1197,41 @@ async function renderChatDetails() {
       if (r.error) toast(r.error, true);
     });
   });
+  // in-place edits (WhatsApp pattern): the pencil swaps just that row for
+  // an input + ✓; it stays open until saved or the pane goes away
   const rename = $("#ci-rename");
   if (rename) rename.addEventListener("click", () => {
-    const id2 = $("#details-pane .ci-identity");
-    id2.innerHTML = `
-      <input type="text" id="ci-name-input" maxlength="60" value="${esc(meta.name)}"
-             style="width:80%;text-align:center;font-weight:600">
-      <div class="row" style="justify-content:center;margin-top:8px">
-        <button class="primary" id="ci-name-save">Save</button>
-        <button id="ci-name-cancel">Cancel</button>
-      </div>`;
-    $("#ci-name-input").focus();
-    $("#ci-name-cancel").addEventListener("click", () => {
-      Mesh.detailsKey = "";
-      renderChatDetails();
-    });
-    $("#ci-name-save").addEventListener("click", async () => {
-      const r = await api("/api/mesh/rename",
-        { chat_id: chatId, name: $("#ci-name-input").value });
+    $("#ci-name-row").innerHTML = `
+      <input type="text" id="ci-name-input" class="ci-edit" maxlength="60"
+             value="${esc(meta.name)}">
+      <button class="icon-btn ci-ok" id="ci-name-save">${ICONS.check}</button>`;
+    const inp = $("#ci-name-input");
+    inp.focus();
+    inp.setSelectionRange(inp.value.length, inp.value.length);
+    const save = async () => {
+      const r = await api("/api/mesh/rename", { chat_id: chatId, name: inp.value });
       if (r.error) { toast(r.error, true); return; }
       Mesh.detailsKey = "";
       Mesh.structKey = "";
       renderChats(true);
-    });
+    };
+    $("#ci-name-save").addEventListener("click", save);
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter") save(); });
   });
   const descEdit = $("#ci-desc-edit");
   if (descEdit) descEdit.addEventListener("click", () => {
     $("#ci-desc-wrap").innerHTML = `
-      <input type="text" id="ci-desc-input" maxlength="300" style="width:100%"
-             placeholder="What is this group for?" value="${esc(meta.description || "")}">
-      <div class="row" style="justify-content:center;margin-top:8px">
-        <button class="primary" id="ci-desc-save">Save</button>
-        <button id="ci-desc-cancel">Cancel</button>
+      <div class="ci-desc-row" style="align-items:flex-end">
+        <textarea id="ci-desc-input" class="ci-edit" rows="3" maxlength="2000"
+          placeholder="What is this group for?">${esc(meta.description || "")}</textarea>
+        <button class="icon-btn ci-ok" id="ci-desc-save">${ICONS.check}</button>
       </div>`;
-    $("#ci-desc-input").focus();
-    $("#ci-desc-cancel").addEventListener("click", () => {
-      Mesh.detailsKey = "";
-      renderChatDetails();
-    });
+    const inp = $("#ci-desc-input");
+    inp.focus();
+    inp.setSelectionRange(inp.value.length, inp.value.length);
     $("#ci-desc-save").addEventListener("click", async () => {
       const r = await api("/api/mesh/set_description",
-        { chat_id: chatId, description: $("#ci-desc-input").value });
+        { chat_id: chatId, description: inp.value });
       if (r.error) { toast(r.error, true); return; }
       Mesh.detailsKey = "";
       renderChatDetails();
@@ -1289,12 +1294,6 @@ async function renderChatDetails() {
     if (r.error) { toast(r.error, true); return; }
     location.hash = "#/chats";
   });
-  $("#cd-pause").addEventListener("change", async (e) => {
-    const r = await api("/api/mesh/pause", { paused: e.target.checked });
-    if (r.error) { toast(r.error, true); return; }
-    Mesh.state.paused = r.paused;
-    renderChrome();
-  });
   mountCsels($("#details-pane"), (slot) => {
     const def = RULE_LABELS[slot.dataset.def] || "";
     return [{ v: "", label: `Default — ${def.toLowerCase()}` },
@@ -1339,17 +1338,11 @@ function monthLabel(ts) {
 }
 
 // dedicated media browser (tabs: Media / Docs / Links, grouped by month)
-function renderChatMedia(data, media) {
+function renderChatMedia(data) {
   const chatId = Mesh.chatId;
   const tab = Mesh.mediaTab || "media";
-  const links = [];
-  const linkRe = /https?:\/\/[^\s<>"')\]]+/g;
-  for (const m of data.messages) {
-    if (m.kind === "info") continue;
-    for (const url of (m.body || "").match(linkRe) || []) {
-      links.push({ url, ts: m.ts, from: m.from });
-    }
-  }
+  const media = data.files || [];
+  const links = data.links || [];
   const items = tab === "media" ? media.filter((f) => isImg(f.name)).slice().reverse()
     : tab === "docs" ? media.filter((f) => !isImg(f.name)).slice().reverse()
     : links.slice().reverse();
@@ -1460,9 +1453,13 @@ function renderChatAgents(agents) {
   });
 }
 
-// in-chat message search (WhatsApp-style results: date, sender, snippet)
-function renderChatSearch(data) {
+// in-chat message search (WhatsApp-style results: date, sender, snippet).
+// Fetches the transcript itself, on demand — chat info no longer hauls
+// 1000 messages around.
+async function renderChatSearch() {
   const chatId = Mesh.chatId;
+  const data = await api(`/api/mesh/chat?id=${encodeURIComponent(chatId)}&tail=1000`);
+  if (data.error) { toast(data.error, true); return; }
   $("#details-pane").innerHTML = `
     <div class="pane-head">
       <button class="icon-btn" id="cs-back">${ICONS.back}</button>
@@ -1782,6 +1779,20 @@ async function renderSettings() {
         </div>
         <p class="hint" style="margin-bottom:0">You become its responsible human;
         its machine runs <code>agent_worker.py</code>.</p>
+      </div>
+      <div class="card" style="max-width:640px">
+        <h2>Emergency stand-down</h2>
+        <div class="row">
+          <label class="switch">
+            <input type="checkbox" id="st-pause" ${ms.paused ? "checked" : ""}>
+            <span class="slider"></span>
+          </label>
+          <span><b>Stand down all agents</b> — every agent in every chat
+          holds until resumed</span>
+        </div>
+        <p class="hint" style="margin-bottom:0">Any human can flip this.
+        Pending requests get one consolidated reply per chat after
+        resuming.</p>
       </div>`;
   } else if (section === "connection") {
     html = `${back}<h1>Connection</h1>
@@ -1835,6 +1846,13 @@ async function renderSettings() {
     if (r.error) { toast(r.error, true); return; }
     toast(`Agent @${r.agent.username} created`);
     renderSettings();
+  });
+  const stPause = $("#st-pause");
+  if (stPause) stPause.addEventListener("change", async (e) => {
+    const r = await api("/api/mesh/pause", { paused: e.target.checked });
+    if (r.error) { toast(r.error, true); return; }
+    Mesh.state.paused = r.paused;
+    renderChrome();
   });
 }
 

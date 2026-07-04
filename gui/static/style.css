@@ -546,13 +546,16 @@ input[type=text], select, textarea {
   color: var(--text); pointer-events: none;
 }
 #composer-hl .hl-tag { color: var(--accent); font-weight: inherit; }
-#composer #mesh-attach-btn {
+#composer #mesh-attach-btn, #composer #agents-perm-btn {
   width: 30px; height: 30px; flex: none; padding: 0;
   border: none; border-radius: 50%; background: transparent;
   color: var(--text-dim); display: grid; place-items: center;
+  align-self: flex-end; margin-bottom: 1px;
 }
-#composer #mesh-attach-btn:hover { background: var(--bg-alt); color: var(--text); }
-#composer #mesh-attach-btn svg { display: block; }
+#composer #mesh-attach-btn:hover, #composer #agents-perm-btn:hover {
+  background: var(--bg-alt); color: var(--text);
+}
+#composer #mesh-attach-btn svg, #composer #agents-perm-btn svg { display: block; }
 #composer .send-icon {
   width: 44px; height: 44px; flex: none;
   border-radius: 50%; padding: 0;
@@ -861,7 +864,8 @@ pre.configdump {
   cursor: pointer; text-align: left;
 }
 .sec-head:hover, [data-theme="dark"] .sec-head:hover { background: var(--hover); }
-.sec-head span:first-child { flex: 1; }
+.sec-head svg { flex: none; width: 18px; height: 18px; }
+.sec-label { flex: 1; }
 .sec-count { font-weight: 400; color: var(--text-faint); }
 
 .media-strip { display: flex; gap: 6px; overflow: hidden; padding: 0 10px; }
@@ -916,6 +920,30 @@ pre.configdump {
 
 /* chat info identity block (WhatsApp group-info style) */
 .ci-identity { text-align: center; padding: 6px 0 14px; }
+.ci-name-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 4px; position: relative;
+}
+.ci-name-row .ci-name { flex: 1; text-align: center; padding-left: 34px; }
+.ci-name-row:not(:has(.ci-pencil)) .ci-name { padding-left: 0; }
+.ci-pencil { flex: none; color: var(--text-dim); }
+.ci-ok { flex: none; color: var(--accent); }
+.ci-edit {
+  flex: 1; min-width: 0; font: inherit; color: var(--text);
+  background: transparent; border: none; outline: none;
+  border-bottom: 2px solid var(--accent); padding: 4px 2px;
+  text-align: left; resize: none;
+}
+input.ci-edit { font-weight: 600; font-size: 17px; }
+
+/* description: left aligned, wraps, pencil at the row's end */
+.ci-desc-row { display: flex; align-items: flex-start; gap: 8px; }
+.ci-desc-text {
+  flex: 1; min-width: 0; text-align: left; font-size: 13px;
+  white-space: pre-wrap; word-wrap: break-word; color: var(--text);
+  padding-top: 5px;
+}
+.ci-desc-add { color: var(--accent); }
 .ci-avatar {
   width: 88px; height: 88px; border-radius: 50%; margin: 0 auto 10px;
   background: var(--accent); color: #fff; font-weight: 700; font-size: 36px;
@@ -961,7 +989,7 @@ pre.configdump {
 .mem-row:hover { background: var(--hover); }
 .mem-chevron {
   width: 28px; height: 28px; flex: none;
-  visibility: hidden;
+  visibility: hidden; margin-left: auto;   /* pin to the row's right end */
 }
 .mem-row:hover .mem-chevron { visibility: visible; }
 .mem-menu {
@@ -1002,7 +1030,7 @@ pre.configdump {
   background: none; font: inherit; font-weight: 600;
   color: var(--bad); cursor: pointer; text-align: left;
 }
-.danger-row svg { flex: none; width: 17px; height: 17px; color: var(--bad); }
+.danger-row svg { flex: none; width: 18px; height: 18px; color: var(--bad); }
 .danger-row.neutral, .danger-row.neutral svg { color: var(--text); }
 .danger-row:hover { background: var(--bg-alt); }
 .danger-row + .danger-row { border-top: 1px solid var(--bg-alt); }
@@ -1167,6 +1195,22 @@ body.side-collapsed #side-resizer { display: none; }
 
 /* settings section pages: a centered column, not a top-left corner */
 .settings-body { max-width: 660px; margin: 0 auto; }
+
+/* every interactive element gets the hand cursor (several buttons were
+   showing the text-selection I-beam) */
+button:not(:disabled), .chat-row, .tag-opt, .search-hit, .snav, .arch-row,
+.mem-add, .sec-head, .csel > button, .switch, label.row, .media-tile-btn,
+.att-btn, .chat-top, .fab {
+  cursor: pointer;
+}
+/* …and app chrome (brand, headers, labels, pills) is not selectable text —
+   no I-beam on the logo and friends */
+#side-head, #rail, .pane-head, h1, h2, .mem-head,
+.ci-identity, .ci-footer, .day-pill, .info-pill,
+.side-account-card, .settings-body .kv dt, .empty-state {
+  cursor: default; user-select: none;
+}
+.chat-top, .chat-top * { cursor: pointer; }   /* the header stays clickable */
 
 /* gentle motion everywhere */
 .chat-row, .rail-btn, .rail-avatar, .snav, button, .att-btn, .fab {
