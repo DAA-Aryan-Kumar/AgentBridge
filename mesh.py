@@ -271,7 +271,15 @@ class Mesh:
     def reply_rule(self, agent_username, chat_id):
         a = self.get_user(agent_username) or {}
         s = a.get("settings") or {}
-        return (s.get("rules") or {}).get(chat_id) or s.get("default_rule", "tagged")
+        explicit = (s.get("rules") or {}).get(chat_id)
+        if explicit:
+            return explicit
+        # a direct chat means someone is talking TO the agent — reply to
+        # everything there unless the owner set a per-chat rule
+        meta = self.get_chat(chat_id) or {}
+        if meta.get("kind") == "dm":
+            return "all"
+        return s.get("default_rule", "tagged")
 
     # ------------------------------------------------------------- chats
 
@@ -368,6 +376,8 @@ class Mesh:
         name = (name or "").strip()
         if not name:
             raise MeshError("Give the group a name")
+        if name == meta.get("name"):
+            return meta   # no change, no event
         meta["name"] = name
         self.cx.write_json(f"chats/{chat_id}/meta.json", meta)
         by_dn = (self.get_user(by) or {}).get("display", by)

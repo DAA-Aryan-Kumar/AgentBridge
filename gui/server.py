@@ -577,6 +577,7 @@ def api_mesh_state():
         for meta in m.chats_for(user, include_archived=True):
             chats.append({
                 "id": meta["id"], "name": meta["name"],
+                "kind": meta.get("kind", "group"),   # DMs display per-viewer
                 "owner": meta.get("owner"), "members": meta.get("members"),
                 "archived": bool(meta.get("archived")),
                 "created_by": meta.get("created_by"),

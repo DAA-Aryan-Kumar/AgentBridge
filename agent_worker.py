@@ -392,6 +392,11 @@ class Worker:
                                              and src.stat().st_size != f["bytes"]):
                         say(f"[worker] {chat_id}: attachment "
                             f"'{f.get('name')}' still syncing — waiting")
+                        # surface the wait in the chat's live status bubble
+                        fw = FeedWriter(self.mesh.root, self.agent, chat_id)
+                        fw.activity = (f"received the message — waiting for "
+                                       f"'{f.get('name')}' to finish syncing")
+                        fw.write(state="running", force=True)
                         return False   # cursor holds; retry next poll
         # always advance the cursor — rule says whether we ANSWER, not re-scan
         self.state["cursors"][chat_id] = msg_ns(new[-1])
@@ -509,7 +514,9 @@ class Worker:
             say(f"[worker] {chat_id}: agent chose NO_REPLY — staying quiet")
             return False
         if rc != 0 or not reply:
-            reply = (f"(worker) I could not produce a reply (rc={rc}).\n\n"
+            # formatted so the UI reads it as a worker notice, not agent prose
+            reply = (f"**Message from @{self.agent}'s worker** — the agent "
+                     f"hit an error and is currently unavailable (rc={rc}).\n\n"
                      f"Command: `{cmd[:300]}`\n\n"
                      f"Error output:\n```\n{str(err)[:1500]}\n```")
             feed.finish("error", "Run failed — error report posted")

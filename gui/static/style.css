@@ -358,10 +358,30 @@ input[type=text], select, textarea {
   display: grid; place-items: center;
 }
 
-.msg .sender {
+.msg .bubble .sender {
   font-size: 11.5px; font-weight: 600; color: var(--accent);
-  margin: 0 6px 2px;
+  margin: 0 0 3px;
 }
+/* DMs: no avatars, no names — reclaim the avatar gutter */
+#transcript.dm .msg:not(.mine) { padding-left: 0; }
+
+/* motion: opening a chat, and each newly arrived/sent bubble */
+#transcript.chat-in { animation: chat-in .2s ease; }
+@keyframes chat-in {
+  from { opacity: .4; transform: translateY(10px); }
+}
+.msg.msg-in { animation: msg-in .18s ease; }
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(10px); }
+}
+
+/* pane subviews (media / agents / search) slide in; media tab bodies
+   slide from the direction of travel */
+.pane-view { animation: slide-in-right .16s ease; }
+.media-body.slide-r { animation: body-r .18s ease; }
+.media-body.slide-l { animation: body-l .18s ease; }
+@keyframes body-r { from { opacity: .3; transform: translateX(26px); } }
+@keyframes body-l { from { opacity: .3; transform: translateX(-26px); } }
 
 .msg .bubble {
   border: 1px solid var(--border); border-radius: 10px;
@@ -708,10 +728,8 @@ pre.configdump {
 
 /* ---------------------------------------------------------------- mesh */
 
-.mention {
-  color: var(--accent); font-weight: 600;
-  background: var(--accent-soft); border-radius: 4px; padding: 0 3px;
-}
+/* same treatment as the composer highlighter: color only, no glow */
+.mention { color: var(--accent); font-weight: 600; }
 
 .chat-list { display: flex; flex-direction: column; }
 .chat-row {
@@ -881,14 +899,19 @@ pre.configdump {
 
 .media-tabs {
   display: flex; gap: 0; border-bottom: 1px solid var(--border);
-  margin-bottom: 12px;
+  margin-bottom: 12px; position: relative;
 }
 .media-tab {
   flex: 1; padding: 9px 0; border: none; background: none;
   font: inherit; font-weight: 600; color: var(--text-dim); cursor: pointer;
-  border-bottom: 2.5px solid transparent;
 }
-.media-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.media-tab.active { color: var(--accent); }
+/* the underline is one element that GLIDES between tabs */
+.tab-ink {
+  position: absolute; bottom: -1px; height: 2.5px;
+  background: var(--accent); border-radius: 2px;
+  transition: left .22s ease, width .22s ease;
+}
 .media-month {
   font-size: 11.5px; font-weight: 600; text-transform: uppercase;
   letter-spacing: .5px; color: var(--text-dim); margin: 14px 0 8px;
@@ -928,13 +951,15 @@ pre.configdump {
 .ci-name-row:not(:has(.ci-pencil)) .ci-name { padding-left: 0; }
 .ci-pencil { flex: none; color: var(--text-dim); }
 .ci-ok { flex: none; color: var(--accent); }
-.ci-edit {
+/* high specificity on purpose: the global input[type=text] box styling
+   was winning over this and boxing the name editor */
+#details-pane input.ci-edit, .ci-edit {
   flex: 1; min-width: 0; font: inherit; color: var(--text);
-  background: transparent; border: none; outline: none;
-  border-bottom: 2px solid var(--accent); padding: 4px 2px;
-  text-align: left; resize: none;
+  background: transparent; border: none; outline: none; box-shadow: none;
+  border-bottom: 2px solid var(--accent); border-radius: 0;
+  padding: 4px 2px; text-align: left; resize: none;
 }
-input.ci-edit { font-weight: 600; font-size: 17px; }
+#details-pane input#ci-name-input { font-weight: 600; font-size: 17px; }
 
 /* description: left aligned, wraps, pencil at the row's end */
 .ci-desc-row { display: flex; align-items: flex-start; gap: 8px; }
@@ -970,8 +995,8 @@ input.ci-edit { font-weight: 600; font-size: 17px; }
 .ci-act:hover .ci-act-circle { background: var(--accent-soft); }
 .ci-act svg { width: 19px; height: 19px; }
 .ci-footer {
-  color: var(--text-faint); font-size: 12px; text-align: center;
-  padding: 4px 0 10px;
+  color: var(--text-faint); font-size: 12px; text-align: left;
+  padding: 10px 4px;
 }
 
 /* member rows in chat info */
