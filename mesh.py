@@ -32,6 +32,11 @@ Layout under <shared>/mesh/:
     chats/<chat_id>/msgs/<username>.jsonl
     chats/<chat_id>/state/<username>.json      read cursor
     chats/<chat_id>/files/                     attachments
+
+Storage goes through a CONNECTOR (connectors/ package): today a locally-
+synced cloud folder (OneDrive/SharePoint/Google Drive desktop — all the
+same from here), later API-backed stores for devices without file sync.
+The mesh itself never touches the filesystem directly.
 """
 
 import hashlib
@@ -39,9 +44,10 @@ import json
 import os
 import re
 import secrets
-import shutil
 import time
 from pathlib import Path
+
+from connectors import get_connector
 
 MESH_VERSION = 1
 USERNAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
@@ -122,36 +128,46 @@ class MeshError(Exception):
 
 
 class Mesh:
+    _last_ns = 0  # per-process monotonic guard for message ordinals
+
     def __init__(self, shared_dir):
-        self.root = Path(shared_dir) / "mesh"
-        self.users_dir = self.root / "users"
-        self.chats_dir = self.root / "chats"
+        """shared_dir: path to the synced shared folder (mesh lives in its
+        mesh/ subtree), a connector spec dict, or a ready Connector already
+        rooted at the mesh subtree."""
+        if isinstance(shared_dir, (str, Path)):
+            self.cx = get_connector(Path(shared_dir) / "mesh")
+        else:
+            self.cx = get_connector(shared_dir)
+        # real filesystem location when folder-backed, else None — consumers
+        # that need OS paths (open-with-default-app, the GUI's path-validated
+        # file serving, worker status feeds) must handle the None seam
+        self.root = self.cx.local_path("")
 
     def exists(self):
-        return (self.root / "mesh.json").is_file()
+        return self.cx.exists("mesh.json")
 
     def init(self):
-        self.users_dir.mkdir(parents=True, exist_ok=True)
-        self.chats_dir.mkdir(parents=True, exist_ok=True)
+        self.cx.mkdir("users")
+        self.cx.mkdir("chats")
         if not self.exists():
-            atomic_write_json(self.root / "mesh.json",
-                              {"mesh_version": MESH_VERSION, "created": utcnow()})
+            self.cx.write_json("mesh.json", {"mesh_version": MESH_VERSION,
+                                             "created": utcnow()})
         return self
 
     # ------------------------------------------------------------- users
 
-    def user_path(self, username):
-        return self.users_dir / f"{username}.json"
+    def _user_key(self, username):
+        return f"users/{username}.json"
 
     def get_user(self, username):
-        return read_json(self.user_path(username))
+        return self.cx.read_json(self._user_key(username))
 
     def users(self):
         out = {}
-        if not self.users_dir.is_dir():
-            return out
-        for p in sorted(self.users_dir.glob("*.json")):
-            u = read_json(p)
+        for name in self.cx.listdir("users"):
+            if not name.endswith(".json"):
+                continue
+            u = self.cx.read_json(f"users/{name}")
             if u and u.get("username"):
                 out[u["username"]] = u
         return out
@@ -172,7 +188,7 @@ class Mesh:
         rec = {"username": username, "kind": "human",
                "display": display or username.title(),
                "created": utcnow(), "auth": hash_password(password)}
-        atomic_write_json(self.user_path(username), rec)
+        self.cx.write_json(self._user_key(username), rec)
         return rec
 
     def create_agent(self, username, display, owner):
@@ -188,7 +204,7 @@ class Mesh:
                "settings": {"model": None, "reasoning": None,
                             "default_rule": "tagged", "rules": {},
                             "tools_profile": "default"}}
-        atomic_write_json(self.user_path(username), rec)
+        self.cx.write_json(self._user_key(username), rec)
         return rec
 
     def verify_login(self, username, password):
@@ -210,7 +226,7 @@ class Mesh:
             raise MeshError("Password must be at least 4 characters")
         u = self.get_user(username)
         u["auth"] = hash_password(new_password)
-        atomic_write_json(self.user_path(username), u)
+        self.cx.write_json(self._user_key(username), u)
 
     def owns(self, human, agent_username):
         a = self.get_user(agent_username)
@@ -249,7 +265,7 @@ class Mesh:
                 if len(a["owners"]) == 1:
                     raise MeshError("An agent must keep at least one owner")
                 a["owners"].remove(patch["revoke_owner"])
-        atomic_write_json(self.user_path(agent_username), a)
+        self.cx.write_json(self._user_key(agent_username), a)
         return a
 
     def reply_rule(self, agent_username, chat_id):
@@ -260,10 +276,12 @@ class Mesh:
     # ------------------------------------------------------------- chats
 
     def chat_dir(self, chat_id):
-        return self.chats_dir / chat_id
+        """Local filesystem path of a chat (folder-backed connectors only,
+        else None) — for consumers that hand paths to the OS."""
+        return self.cx.local_path(f"chats/{chat_id}")
 
     def get_chat(self, chat_id):
-        return read_json(self.chat_dir(chat_id) / "meta.json")
+        return self.cx.read_json(f"chats/{chat_id}/meta.json")
 
     def create_chat(self, name, creator, members=None):
         """members: agent/human usernames to include besides the creator.
@@ -299,8 +317,8 @@ class Mesh:
         meta = {"id": chat_id, "name": name, "created": utcnow(),
                 "created_by": creator, "owner": owner,
                 "members": members, "archived": False}
-        atomic_write_json(self.chat_dir(chat_id) / "meta.json", meta)
-        (self.chat_dir(chat_id) / "msgs").mkdir(parents=True, exist_ok=True)
+        self.cx.write_json(f"chats/{chat_id}/meta.json", meta)
+        self.cx.mkdir(f"chats/{chat_id}/msgs")
         return meta
 
     def archive_chat(self, chat_id, by_human, archived=True):
@@ -314,7 +332,7 @@ class Mesh:
             raise MeshError("Only the chat's owner can archive it")
         meta["archived"] = bool(archived)
         meta["archived_ts"] = utcnow() if archived else None
-        atomic_write_json(self.chat_dir(chat_id) / "meta.json", meta)
+        self.cx.write_json(f"chats/{chat_id}/meta.json", meta)
         return meta
 
     def add_member(self, chat_id, username, by):
@@ -329,7 +347,7 @@ class Mesh:
             raise MeshError(f"@{username} is not your agent")
         if username not in meta["members"]:
             meta["members"].append(username)
-            atomic_write_json(self.chat_dir(chat_id) / "meta.json", meta)
+            self.cx.write_json(f"chats/{chat_id}/meta.json", meta)
         return meta
 
     def chats_for(self, username, include_archived=False):
@@ -337,10 +355,8 @@ class Mesh:
         if not u:
             return []
         out = []
-        if not self.chats_dir.is_dir():
-            return out
-        for d in sorted(self.chats_dir.iterdir()):
-            meta = read_json(d / "meta.json")
+        for cid in self.cx.listdir("chats"):
+            meta = self.cx.read_json(f"chats/{cid}/meta.json")
             if not meta:
                 continue
             if meta.get("archived") and not include_archived:
@@ -356,15 +372,11 @@ class Mesh:
 
     # ------------------------------------------------------------- messages
 
-    def _msgs_dir(self, chat_id):
-        return self.chat_dir(chat_id) / "msgs"
-
     def messages(self, chat_id, tail=200):
         msgs = []
-        d = self._msgs_dir(chat_id)
-        if d.is_dir():
-            for p in d.glob("*.jsonl"):
-                msgs.extend(read_jsonl(p))
+        for name in self.cx.listdir(f"chats/{chat_id}/msgs"):
+            if name.endswith(".jsonl"):
+                msgs.extend(self.cx.read_jsonl(f"chats/{chat_id}/msgs/{name}"))
         msgs.sort(key=lambda m: (m.get("ts") or "", m.get("id") or ""))
         return msgs[-tail:] if tail else msgs
 
@@ -394,36 +406,40 @@ class Mesh:
             src = Path(src)
             if not src.is_file():
                 raise MeshError(f"Attachment not found: {src}")
-            fdir = self.chat_dir(chat_id) / "files"
-            fdir.mkdir(parents=True, exist_ok=True)
             dest_name = src.name
-            if (fdir / dest_name).exists():
+            if self.cx.exists(f"chats/{chat_id}/files/{dest_name}"):
                 dest_name = f"{src.stem}_{secrets.token_hex(3)}{src.suffix}"
-            dest = fdir / dest_name
-            shutil.copy2(src, dest)
+            dest_key = f"chats/{chat_id}/files/{dest_name}"
+            self.cx.put_file(src, dest_key)
             files.append({"name": dest_name, "path": f"files/{dest_name}",
-                          "bytes": dest.stat().st_size,
-                          "sha256": sha256_file(dest)})
+                          "bytes": self.cx.size(dest_key),
+                          "sha256": self.cx.sha256(dest_key)})
         if not body and not files:
             raise MeshError("Type a message or attach a file first")
+        # Windows time_ns ticks at ~15.6ms — two quick posts can tie, which
+        # breaks ordering and makes `> cursor` skip a same-tick message.
+        # Keep ns strictly increasing within this process.
         ns = time.time_ns()
+        if ns <= Mesh._last_ns:
+            ns = Mesh._last_ns + 1
+        Mesh._last_ns = ns
         msg = {"id": f"{ns:x}-{sender}", "ns": ns, "ts": utcnow(),
                "from": sender, "kind": u["kind"], "body": body,
                "tags": self.parse_tags(body), "files": files}
-        append_jsonl(self._msgs_dir(chat_id) / f"{sender}.jsonl", msg)
+        self.cx.append_jsonl(f"chats/{chat_id}/msgs/{sender}.jsonl", msg)
         return msg
 
     # ------------------------------------------------------------- cursors
 
-    def _cursor_path(self, chat_id, username):
-        return self.chat_dir(chat_id) / "state" / f"{username}.json"
+    def _cursor_key(self, chat_id, username):
+        return f"chats/{chat_id}/state/{username}.json"
 
     def mark_read(self, chat_id, username, ts=None):
-        atomic_write_json(self._cursor_path(chat_id, username),
-                          {"read_ts": ts or utcnow(), "updated": utcnow()})
+        self.cx.write_json(self._cursor_key(chat_id, username),
+                           {"read_ts": ts or utcnow(), "updated": utcnow()})
 
     def unread_count(self, chat_id, username):
-        cur = read_json(self._cursor_path(chat_id, username)) or {}
+        cur = self.cx.read_json(self._cursor_key(chat_id, username)) or {}
         read_ts = cur.get("read_ts") or ""
         return sum(1 for m in self.messages(chat_id, tail=0)
                    if (m.get("ts") or "") > read_ts and m.get("from") != username)

@@ -465,7 +465,7 @@ def api_install_app(data):
                 src = REPO_ROOT / name
                 if src.is_file():
                     shutil.copy2(src, dest / name)
-            for folder in ("gui", "skills", "legacy"):
+            for folder in ("connectors", "gui", "skills", "legacy"):
                 if (REPO_ROOT / folder).is_dir():
                     shutil.copytree(
                         REPO_ROOT / folder, dest / folder, dirs_exist_ok=True,

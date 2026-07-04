@@ -36,6 +36,7 @@ its reply text and mesh.post() parses mentions the same way for every user.
 
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -306,15 +307,21 @@ class Worker:
         self.state["replies"][chat_id] = recent
         return len(recent) < cap
 
-    def build_cmd(self, prompt, reply_file, minimal=False):
+    def build_cmd(self, prompt, reply_file, minimal=False, settings=None):
         tmpl = self.cfg.get("agent_cmd", "cortex")
         source = CMD_TEMPLATES_MINIMAL if minimal else CMD_TEMPLATES
         tmpl = source.get(tmpl, tmpl)
         blocked = self.cfg.get("disallowed_tools") or []
         blocklist = " ".join(f'--disallowed-tools "{t}"' for t in blocked)
-        return tmpl.format(prompt=prompt.replace('"', "'"),
-                           reply_file=reply_file, workdir=self.workdir,
-                           blocklist=blocklist)
+        cmd = tmpl.format(prompt=prompt.replace('"', "'"),
+                          reply_file=reply_file, workdir=self.workdir,
+                          blocklist=blocklist)
+        # owner-set model from the agent's mesh record (GUI Settings → Model);
+        # both CLI families take --model. Sanitized: it rides a shell string.
+        model = ((settings or {}).get("model") or "").strip()
+        if model and re.fullmatch(r"[A-Za-z0-9._:-]+", model):
+            cmd += f" --model {model}"
+        return cmd
 
     def process_chat(self, meta, users, dry_run=False):
         chat_id = meta["id"]
@@ -361,7 +368,8 @@ class Worker:
         reply_file = self.workdir / "reply.md"
         reply_file.unlink(missing_ok=True)
         self.outbox.mkdir(exist_ok=True)
-        cmd = self.build_cmd(prompt, reply_file)
+        my_settings = me.get("settings") or {}
+        cmd = self.build_cmd(prompt, reply_file, settings=my_settings)
         if dry_run:
             say(f"[dry-run] {chat_id} rule={rule} would run: {cmd[:160]}…")
             return False
@@ -369,7 +377,8 @@ class Worker:
         feed = FeedWriter(self.mesh.root, self.agent, chat_id)
         timeout = int(self.cfg.get("timeout", 3300))
         if self.state.get("minimal_flags"):
-            cmd = self.build_cmd(prompt, reply_file, minimal=True)
+            cmd = self.build_cmd(prompt, reply_file, minimal=True,
+                                 settings=my_settings)
         rc, out, err = run_agent(cmd, timeout, cwd=self.workdir, feed=feed)
         usage_err = rc not in (0, None) and "Usage:" in (err or "")
         if usage_err and not self.state.get("minimal_flags"):
@@ -378,7 +387,8 @@ class Worker:
             say(f"[worker] {chat_id}: flags rejected — retrying minimal")
             feed.activity = "CLI rejected flags — retrying with minimal set"
             feed.write(state="running", force=True)
-            cmd = self.build_cmd(prompt, reply_file, minimal=True)
+            cmd = self.build_cmd(prompt, reply_file, minimal=True,
+                                 settings=my_settings)
             rc, out, err = run_agent(cmd, timeout, cwd=self.workdir, feed=feed)
             if rc == 0:
                 self.state["minimal_flags"] = True

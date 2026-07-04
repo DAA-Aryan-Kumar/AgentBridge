@@ -10,6 +10,11 @@
   --bg-alt: #FAF9F8;
   --bg-rail: #F5F3F1;
   --bg-rail2: #EFECEA;
+  --hover: rgba(0, 0, 0, .07);
+  --side-hover: #ECEAE8;
+  --code-bg: #FAF9F8;
+  --terminal-bg: #2B2A29;
+  --terminal-fg: #F3F2F1;
   --border: #EDEBE9;
   --border-strong: #D2D0CE;
   --text: #323130;
@@ -54,8 +59,7 @@ body { display: flex; flex-direction: column; }
   background: transparent; color: var(--text-dim);
   display: grid; place-items: center; cursor: pointer; padding: 0;
 }
-.rail-btn:hover { background: rgba(0, 0, 0, .07); color: var(--text); }
-[data-theme="dark"] .rail-btn:hover { background: rgba(255, 255, 255, .08); }
+.rail-btn:hover { background: var(--hover); color: var(--text); }
 .rail-btn.active { background: var(--accent-soft); color: var(--accent); }
 
 .rail-avatar {
@@ -117,8 +121,7 @@ body { display: flex; flex-direction: column; }
 .fab:hover { background: var(--accent-hover); }
 .fab svg { display: block; }
 
-.chat-title-btn { min-width: 0; cursor: pointer; border-radius: 6px; padding: 3px 10px; margin-left: -10px; }
-.chat-title-btn:hover { background: var(--bg-alt); }
+.chat-title-btn { min-width: 0; padding: 3px 0; }
 
 #side-head {
   display: flex; align-items: center; gap: 10px;
@@ -138,28 +141,29 @@ body { display: flex; flex-direction: column; }
 }
 .empty-state svg { color: var(--text-faint); opacity: .55; }
 
-#navrail a {
-  display: flex; align-items: center; gap: 11px;
-  padding: 9px 12px; border-radius: var(--radius);
-  color: var(--text); text-decoration: none;
-  border-left: 3px solid transparent;
-  position: relative;
+/* settings navigation in the sidebar (WhatsApp-style grouped items) */
+.snav {
+  display: flex; align-items: center; gap: 13px;
+  width: 100%; padding: 13px 16px; margin: 0;
+  border: none; background: none; text-align: left;
+  font: inherit; color: var(--text); cursor: pointer;
+  border-radius: 0;
 }
+.snav:hover { background: var(--side-hover); }
+.snav.active { background: var(--accent-soft); }
+.snav svg { width: 20px; height: 20px; color: var(--text-dim); flex: none; }
+.snav.active svg { color: var(--accent); }
+.snav .snav-label { font-weight: 600; }
+.snav .snav-desc { font-size: 12px; color: var(--text-dim); margin-top: 1px; }
 
-#navrail a svg { width: 18px; height: 18px; color: var(--text-dim); flex: none; }
-
-#navrail a:hover { background: #ECEAE8; }
-
-#navrail a.active {
-  background: var(--surface); border-left-color: var(--accent);
-  font-weight: 600; box-shadow: var(--shadow);
+.side-account-card {
+  display: flex; align-items: center; gap: 13px;
+  padding: 16px 16px 14px; border-bottom: 1px solid var(--border);
 }
-
-#navrail a.active svg { color: var(--accent); }
-
-.nav-dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--accent); margin-left: auto;
+.side-account-card .acct-big {
+  width: 52px; height: 52px; border-radius: 50%; flex: none;
+  background: var(--accent); color: #fff; font-weight: 700; font-size: 21px;
+  display: grid; place-items: center;
 }
 
 #content {
@@ -271,16 +275,40 @@ input[type=text], select, textarea {
 }
 
 /* chat view header: name on top, members below — height matches the
-   sidebar brand header so the two dividers form one line */
+   sidebar brand header so the two dividers form one line. The whole
+   header opens chat info (except the ⋮ corner). */
 .chat-top {
-  display: flex; align-items: center; flex: none;
-  height: var(--head-h); padding: 0 18px;
+  display: flex; align-items: center; gap: 6px; flex: none;
+  height: var(--head-h); padding: 0 10px 0 18px;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
+  cursor: pointer; position: relative;
 }
 .chat-head-sub {
   font-size: 12.3px; color: var(--text-dim); margin-top: 1px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chat-back { display: none; }   /* shown on mobile */
+
+/* dropdown menu (chat header ⋮) */
+.menu {
+  position: absolute; top: calc(var(--head-h) - 6px); right: 10px; z-index: 9;
+  min-width: 218px; padding: 5px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; box-shadow: 0 8px 28px rgba(0, 0, 0, .22);
+  animation: menu-pop .12s ease;
+}
+.menu button {
+  display: flex; align-items: center; gap: 11px;
+  width: 100%; padding: 9px 12px; border: none; border-radius: 6px;
+  background: none; text-align: left; font: inherit; color: var(--text);
+  cursor: pointer;
+}
+.menu button:hover { background: var(--bg-alt); }
+.menu button svg { width: 17px; height: 17px; color: var(--text-dim); flex: none; }
+.menu .menu-sep { border-top: 1px solid var(--border); margin: 5px 2px; }
+@keyframes menu-pop {
+  from { opacity: 0; transform: translateY(-4px); }
 }
 
 #transcript {
@@ -322,7 +350,7 @@ input[type=text], select, textarea {
   padding: 1px 5px; font-size: 12px;
 }
 .bubble .md-pre, .bubble .md-mono {
-  background: #FAF9F8; border: 1px solid var(--border);
+  background: var(--code-bg); border: 1px solid var(--border);
   border-radius: 6px; padding: 9px 11px; margin: 6px 0 8px;
   overflow-x: auto; white-space: pre;
   font-family: Consolas, monospace; font-size: 12px; line-height: 1.45;
@@ -459,7 +487,8 @@ input[type=text], select, textarea {
 #composer-pill textarea {
   flex: 1; border: none; resize: none; outline: none;
   background: transparent; color: var(--text); font: inherit;
-  min-height: 22px; max-height: 160px; padding: 3px 0; line-height: 1.45;
+  min-height: 22px; max-height: 160px; line-height: 1.45;
+  padding: 3px 0 5px;  /* asymmetric: centers the caret in the 44px pill */
 }
 #composer #mesh-attach-btn {
   width: 30px; height: 30px; flex: none; padding: 0;
@@ -576,7 +605,7 @@ textarea::-webkit-scrollbar { width: 8px; }
 /* copyable command blocks (remote guide) */
 .cmd-block { position: relative; margin: 8px 0 14px; }
 .cmd-block pre {
-  background: #2B2A29; color: #F3F2F1; border-radius: 6px;
+  background: var(--terminal-bg); color: var(--terminal-fg); border-radius: 6px;
   padding: 11px 84px 11px 13px; overflow-x: auto; margin: 0;
   font-family: Consolas, monospace; font-size: 12px; line-height: 1.55;
   white-space: pre-wrap; word-break: break-all;
@@ -676,6 +705,9 @@ pre.configdump {
   --bg-alt: #201F1E;
   --bg-rail: #232120;
   --bg-rail2: #1D1C1B;
+  --hover: rgba(255, 255, 255, .08);
+  --side-hover: #2D2C2B;
+  --code-bg: #1B1A19;
   --border: #3B3A39;
   --border-strong: #484644;
   --text: #F3F2F1;
@@ -685,13 +717,99 @@ pre.configdump {
   --accent-border: #7A4A26;
   --shadow: none;
 }
-[data-theme="dark"] .md-pre, [data-theme="dark"] .md-mono,
-[data-theme="dark"] pre.configdump {
-  background: #1B1A19;
-}
+[data-theme="dark"] pre.configdump { background: var(--code-bg); }
 [data-theme="dark"] .bubble code { background: rgba(255,255,255,.08); }
 [data-theme="dark"] .msg.mine .att-btn { background: rgba(0,0,0,.25); }
-[data-theme="dark"] button:hover { background: #2D2C2B; }
+[data-theme="dark"] button:hover { background: var(--side-hover); }
+
+/* ------------------------------------------------------- details pane */
+
+/* chat info: right side panel on wide screens; covers the chat area on
+   medium; full screen (minus rail) on mobile */
+#details-pane {
+  width: 400px; flex: none; min-width: 0;
+  border-left: 1px solid var(--border);
+  background: var(--bg-alt); overflow-y: auto;
+  padding: 16px 18px;
+  animation: slide-in-right .18s ease;
+}
+#details-pane .card { max-width: none; }
+@keyframes slide-in-right {
+  from { opacity: .4; transform: translateX(26px); }
+}
+.pane-head {
+  display: flex; align-items: center; gap: 10px;
+  margin: -2px 0 12px;
+}
+.pane-head .pane-title { font-weight: 600; font-size: 15.5px; flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 1100px) {
+  body.details-open #content.chat-mode { display: none; }
+  #details-pane { flex: 1; width: auto; }
+}
+
+/* ------------------------------------------------------- responsiveness */
+
+#content.chat-mode { min-width: 320px; }
+
+/* forms never blow out their grid/card */
+.kv dd { min-width: 0; }
+.kv select, .kv input[type=text], .kv input[type=password] {
+  max-width: 100%; box-sizing: border-box;
+}
+.card { min-width: 0; }
+
+/* collapsed sidebar (double-click the resizer; click the active rail
+   icon to bring it back) */
+body.side-collapsed #navrail,
+body.side-collapsed #side-resizer { display: none; }
+
+/* mobile: rail becomes a bottom bar, sidebar is the home surface, an open
+   chat (or its info) takes the whole screen */
+@media (max-width: 760px) {
+  #shell { flex-direction: column; }
+  #rail {
+    order: 2; width: 100%; height: 56px;
+    flex-direction: row; justify-content: space-evenly; align-items: center;
+    padding: 0; gap: 0;
+    border-right: none; border-top: 1px solid var(--border);
+  }
+  #rail .spacer { display: none; }
+  #navrail { width: 100% !important; flex: 1; border-right: none; }
+  #side-resizer { display: none; }
+  body.side-collapsed #navrail { display: flex; }
+  /* pane-open = an open chat or a chosen settings section takes the screen */
+  #content, #details-pane { display: none !important; }
+  body.pane-open #navrail { display: none; }
+  body.pane-open #content {
+    display: flex !important; flex: 1; flex-direction: column;
+    animation: slide-in-right .16s ease;
+  }
+  body.pane-open.details-open #content { display: none !important; }
+  body.pane-open.details-open #details-pane {
+    display: block !important; flex: 1; width: auto; border-left: none;
+  }
+  .mob-back { display: inline-flex !important; }
+  .chat-back {
+    display: grid; place-items: center;
+    width: 34px; height: 34px; margin-left: -6px;
+    border: none; border-radius: 50%; background: none;
+    color: var(--text-dim); padding: 0;
+  }
+  .fab { bottom: 74px; }
+  .msg { max-width: 86%; }
+}
+
+.mob-back { display: none; align-items: center; gap: 5px;
+  border: none; background: none; color: var(--text-dim); font: inherit;
+  padding: 0 0 10px; cursor: pointer; }
+
+/* gentle motion everywhere */
+.chat-row, .rail-btn, .rail-avatar, .snav, button, .att-btn, .fab {
+  transition: background-color .15s ease, color .15s ease, filter .15s ease;
+}
+#tag-pop { animation: menu-pop .12s ease; }
 
 #toast {
   position: fixed; bottom: 44px; left: 50%; transform: translateX(-50%);

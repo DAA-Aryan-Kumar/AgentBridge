@@ -222,16 +222,115 @@ function setTheme(t) {
 
 // ---------------------------------------------------------------- sidebar
 
+/* inline icons (stroke style, currentColor) */
+const ICONS = {
+  user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c1.6-3.8 13.4-3.8 15 0"/></svg>',
+  key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="14" r="4.2"/><path d="M11 11 20 3.6M16 7l2.5 2.5M13.6 9.4l2 2"/></svg>',
+  chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.6a8.3 8.3 0 0 1-8.5 8.1 8.9 8.9 0 0 1-4-.94L3 20l1.36-4.05a7.9 7.9 0 0 1-1.36-4.35A8.3 8.3 0 0 1 11.5 3.5h1A8.3 8.3 0 0 1 21 11.6z"/></svg>',
+  bot: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="8" width="14" height="10" rx="2.5"/><path d="M12 8V4.6M9.2 4.6h5.6"/><circle cx="9.4" cy="13" r=".6" fill="currentColor"/><circle cx="14.6" cy="13" r=".6" fill="currentColor"/></svg>',
+  plug: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7V3.5M16 7V3.5M7 7h10v4a5 5 0 0 1-10 0zM12 16v4.5"/></svg>',
+  info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.6"/><path d="M12 11v5M12 7.6v.2"/></svg>',
+  archive: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4" width="17" height="4.6" rx="1"/><path d="M5.5 8.6V19a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V8.6M10 12.6h4"/></svg>',
+  pause: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.6"/><path d="M10 9v6M14 9v6"/></svg>',
+  close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  back: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>',
+  more: '<svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor"><circle cx="12" cy="5.2" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="18.8" r="1.7"/></svg>',
+};
+
+const SETTINGS_SECTIONS = [
+  { id: "profile", label: "Profile", desc: "Name, username", icon: ICONS.user },
+  { id: "account", label: "Account", desc: "Sign out, security", icon: ICONS.key },
+  { id: "chats", label: "Chats", desc: "Theme", icon: ICONS.chat },
+  { id: "agents", label: "My agents", desc: "Models, reply rules", icon: ICONS.bot },
+  { id: "connection", label: "Connection", desc: "Shared folder, sync", icon: ICONS.plug },
+];
+const Settings = { section: null };   // explicit #/settings/<section>
+
+// the sidebar follows the rail selection: chat list, settings nav,
+// or the new-chat form
 function renderSidebar() {
+  const ms = Mesh.state;
+  $("#rail-account").textContent =
+    ms?.user ? (meshDn(ms.user)[0] || "?").toUpperCase() : "?";
+  $("#side-new").hidden = App.page !== "chats";
+  if (App.page === "settings") return renderSettingsSidebar();
+  if (App.page === "new") return renderNewChatSidebar();
+  renderChatListSidebar();
+}
+
+function renderSettingsSidebar() {
   const ms = Mesh.state;
   const box = $("#side-chats");
   if (!ms?.available || !ms.user) {
-    box.innerHTML = `<div class="empty" style="padding:24px 10px">${
-      !ms?.available ? "Mesh not started yet" : "Sign in to see your chats"}</div>`;
-    $("#rail-account").textContent = "?";
+    box.innerHTML = `<div class="empty" style="padding:24px 10px">Sign in first</div>`;
     return;
   }
-  $("#rail-account").textContent = (meshDn(ms.user)[0] || "?").toUpperCase();
+  const active = Settings.section || (innerWidth > 760 ? "profile" : null);
+  box.style.padding = "0";
+  box.innerHTML = `
+    <div class="side-account-card">
+      <span class="acct-big">${esc((meshDn(ms.user)[0] || "?").toUpperCase())}</span>
+      <div style="min-width:0">
+        <div style="font-weight:600">${esc(meshDn(ms.user))}</div>
+        <div class="hint">@${esc(ms.user)}</div>
+      </div>
+    </div>
+    ${SETTINGS_SECTIONS.map((s) => `
+      <button class="snav ${s.id === active ? "active" : ""}" data-sec="${s.id}">
+        ${s.icon}
+        <span style="min-width:0">
+          <div class="snav-label">${s.label}</div>
+          <div class="snav-desc">${s.desc}</div>
+        </span>
+      </button>`).join("")}`;
+  box.querySelectorAll(".snav").forEach((b) => {
+    b.addEventListener("click", () => { location.hash = `#/settings/${b.dataset.sec}`; });
+  });
+}
+
+function renderNewChatSidebar() {
+  const ms = Mesh.state;
+  const box = $("#side-chats");
+  box.style.padding = "";
+  if (!ms?.available || !ms.user) { location.hash = "#/chats"; return; }
+  const myAgents = Object.values(ms.users)
+    .filter((u) => u.kind === "agent" && (u.owners || []).includes(ms.user));
+  box.innerHTML = `
+    <div style="padding:12px 10px">
+      <div style="font-weight:600;margin-bottom:10px">New chat</div>
+      <input type="text" id="new-chat-name" placeholder="Chat name" style="width:100%">
+      <p class="hint" style="margin:12px 0 4px">Your agents (every human joins
+      automatically):</p>
+      ${myAgents.map((a) => `
+        <label class="row" style="padding:3px 0">
+          <input type="checkbox" class="nc-member" value="${esc(a.username)}">
+          ${esc(a.display)} <span class="hint">@${esc(a.username)}</span>
+        </label>`).join("") || `<p class="hint">No agents yet — add one in Settings.</p>`}
+      <div class="row" style="margin-top:14px">
+        <button class="primary" id="create-chat-btn">Create</button>
+        <button id="nc-cancel">Cancel</button>
+      </div>
+    </div>`;
+  $("#create-chat-btn").addEventListener("click", async () => {
+    const members = [...document.querySelectorAll(".nc-member:checked")].map((c) => c.value);
+    const r = await api("/api/mesh/create_chat",
+      { name: $("#new-chat-name").value, members });
+    if (r.error) { toast(r.error, true); return; }
+    location.hash = `#/chats/${r.chat.id}`;
+  });
+  $("#nc-cancel").addEventListener("click", () => { location.hash = "#/chats"; });
+  $("#new-chat-name").focus();
+}
+
+function renderChatListSidebar() {
+  const ms = Mesh.state;
+  const box = $("#side-chats");
+  box.style.padding = "";
+  if (!ms?.available || !ms.user) {
+    box.innerHTML = `<div class="empty" style="padding:24px 10px">${
+      !ms?.available ? "Mesh not started yet" : "Sign in to see your chats"}</div>`;
+    return;
+  }
   box.innerHTML = (ms.chats || []).filter((c) => !c.archived).map((c) => `
     <div class="chat-row ${c.id === Mesh.chatId ? "active" : ""}" data-chat="${esc(c.id)}">
       <div class="chat-avatar">${esc((c.name[0] || "#").toUpperCase())}</div>
@@ -312,9 +411,13 @@ async function renderChats(force) {
 
   if (!ms.user) { renderMeshAuth(); return; }
   if (Mesh.chatId) {
-    if (Mesh.detailsView) return renderChatDetails(force);
-    return renderMeshChat(force);
+    await renderMeshChat(force);
+    const pane = $("#details-pane");
+    if (Mesh.detailsView) { pane.hidden = false; await renderChatDetails(); }
+    else { pane.hidden = true; pane.innerHTML = ""; Mesh.detailsKey = ""; }
+    return;
   }
+  $("#details-pane").hidden = true;
 
   // no chat selected: WhatsApp-style empty pane (the list lives in the sidebar)
   if (!force && Mesh.listKey === "empty" && App.page === "chats") return;
@@ -473,12 +576,23 @@ async function renderMeshChat(force) {
   const memberLine = (meta.members || []).filter((u) => u !== ms.user)
     .map(meshDn).concat("You").join(", ");
 
+  const isOwner = meta.owner === ms.user;
   $("#content").innerHTML = `
-    <div class="chat-top">
-      <div id="chat-info-btn" class="chat-title-btn" title="Open chat info" style="min-width:0">
+    <div class="chat-top" id="chat-top" title="Open chat info">
+      <button class="chat-back" id="chat-back">${ICONS.back}</button>
+      <div class="chat-title-btn" style="min-width:0">
         <div class="chat-head-name">${esc(meta.name)}
           ${meta.archived ? '<span class="kind-tag">archived</span>' : ""}</div>
         <div class="chat-head-sub">${esc(memberLine)}</div>
+      </div>
+      <span class="spacer"></span>
+      <button class="icon-btn" id="chat-more">${ICONS.more}</button>
+      <div class="menu" id="chat-menu" hidden>
+        <button data-act="info">${ICONS.info} Chat info</button>
+        ${isOwner ? `<button data-act="archive">${ICONS.archive} ${meta.archived ? "Unarchive chat" : "Archive chat"}</button>` : ""}
+        <button data-act="pause">${ICONS.pause} ${ms.paused ? "Resume all agents" : "Stand down all agents"}</button>
+        <div class="menu-sep"></div>
+        <button data-act="close">${ICONS.close} Close chat</button>
       </div>
     </div>
     <div id="transcript">${bubbles}</div>
@@ -499,8 +613,41 @@ async function renderMeshChat(force) {
     </div>`}`;
 
   $("#content").classList.add("chat-mode");
-  $("#chat-info-btn").addEventListener("click", () => {
+  // the whole header opens chat info — except the ⋮ corner and its menu
+  const menu = $("#chat-menu");
+  $("#chat-top").addEventListener("click", (e) => {
+    if (e.target.closest("#chat-more") || e.target.closest("#chat-menu")
+        || e.target.closest("#chat-back")) return;
     location.hash = `#/chats/${chatId}/details`;
+  });
+  $("#chat-back").addEventListener("click", () => { location.hash = "#/chats"; });
+  $("#chat-more").addEventListener("click", () => { menu.hidden = !menu.hidden; });
+  document.addEventListener("click", function away(e) {
+    if (!e.target.closest("#chat-more") && !e.target.closest("#chat-menu")) {
+      if (!menu.isConnected) { document.removeEventListener("click", away); return; }
+      menu.hidden = true;
+    }
+  });
+  menu.querySelectorAll("button").forEach((b) => {
+    b.addEventListener("click", async () => {
+      menu.hidden = true;
+      const act = b.dataset.act;
+      if (act === "info") location.hash = `#/chats/${chatId}/details`;
+      else if (act === "close") location.hash = "#/chats";
+      else if (act === "archive") {
+        const r = await api("/api/mesh/archive", { chat_id: chatId, archived: !meta.archived });
+        if (r.error) { toast(r.error, true); return; }
+        toast(r.archived ? "Chat archived" : "Chat restored");
+        Mesh.structKey = ""; renderChats(true);
+      } else if (act === "pause") {
+        const r = await api("/api/mesh/pause", { paused: !ms.paused });
+        if (r.error) { toast(r.error, true); return; }
+        Mesh.state.paused = r.paused;
+        renderChrome();
+        toast(r.paused ? "All agents standing down" : "Agents resumed");
+        Mesh.structKey = ""; renderChats(true);
+      }
+    });
   });
 
   const body = $("#mesh-body");
@@ -665,17 +812,17 @@ async function renderChatDetails() {
     </select>`;
   };
 
-  $("#content").innerHTML = `
-    <div class="chat-head">
-      <button id="cd-back">←</button>
-      <div class="chat-head-name">${esc(meta.name)}</div>
+  $("#details-pane").innerHTML = `
+    <div class="pane-head">
+      <span class="pane-title">${esc(meta.name)}</span>
+      <button class="icon-btn" id="cd-close">${ICONS.close}</button>
     </div>
-    <div class="card" style="max-width:640px">
+    <div class="card">
       <h2>Members</h2>
       ${(meta.members || []).map((u) => `<span class="member-chip">${esc(meshDn(u))}
         ${ms.users[u]?.kind === "agent" ? '<span class="kind-tag">agent</span>' : ""}</span>`).join(" ")}
     </div>
-    <div class="card" style="max-width:640px">
+    <div class="card">
       <h2>Media and files</h2>
       ${media.length ? media.map((f) => `
         <button class="att-btn cd-file" data-path="${esc(f.path)}"
@@ -688,14 +835,14 @@ async function renderChatDetails() {
         </button>`).join("") : `<div class="empty">Nothing shared yet.</div>`}
     </div>
     ${myAgentsHere.length ? `
-    <div class="card" style="max-width:640px">
+    <div class="card">
       <h2>Your agents in this chat</h2>
-      <dl class="kv" style="grid-template-columns:140px 1fr">
+      <dl class="kv" style="grid-template-columns:minmax(90px,140px) 1fr">
         ${myAgentsHere.map((a) => `<dt>${esc(a.display)}</dt><dd>${ruleSel(a)}</dd>`).join("")}
       </dl>
       <p class="hint" style="margin-bottom:0">Rule changes apply from the agent's next check.</p>
     </div>` : ""}
-    <div class="card" style="max-width:640px">
+    <div class="card">
       <h2>Emergency stand-down</h2>
       <div class="row">
         <label class="switch">
@@ -708,7 +855,7 @@ async function renderChatDetails() {
       <p class="hint" style="margin-bottom:0">Any human can flip this. Pending
       requests get one consolidated reply per chat after resuming.</p>
     </div>
-    <div class="card" style="max-width:640px">
+    <div class="card">
       <h2>Connection</h2>
       <dl class="kv">
         <dt>Folder synced</dt><dd>${s.shared_ok ? "✓ Yes" : "✗ No — check OneDrive"}</dd>
@@ -716,7 +863,7 @@ async function renderChatDetails() {
         <dt>Versions</dt><dd>App v${esc(s.gui_version)} · Bridge v${esc(s.bridge_version)}</dd>
       </dl>
     </div>
-    <div class="card" style="max-width:640px">
+    <div class="card">
       <h2>About</h2>
       <dl class="kv">
         <dt>Created by</dt><dd>${esc(meshDn(meta.created_by))}</dd>
@@ -729,13 +876,14 @@ async function renderChatDetails() {
       </div>` : ""}
     </div>`;
 
-  $("#cd-back").addEventListener("click", () => { location.hash = `#/chats/${chatId}`; });
+  $("#cd-close").addEventListener("click", () => { location.hash = `#/chats/${chatId}`; });
   const arch = $("#cd-archive");
   if (arch) arch.addEventListener("click", async () => {
     const r = await api("/api/mesh/archive", { chat_id: chatId, archived: !meta.archived });
     if (r.error) { toast(r.error, true); return; }
     toast(r.archived ? "Chat archived" : "Chat restored");
-    renderChatDetails();
+    Mesh.structKey = "";
+    renderChats(true);
   });
   $("#cd-pause").addEventListener("change", async (e) => {
     const r = await api("/api/mesh/pause", { paused: e.target.checked });
@@ -765,36 +913,20 @@ async function renderChatDetails() {
 // ---------------------------------------------------------------- new chat
 
 async function renderNewChat() {
+  // the form lives in the sidebar (renderNewChatSidebar); the main pane
+  // keeps the resting state
   Mesh.state = await api("/api/mesh/state");
-  renderSidebar();
   const ms = Mesh.state;
   if (!ms.available || !ms.user) { location.hash = "#/chats"; return; }
-  const myAgents = Object.values(ms.users)
-    .filter((u) => u.kind === "agent" && (u.owners || []).includes(ms.user));
+  renderSidebar();
+  $("#details-pane").hidden = true;
   $("#content").innerHTML = `
-    <h1>New chat</h1>
-    <p class="page-sub">Name it, add your agents — every human is in automatically.</p>
-    <div class="card" style="max-width:520px">
-      <input type="text" id="new-chat-name" placeholder="Chat name" style="width:100%">
-      <p class="hint" style="margin:12px 0 4px">Your agents:</p>
-      ${myAgents.map((a) => `
-        <label class="row" style="padding:3px 0">
-          <input type="checkbox" class="nc-member" value="${esc(a.username)}">
-          ${esc(a.display)} <span class="hint">@${esc(a.username)}</span>
-        </label>`).join("") || `<p class="hint">No agents yet — add one in Settings.</p>`}
-      <div class="row" style="margin-top:14px">
-        <button class="primary" id="create-chat-btn">Create</button>
-        <button onclick="location.hash='#/chats'">Cancel</button>
+    <div class="empty-state">
+      <div>
+        <svg viewBox="0 0 32 32" width="76" height="76" style="margin-bottom:8px"><path d="M4 22c3.5-8 20.5-8 24 0M4 22v-4M28 22v-4" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg>
+        <p><b>New chat</b> — name it in the sidebar and pick the agents.</p>
       </div>
     </div>`;
-  $("#create-chat-btn").addEventListener("click", async () => {
-    const members = [...document.querySelectorAll(".nc-member:checked")].map((c) => c.value);
-    const r = await api("/api/mesh/create_chat",
-      { name: $("#new-chat-name").value, members });
-    if (r.error) { toast(r.error, true); return; }
-    location.hash = `#/chats/${r.chat.id}`;
-  });
-  $("#new-chat-name").focus();
 }
 
 // ---------------------------------------------------------------- settings
@@ -803,78 +935,108 @@ async function renderSettings() {
   const s = App.state;
   if (!s.configured) { location.hash = "#/setup"; return; }
   Mesh.state = await api("/api/mesh/state");
-  renderSidebar();
   const ms = Mesh.state;
+  if (!ms.available || !ms.user) { location.hash = "#/chats"; return; }
+  renderSidebar();
+  $("#details-pane").hidden = true;
+  const section = Settings.section || "profile";
   const dark = document.documentElement.dataset.theme === "dark";
+  const back = `<button class="mob-back" onclick="location.hash='#/settings'">${ICONS.back} Settings</button>`;
 
-  const mine = ms.available && ms.user ? Object.values(ms.users)
-    .filter((u) => u.kind === "agent" && (u.owners || []).includes(ms.user)) : [];
-  const agentCards = mine.map((a) => {
-    const st = a.settings || {};
-    return `
-      <div class="card" style="max-width:680px">
-        <h2>${esc(a.display)} <span class="hint" style="text-transform:none">@${esc(a.username)}</span></h2>
-        <dl class="kv" style="grid-template-columns:160px 1fr">
-          <dt>Model</dt><dd><input type="text" class="ag-model" data-agent="${esc(a.username)}"
-            value="${esc(st.model || "")}" placeholder="agent default"></dd>
-          <dt>Reasoning effort</dt><dd><input type="text" class="ag-reason" data-agent="${esc(a.username)}"
-            value="${esc(st.reasoning || "")}" placeholder="agent default"></dd>
-          <dt>Default reply rule</dt><dd><select class="ag-default" data-agent="${esc(a.username)}">
-            ${Object.entries(RULE_LABELS).map(([r, label]) =>
-              `<option value="${r}" ${(st.default_rule || "tagged") === r ? "selected" : ""}>${label}</option>`).join("")}
-          </select></dd>
-          <dt>Owners</dt><dd>${(a.owners || []).map((o) => esc("@" + o)).join(", ")}</dd>
-        </dl>
-        <p class="hint">Per-chat rules live in each chat's details page.</p>
-        <div class="row"><button class="primary ag-save" data-agent="${esc(a.username)}">Save</button></div>
+  let html = "";
+  if (section === "profile") {
+    html = `${back}<h1>Profile</h1>
+      <div class="card" style="max-width:560px">
+        <div style="display:flex;align-items:center;gap:16px">
+          <span class="acct-big" style="width:64px;height:64px;font-size:26px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:700">${esc((meshDn(ms.user)[0] || "?").toUpperCase())}</span>
+          <div>
+            <div style="font-weight:600;font-size:16px">${esc(meshDn(ms.user))}</div>
+            <div class="hint">@${esc(ms.user)} · human</div>
+          </div>
+        </div>
+        <p class="hint" style="margin-bottom:0">Display name and profile photo
+        editing arrive with the account overhaul.</p>
       </div>`;
-  }).join("");
-
-  $("#content").innerHTML = `
-    <h1>Settings</h1>
-    <div class="card" style="max-width:680px">
-      <h2>Account</h2>
-      ${ms.available && ms.user ? `
+  } else if (section === "account") {
+    html = `${back}<h1>Account</h1>
+      <div class="card" style="max-width:560px">
+        <h2>Signed in as</h2>
         <dl class="kv">
-          <dt>Signed in as</dt><dd><b>${esc(meshDn(ms.user))}</b> @${esc(ms.user)}</dd>
+          <dt>Name</dt><dd><b>${esc(meshDn(ms.user))}</b></dd>
+          <dt>Username</dt><dd>@${esc(ms.user)}</dd>
         </dl>
-        <div class="row" style="margin-top:10px"><button id="st-logout">Sign out</button></div>`
-        : `<div class="empty">Not signed in — head to <a href="#/chats">Chats</a>.</div>`}
-      <div class="row" style="margin-top:14px">
-        <label class="switch">
-          <input type="checkbox" id="theme-toggle" ${dark ? "checked" : ""}>
-          <span class="slider"></span>
-        </label>
-        <span><b>Dark mode</b></span>
-      </div>
-    </div>
-    ${agentCards}
-    ${ms.available && ms.user ? `
-    <div class="card" style="max-width:680px">
-      <h2>Add an agent</h2>
-      <div class="row">
-        <input type="text" id="new-agent-user" placeholder="username (e.g. coco2)">
-        <input type="text" id="new-agent-display" placeholder="Display name">
-        <button class="primary" id="new-agent-btn">Create</button>
-      </div>
-      <p class="hint" style="margin-bottom:0">You become its responsible human;
-      its machine runs <code>agent_worker.py</code>.</p>
-    </div>` : ""}
-    <div class="card" style="max-width:680px">
-      <h2>Connection</h2>
-      <dl class="kv">
-        <dt>Shared folder</dt><dd class="mono">${esc(s.shared_dir)}
-          <a href="#" id="open-shared2">open</a></dd>
-        <dt>Folder synced</dt><dd>${s.shared_ok ? "✓ Yes" : "✗ No — check OneDrive"}</dd>
-        <dt>OneDrive</dt><dd>${s.onedrive_running === null ? "Unknown" : s.onedrive_running ? "✓ Running" : "✗ Not running"}</dd>
-        <dt>Versions</dt><dd>App v${esc(s.gui_version)} · Bridge v${esc(s.bridge_version)}</dd>
-      </dl>
-      <div class="row" style="margin-top:10px">
-        <button onclick="openTarget('home')">Open config folder</button>
-      </div>
-    </div>`;
+        <div class="row" style="margin-top:12px"><button id="st-logout">Sign out</button></div>
+        <p class="hint" style="margin-bottom:0">Your account lives in the shared
+        folder — it works from any machine that syncs it. Password change is
+        coming with the account overhaul.</p>
+      </div>`;
+  } else if (section === "chats") {
+    html = `${back}<h1>Chats</h1>
+      <div class="card" style="max-width:560px">
+        <h2>Appearance</h2>
+        <div class="row">
+          <label class="switch">
+            <input type="checkbox" id="theme-toggle" ${dark ? "checked" : ""}>
+            <span class="slider"></span>
+          </label>
+          <span><b>Dark mode</b></span>
+        </div>
+        <p class="hint" style="margin-bottom:0">Full theming and wallpapers come
+        with the theming pass.</p>
+      </div>`;
+  } else if (section === "agents") {
+    const mine = Object.values(ms.users)
+      .filter((u) => u.kind === "agent" && (u.owners || []).includes(ms.user));
+    html = `${back}<h1>My agents</h1>
+      ${mine.map((a) => {
+        const st = a.settings || {};
+        return `
+        <div class="card" style="max-width:640px">
+          <h2>${esc(a.display)} <span class="hint" style="text-transform:none">@${esc(a.username)}</span></h2>
+          <dl class="kv" style="grid-template-columns:minmax(110px,160px) 1fr">
+            <dt>Model</dt><dd><input type="text" class="ag-model" data-agent="${esc(a.username)}"
+              value="${esc(st.model || "")}" placeholder="agent default"></dd>
+            <dt>Reasoning effort</dt><dd><input type="text" class="ag-reason" data-agent="${esc(a.username)}"
+              value="${esc(st.reasoning || "")}" placeholder="agent default"></dd>
+            <dt>Default reply rule</dt><dd><select class="ag-default" data-agent="${esc(a.username)}">
+              ${Object.entries(RULE_LABELS).map(([r, label]) =>
+                `<option value="${r}" ${(st.default_rule || "tagged") === r ? "selected" : ""}>${label}</option>`).join("")}
+            </select></dd>
+            <dt>Owners</dt><dd>${(a.owners || []).map((o) => esc("@" + o)).join(", ")}</dd>
+          </dl>
+          <p class="hint">Per-chat rules live in each chat's info page.</p>
+          <div class="row"><button class="primary ag-save" data-agent="${esc(a.username)}">Save</button></div>
+        </div>`;
+      }).join("") || ""}
+      <div class="card" style="max-width:640px">
+        <h2>Add an agent</h2>
+        <div class="row">
+          <input type="text" id="new-agent-user" placeholder="username (e.g. coco2)">
+          <input type="text" id="new-agent-display" placeholder="Display name">
+          <button class="primary" id="new-agent-btn">Create</button>
+        </div>
+        <p class="hint" style="margin-bottom:0">You become its responsible human;
+        its machine runs <code>agent_worker.py</code>.</p>
+      </div>`;
+  } else if (section === "connection") {
+    html = `${back}<h1>Connection</h1>
+      <div class="card" style="max-width:640px">
+        <dl class="kv">
+          <dt>Shared folder</dt><dd class="mono">${esc(s.shared_dir)}
+            <a href="#" id="open-shared2">open</a></dd>
+          <dt>Folder synced</dt><dd>${s.shared_ok ? "✓ Yes" : "✗ No — check OneDrive"}</dd>
+          <dt>Sync client</dt><dd>${s.onedrive_running === null ? "Unknown" : s.onedrive_running ? "✓ Running" : "✗ Not running"}</dd>
+          <dt>Versions</dt><dd>App v${esc(s.gui_version)} · Bridge v${esc(s.bridge_version)}</dd>
+        </dl>
+        <div class="row" style="margin-top:10px">
+          <button onclick="openTarget('home')">Open config folder</button>
+        </div>
+      </div>`;
+  }
+  $("#content").innerHTML = html;
 
-  $("#theme-toggle").addEventListener("change", (e) => {
+  const theme = $("#theme-toggle");
+  if (theme) theme.addEventListener("change", (e) => {
     setTheme(e.target.checked ? "dark" : "light");
   });
   const logout = $("#st-logout");
@@ -882,7 +1044,8 @@ async function renderSettings() {
     await api("/api/mesh/logout", {});
     location.hash = "#/chats";
   });
-  $("#open-shared2").addEventListener("click", (e) => {
+  const shared2 = $("#open-shared2");
+  if (shared2) shared2.addEventListener("click", (e) => {
     e.preventDefault(); openTarget("shared");
   });
   document.querySelectorAll(".ag-save").forEach((btn) => {
@@ -1289,9 +1452,20 @@ function route() {
       Mesh.detailsKey = "";
       Mesh.structKey = "";
     }
+  } else {
+    Mesh.chatId = null;
+    Mesh.detailsView = false;
+    Mesh.structKey = "";
   }
+  Settings.section = page === "settings" ? (sub || null) : null;
   $("#content").classList.toggle("chat-mode",
-    App.page === "chats" && !!Mesh.chatId && !Mesh.detailsView);
+    App.page === "chats" && !!Mesh.chatId);
+  // mobile: pane-open = an open chat or a chosen settings section fills
+  // the screen; the sidebar is the home surface otherwise
+  document.body.classList.toggle("pane-open",
+    (page === "chats" && !!Mesh.chatId) || (page === "settings" && !!sub));
+  document.body.classList.toggle("details-open",
+    page === "chats" && !!Mesh.detailsView);
   $("#rail-chats").classList.toggle("active", page === "chats" || page === "new");
   $("#rail-account").classList.toggle("active", page === "settings");
   renderChrome();
@@ -1314,15 +1488,33 @@ window.addEventListener("hashchange", route);
 (async function start() {
   initTheme();
   $("#side-new").addEventListener("click", () => { location.hash = "#/new"; });
-  $("#rail-chats").addEventListener("click", () => { location.hash = "#/chats"; });
-  $("#rail-account").addEventListener("click", () => { location.hash = "#/settings"; });
-  // resizable sidebar, width persisted
+  // rail: navigate; clicking the ACTIVE selection also brings back a
+  // collapsed sidebar
+  const railGo = (target, isActive) => {
+    if (isActive() && document.body.classList.contains("side-collapsed")) {
+      document.body.classList.remove("side-collapsed");
+      localStorage.removeItem("sideCollapsed");
+    }
+    location.hash = target;
+  };
+  $("#rail-chats").addEventListener("click", () =>
+    railGo("#/chats", () => App.page === "chats" || App.page === "new"));
+  $("#rail-account").addEventListener("click", () =>
+    railGo("#/settings", () => App.page === "settings"));
+  if (localStorage.getItem("sideCollapsed")) {
+    document.body.classList.add("side-collapsed");
+  }
+  // resizable sidebar, width persisted; double-click collapses it
   const savedW = parseInt(localStorage.getItem("sidebarW"), 10);
   if (savedW) $("#navrail").style.width = savedW + "px";
+  $("#side-resizer").addEventListener("dblclick", () => {
+    document.body.classList.add("side-collapsed");
+    localStorage.setItem("sideCollapsed", "1");
+  });
   $("#side-resizer").addEventListener("mousedown", (e) => {
     e.preventDefault();
     const move = (ev) => {
-      const w = Math.min(480, Math.max(220, ev.clientX));
+      const w = Math.min(480, Math.max(220, ev.clientX - 58));
       $("#navrail").style.width = w + "px";
       localStorage.setItem("sidebarW", w);
     };
