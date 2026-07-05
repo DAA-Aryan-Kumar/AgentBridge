@@ -4,7 +4,9 @@
   --accent: #D83B01;
   --accent-hover: #B93301;
   --accent-soft: #FDF0EA;
-  --accent-border: #F4C7B3;
+  /* own-bubble boundary — darkened with the dividers (was #F4C7B3,
+     near-invisible against the accent-soft fill) */
+  --accent-border: #EBAF93;
   --surface: #FFFFFF;
   --bg: #FFFFFF;
   --bg-alt: #FAF9F8;
@@ -16,10 +18,13 @@
   --code-bg: #FAF9F8;
   --terminal-bg: #2B2A29;
   --terminal-fg: #F3F2F1;
-  /* #EDEBE9 was invisible on the white canvas (user: header boundaries) —
-     one Fluent step darker keeps it soft but present */
-  --border: #E1DFDD;
-  --border-strong: #D2D0CE;
+  /* dividers darkened twice on user request (#EDEBE9 → #E1DFDD → this):
+     light mode boundaries kept vanishing on the white canvas */
+  --border: #D8D6D4;
+  --border-strong: #C6C4C2;
+  /* the "you are here" tint (active chat row, settings section, rail) —
+     one step deeper than accent-soft; tuned per theme, never shared */
+  --selected: #FAE0D1;
   --text: #323130;
   --text-dim: #605E5C;
   --text-faint: #A19F9D;
@@ -82,7 +87,7 @@ body { display: flex; flex-direction: column; }
   background: var(--accent); color: #fff; font-weight: 700; font-size: 14px;
   display: grid; place-items: center;
 }
-.rail-avatar-wrap:hover .rail-avatar { filter: brightness(1.08); }
+.rail-avatar-wrap:hover .rail-avatar { box-shadow: 0 0 0 4px var(--hover); }
 .rail-avatar-wrap.active .rail-avatar {
   outline: 2px solid var(--accent); outline-offset: 2px;
 }
@@ -110,7 +115,7 @@ body { display: flex; flex-direction: column; }
   color: var(--text-dim); border: none; background: none; cursor: pointer;
 }
 .icon-btn svg { width: 19px; height: 19px; }
-.icon-btn:hover { background: var(--bg-alt); color: var(--text); }
+.icon-btn:hover { background: var(--hover); color: var(--text); }
 .icon-btn.active { color: var(--accent); background: var(--accent-soft); }
 
 #shell { display: flex; flex: 1; min-height: 0; overflow-x: hidden; }
@@ -148,7 +153,7 @@ body { display: flex; flex-direction: column; }
 .side-title { font-weight: 700; font-size: 16px; letter-spacing: .2px; }
 
 #side-chats { flex: 1; overflow-y: auto; padding: 6px; }
-#side-chats .chat-row.active { background: var(--accent-soft); }
+#side-chats .chat-row.active { background: var(--selected); }
 #side-chats .chat-avatar { width: 38px; height: 38px; font-size: 15px; }
 #side-chats .chat-last { max-width: 190px; }
 #side-chats.slide { animation: side-slide .16s ease; }
@@ -163,7 +168,7 @@ body { display: flex; flex-direction: column; }
   background: none; font: inherit; color: var(--text-dim); cursor: pointer;
   text-align: left; margin-top: 4px;
 }
-.arch-row:hover { background: var(--bg-alt); }
+.arch-row:hover { background: var(--hover); }
 .arch-row svg { width: 18px; height: 18px; flex: none; }
 .arch-row .arch-count { margin-left: auto; font-size: 12px; }
 
@@ -185,8 +190,8 @@ body { display: flex; flex-direction: column; }
   font: inherit; color: var(--text); cursor: pointer;
   border-radius: 0;
 }
-.snav:hover { background: var(--side-hover); }
-.snav.active, .snav.active:hover { background: var(--accent-soft); }
+.snav:hover { background: var(--hover); }
+.snav.active, .snav.active:hover { background: var(--selected); }
 .snav svg { width: 20px; height: 20px; color: var(--text-dim); flex: none; }
 .snav.active svg { color: var(--accent); }
 .snav .snav-label { font-weight: 600; }
@@ -270,7 +275,9 @@ button, .btn {
   background: var(--surface); color: var(--text);
   padding: 6px 16px;
 }
-button:hover { background: var(--bg-alt); }
+/* ONE hover tint for every button-ish surface — var(--hover) reads on any
+   background in both themes (user: "use the same highlight everywhere") */
+button:hover { background: var(--hover); }
 
 button.primary {
   background: var(--accent); border-color: var(--accent); color: #fff;
@@ -340,7 +347,7 @@ input[type=text], select, textarea {
   background: none; text-align: left; font: inherit; color: var(--text);
   cursor: pointer;
 }
-.menu button:hover { background: var(--bg-alt); }
+.menu button:hover { background: var(--hover); }
 .menu button svg { width: 17px; height: 17px; color: var(--text-dim); flex: none; }
 .menu .menu-sep { border-top: 1px solid var(--border); margin: 5px 2px; }
 @keyframes menu-pop {
@@ -639,7 +646,14 @@ input[type=text], select, textarea {
   min-height: 22px; max-height: 160px; line-height: 1.45;
   padding: 3px 0 5px;  /* asymmetric: centers the caret in the 44px pill */
   position: relative; z-index: 1;
+  /* NO scrollbar: once the box scrolls, a scrollbar would narrow the
+     textarea's wrap width while the highlight backdrop (no scrollbar)
+     keeps the full width — the two layers then wrap DIFFERENTLY and the
+     caret drifts off the painted text ("composer bug", root-caused from
+     the user's 05:37 screenshot). Same width for both = same wrapping. */
+  scrollbar-width: none;
 }
+#composer-pill textarea::-webkit-scrollbar { display: none; }
 #composer-pill textarea::selection {
   background: var(--selection); color: transparent;
 }
@@ -820,8 +834,8 @@ pre.configdump {
   display: flex; align-items: center; gap: 12px;
   padding: 10px 10px; border-radius: 6px; cursor: pointer;
 }
-.chat-row:hover { background: var(--bg-alt); }
-#side-chats .chat-row.active:hover { background: var(--accent-soft); }
+.chat-row:hover { background: var(--hover); }
+#side-chats .chat-row.active:hover { background: var(--selected); }
 .chat-row + .chat-row { border-top: 1px solid var(--bg-alt); }
 .chat-avatar {
   width: 40px; height: 40px; border-radius: 50%; flex: none;
@@ -882,12 +896,13 @@ pre.configdump {
   --text-faint: #8A8886;
   --accent-soft: #3B2416;
   --accent-border: #7A4A26;
+  --selected: #4A2C19;
   --shadow: none;
 }
 [data-theme="dark"] pre.configdump { background: var(--code-bg); }
 [data-theme="dark"] .bubble code { background: rgba(255,255,255,.08); }
 [data-theme="dark"] .msg.mine .att-btn { background: rgba(0,0,0,.25); }
-[data-theme="dark"] button:hover { background: var(--side-hover); }
+[data-theme="dark"] button:hover { background: var(--hover); }
 
 /* ------------------------------------------------------- custom select */
 
@@ -921,7 +936,7 @@ pre.configdump {
   border: none; border-radius: 6px; background: none;
   font: inherit; color: var(--text); cursor: pointer; font-size: 13px;
 }
-.csel-opt:hover { background: var(--bg-alt); }
+.csel-opt:hover { background: var(--hover); }
 .csel-opt.sel, .csel-opt.sel:hover {
   background: var(--accent-soft); font-weight: 600;
 }
@@ -1141,7 +1156,7 @@ pre.configdump {
 }
 .danger-row svg { flex: none; width: 18px; height: 18px; color: var(--bad); }
 .danger-row.neutral, .danger-row.neutral svg { color: var(--text); }
-.danger-row:hover { background: var(--bg-alt); }
+.danger-row:hover { background: var(--hover); }
 .danger-row + .danger-row { border-top: 1px solid var(--bg-alt); }
 
 /* ------------------------------------------------------------ modal */
@@ -1166,7 +1181,7 @@ pre.configdump {
 }
 .modal-list { flex: 1; overflow-y: auto; min-height: 120px; }
 .modal-list .mem-row { padding: 8px 6px; cursor: pointer; }
-.modal-list label.mem-row:hover { background: var(--bg-alt); }
+.modal-list label.mem-row:hover { background: var(--hover); }
 .modal-list input[type=checkbox] { accent-color: var(--accent); }
 .modal-sec {
   font-size: 11.5px; font-weight: 600; text-transform: uppercase;
@@ -1218,14 +1233,14 @@ pre.configdump {
   padding: 9px 10px; border: none; border-radius: 8px;
   background: none; font: inherit; color: var(--text); cursor: pointer;
 }
-.search-hit:hover { background: var(--bg-alt); }
+.search-hit:hover { background: var(--hover); }
 .search-hit .sh-date { color: var(--text-faint); font-size: 11px; margin-bottom: 2px; }
 .search-hit .sh-body { font-size: 13px; color: var(--text-dim);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .search-hit .sh-body b { color: var(--accent); }
 .msg.flash .bubble { animation: msg-flash 1.6s ease; }
 @keyframes msg-flash {
-  0%, 45% { background: var(--accent-soft); border-color: var(--accent-border); }
+  0%, 45% { background: var(--selection); border-color: var(--accent); }
 }
 
 @media (max-width: 1100px) {

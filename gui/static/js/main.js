@@ -94,19 +94,17 @@ window.addEventListener("hashchange", route);
 (async function start() {
   initTheme();
   $("#side-new").addEventListener("click", () => { location.hash = "#/new"; });
-  // rail: navigate; clicking the ACTIVE selection also brings back a
-  // collapsed sidebar
-  const railGo = (target, isActive) => {
-    if (isActive() && document.body.classList.contains("side-collapsed")) {
+  // rail: navigate; clicking ANY rail item also brings back a collapsed
+  // sidebar (was active-item-only — user found that surprising)
+  const railGo = (target) => {
+    if (document.body.classList.contains("side-collapsed")) {
       document.body.classList.remove("side-collapsed");
       localStorage.removeItem("sideCollapsed");
     }
     location.hash = target;
   };
-  $("#rail-chats").addEventListener("click", () =>
-    railGo("#/chats", () => App.page === "chats" || App.page === "new"));
-  $("#rail-account").addEventListener("click", () =>
-    railGo("#/settings", () => App.page === "settings"));
+  $("#rail-chats").addEventListener("click", () => railGo("#/chats"));
+  $("#rail-account").addEventListener("click", () => railGo("#/settings"));
   if (localStorage.getItem("sideCollapsed")) {
     document.body.classList.add("side-collapsed");
   }

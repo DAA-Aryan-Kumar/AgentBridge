@@ -119,7 +119,17 @@ export function initComposer(chatId, members) {
   };
   autosize();
   body.addEventListener("scroll", () => { hl.scrollTop = body.scrollTop; });
-  body.addEventListener("input", (e) => { draft.body = e.target.value; autosize(); });
+  // typing presence: a throttled heartbeat while composing — other members
+  // see a "typing…" bubble (fades ~10s after the last keystroke)
+  let lastTyping = 0;
+  body.addEventListener("input", (e) => {
+    draft.body = e.target.value;
+    autosize();
+    if (body.value && Date.now() - lastTyping > 3000) {
+      lastTyping = Date.now();
+      api("/api/mesh/typing", { chat_id: chatId });
+    }
+  });
 
   // @tag autofill: chat members, keyboard + mouse
   const taggable = [...members].filter((u) => u !== ms.user)

@@ -183,8 +183,28 @@ async function renderMeshChat(force) {
         ${lastOfMinute(i) ? `<div class="meta">${esc(timeOnly(msg.ts))}</div>` : ""}
       </div>`);
   }
-  // agents working right now: typing indicator + the reply forming live
+  // live presence: agents working (dots + label + forming draft) and
+  // humans typing (dots only). Styled like a regular incoming message —
+  // avatar in the gutter, name inside the bubble, none of either in DMs.
+  const feedHead = (who) => isDm ? "" :
+    `<span class="msg-avatar">${esc((meshDn(who)[0] || "?").toUpperCase())}</span>`;
+  const feedSender = (who, isAgent) => isDm ? "" :
+    `<div class="sender">${esc(meshDn(who))}${isAgent ? ' <span class="kind-tag">agent</span>' : ""}</div>`;
   for (const f of feeds) {
+    if (f.human) {
+      // a human mid-composition: just the dots, nothing else
+      if (f.age_s != null && f.age_s > 12) continue;
+      parts.push(`
+        <div class="msg">
+          ${feedHead(f.agent)}
+          <div class="bubble typing">
+            ${feedSender(f.agent, false)}
+            <div class="typing-row"><span class="tdot"></span><span class="tdot"></span>
+              <span class="tdot"></span></div>
+          </div>
+        </div>`);
+      continue;
+    }
     // a feed silent for 10+ minutes is a ghost (worker crashed or ended
     // without posting, e.g. a NO_REPLY turn) — don't show "is writing…"
     // forever
@@ -192,14 +212,16 @@ async function renderMeshChat(force) {
     let draft = (f.draft || "").trim();
     if (draft === "NO_REPLY") draft = "";   // protocol sentinel, not content
     const stale = f.age_s != null && f.age_s > 180;
-    let label = `${meshDn(f.agent)} is ${draft ? "writing" : "working"}…`;
+    // the name lives in the sender line now — the label doesn't repeat it
+    let label = `${draft ? "writing" : "working"}…`;
     if (stale) label += ` (no updates for ${Math.round(f.age_s / 60)} min)`;
     let sub = f.activity || "";
     if (f.turns) sub += `${sub ? "  ·  " : ""}step ${f.turns}`;
     parts.push(`
       <div class="msg">
-        ${isDm ? "" : `<div class="sender">${esc(meshDn(f.agent))}</div>`}
+        ${feedHead(f.agent)}
         <div class="bubble typing">
+          ${feedSender(f.agent, true)}
           <div class="typing-row"><span class="tdot"></span><span class="tdot"></span>
             <span class="tdot"></span><span class="typing-label">${esc(label)}</span></div>
           ${draft ? `<div class="typing-draft">${md(draft)}<span class="caret">▍</span></div>` : ""}
@@ -435,6 +457,12 @@ function openMsgMenu(rect, msg, chatId, ctx) {
     close();
     if (act === "reply") {
       startReply(chatId, msg);
+    } else if (act === "message") {
+      // straight to a DM with the sender (created on first use, deduped
+      // by the mesh after that)
+      const r = await api("/api/mesh/create_dm", { username: msg.from });
+      if (r.error) { toast(r.error, true); return; }
+      location.hash = `#/chats/${r.chat.id}`;
     } else if (act === "copy") {
       try {
         await navigator.clipboard.writeText(stripMd(msg.body || ""));
@@ -443,7 +471,7 @@ function openMsgMenu(rect, msg, chatId, ctx) {
         toast("Could not access the clipboard", true);
       }
     }
-    // message / forward / pin / star / delete: coming rounds
+    // forward / pin / star / delete: coming rounds
   });
 }
 

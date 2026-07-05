@@ -818,32 +818,75 @@ def api_mesh_pause(data):
     return {"ok": True, "paused": ctl["paused"]}
 
 
+def _feed_age(d):
+    import calendar
+    try:
+        return max(0.0, time.time() - calendar.timegm(
+            time.strptime(d.get("updated", ""), "%Y-%m-%dT%H:%M:%SZ")))
+    except (ValueError, TypeError):
+        return None
+
+
 def api_mesh_livefeed(params):
-    """Running livestream feeds (mesh/status/<agent>_run.json) for a chat —
-    what each agent is doing right now, plus its forming reply draft."""
+    """Live presence for a chat: agent runs (mesh/status/<agent>_run.json,
+    with the forming reply draft) plus humans mid-composition
+    (status/typing_<user>.json heartbeats)."""
     m = get_mesh()
     if m is None or not m.exists():
         return {"feeds": []}
     chat_id = params.get("id", "")
+    viewer = session_user(m)
     feeds = []
     status_dir = m.root / "status"
     if status_dir.is_dir():
-        import calendar
         for p in status_dir.glob("*_run.json"):
             d = bridge.read_json(p)
             if not isinstance(d, dict) or d.get("state") != "running":
                 continue
             if chat_id and d.get("chat_id") != chat_id:
                 continue
-            try:
-                d["age_s"] = max(0.0, time.time() - calendar.timegm(
-                    time.strptime(d.get("updated", ""), "%Y-%m-%dT%H:%M:%SZ")))
-            except (ValueError, TypeError):
-                d["age_s"] = None
+            d["age_s"] = _feed_age(d)
             if d["age_s"] is not None and d["age_s"] > 7200:
                 continue  # a run that died without a finish write
             feeds.append(d)
+        for p in status_dir.glob("typing_*.json"):
+            d = bridge.read_json(p)
+            if not isinstance(d, dict) or not d.get("user"):
+                continue
+            if chat_id and d.get("chat_id") != chat_id:
+                continue
+            if d["user"] == viewer:
+                continue  # your own typing isn't news
+            age = _feed_age(d)
+            if age is None or age > 12:
+                continue  # heartbeat every ~3s while typing; stale = stopped
+            feeds.append({"agent": d["user"], "human": True, "typing": True,
+                          "age_s": age})
     return {"feeds": feeds}
+
+
+def api_mesh_typing(data):
+    """Typing heartbeat: the composer pings while the user writes; other
+    members' windows show a dots-only bubble until it goes stale. One file
+    per user (single writer), best-effort like the agent feeds."""
+    m = get_mesh()
+    user = session_user(m)
+    if not user:
+        return {"error": "Sign in first"}
+    if m.root is None:
+        return {"ok": False}  # non-filesystem connector: no presence files
+    try:
+        p = m.root / "status" / f"typing_{user}.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps({
+            "user": user, "chat_id": (data.get("chat_id") or "")[:80],
+            "updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }), encoding="utf-8")
+        os.replace(tmp, p)
+    except OSError:
+        pass
+    return {"ok": True}
 
 
 def api_mesh_open_file(data):
@@ -917,6 +960,7 @@ POST_ROUTES = {
     "/api/mesh/agent": api_mesh_agent,
     "/api/mesh/open_file": api_mesh_open_file,
     "/api/mesh/pause": api_mesh_pause,
+    "/api/mesh/typing": api_mesh_typing,
 }
 
 
