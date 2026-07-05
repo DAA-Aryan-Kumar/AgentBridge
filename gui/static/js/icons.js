@@ -22,6 +22,12 @@ export const ICONS = {
   trash: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13M10 11v5M14 11v5"/></svg>',
   exit: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 4H5.8a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h3.7M15 8l4 4-4 4M19 12H9.5"/></svg>',
   attach: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05 12.25 20.2a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg>',
+  reply: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 7.5 5 12l4.5 4.5M5 12h9.3a5.2 5.2 0 0 1 5.2 5.2v1.3"/></svg>',
+  forward: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 7.5 19 12l-4.5 4.5M19 12H9.7a5.2 5.2 0 0 0-5.2 5.2v1.3"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8.8" y="8.8" width="11.2" height="11.2" rx="2"/><path d="M5.6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v.6"/></svg>',
+  pin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.3 3.8h5.4M10 3.8v4.9l-3 3a1 1 0 0 0 .7 1.7h8.6a1 1 0 0 0 .7-1.7l-3-3V3.8M12 13.4V20"/></svg>',
+  star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 4.2 2.35 4.85 5.25.72-3.85 3.7.95 5.33L12 16.3l-4.7 2.5.95-5.33-3.85-3.7 5.25-.72z"/></svg>',
+  msgUser: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.8" y="4.5" width="16.4" height="13" rx="2.4"/><path d="M8 9h8M8 12.5h4.6M8.5 20.2l2.4-2.7"/></svg>',
   send: '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M3.4 20.4 20.85 12 3.4 3.6 3.4 10.2 15 12 3.4 13.8z" fill="currentColor"/></svg>',
 };
 

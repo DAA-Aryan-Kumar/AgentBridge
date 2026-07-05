@@ -3,7 +3,9 @@
    chat.js renders the composer HTML; initComposer wires it up. */
 
 import { $, esc, extIcon, fmtSize, toast } from "./util.js";
+import { ICONS } from "./icons.js";
 import { api } from "./api.js";
+import { stripMd } from "./markdown.js";
 import { Mesh, meshDn, meshDraft } from "./state.js";
 import { V } from "./views.js";
 
@@ -21,6 +23,42 @@ export function renderMeshPending(chatId) {
       renderMeshPending(chatId);
     });
   });
+}
+
+// the reply being composed — a quote bar directly above the composer,
+// WhatsApp-style; X (or Escape in the textarea) cancels. Lives on the
+// per-chat draft, so it survives re-renders and chat switches.
+export function renderReplyArea(chatId) {
+  const area = $("#reply-area");
+  if (!area) return;
+  const draft = meshDraft(chatId);
+  const r = draft.reply;
+  if (!r) { area.innerHTML = ""; return; }
+  const ms = Mesh.state;
+  const name = r.from === ms.user ? "You" : meshDn(r.from);
+  const preview = stripMd(r.body || "").replace(/\s+/g, " ").trim() || "📎 Attachment";
+  area.innerHTML = `
+    <div class="reply-bar">
+      <div class="reply-quote in-bar">
+        <div class="rq-name">${esc(name)}</div>
+        <div class="rq-body">${esc(preview)}</div>
+      </div>
+      <button class="icon-btn" id="reply-cancel" title="Cancel reply">${ICONS.close}</button>
+    </div>`;
+  $("#reply-cancel").addEventListener("click", () => {
+    draft.reply = null;
+    renderReplyArea(chatId);
+    $("#mesh-body")?.focus();
+  });
+}
+
+// menu "Reply" lands here: remember what's being replied to, show the bar,
+// put the caret in the box
+export function startReply(chatId, msg) {
+  const draft = meshDraft(chatId);
+  draft.reply = { id: msg.id, from: msg.from, body: msg.body || "" };
+  renderReplyArea(chatId);
+  $("#mesh-body")?.focus();
 }
 
 export function initComposer(chatId, members) {
@@ -130,7 +168,13 @@ export function initComposer(chatId, members) {
     renderPop();
   });
   body.addEventListener("keydown", (e) => {
-    if (!tagCtx) return;
+    if (!tagCtx) {
+      if (e.key === "Escape" && draft.reply) {   // cancel the reply-in-progress
+        draft.reply = null;
+        renderReplyArea(chatId);
+      }
+      return;
+    }
     if (e.key === "ArrowDown") { e.preventDefault(); tagCtx.idx = (tagCtx.idx + 1) % tagCtx.items.length; renderPop(); }
     else if (e.key === "ArrowUp") { e.preventDefault(); tagCtx.idx = (tagCtx.idx - 1 + tagCtx.items.length) % tagCtx.items.length; renderPop(); }
     else if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickTag(tagCtx.idx); }
@@ -144,6 +188,7 @@ export function initComposer(chatId, members) {
     const r = await api("/api/mesh/post", {
       chat_id: chatId, body: body.value.trim(),
       attachments: draft.atts.map((a) => a.path),
+      reply_to: draft.reply || null,
     });
     $("#mesh-send-btn").disabled = false;
     if (r.error) { toast(r.error, true); return; }
@@ -153,9 +198,11 @@ export function initComposer(chatId, members) {
     // forever after the first file" bug)
     draft.body = "";
     draft.atts.length = 0;
+    draft.reply = null;
     body.value = "";
     autosize();
     renderMeshPending(chatId);
+    renderReplyArea(chatId);
     V.renderMeshChat(true);
   };
   $("#mesh-send-btn").addEventListener("click", doSend);

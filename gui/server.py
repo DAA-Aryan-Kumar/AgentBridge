@@ -651,7 +651,8 @@ def api_mesh_post(data):
     if not user:
         return {"error": "Sign in first"}
     msg = m.post(data.get("chat_id") or "", user, data.get("body") or "",
-                 attachments=data.get("attachments") or [])
+                 attachments=data.get("attachments") or [],
+                 reply_to=data.get("reply_to"))
     m.mark_read(data.get("chat_id"), user)
     # staged uploads are one-shot: post() copied them into the chat's files
     staging = (HOME / "gui_uploads").resolve()

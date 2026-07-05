@@ -21,6 +21,18 @@ export function mdInline(t) {
   return t;
 }
 
+// plain text for the clipboard / quote previews: same grammar as md(),
+// but markers are removed instead of becoming tags
+export function stripMd(src) {
+  let t = String(src || "");
+  t = t.replace(/```[a-zA-Z0-9_-]*\n?([\s\S]*?)```/g, (m, code) => code.replace(/\n$/, ""));
+  t = t.replace(/`([^`]+)`/g, "$1");
+  t = t.replace(/\*\*([^*]+)\*\*/g, "$1");
+  t = t.replace(/(^|[\s(])\*([^*\s][^*]*?)\*(?=[\s).,;:!?]|$)/g, "$1$2");
+  t = t.replace(/^#{1,4}\s+/gm, "");
+  return t;
+}
+
 function mdRow(line) {
   const cells = line.split("|").map((c) => c.trim());
   if (cells.length && cells[0] === "") cells.shift();

@@ -519,7 +519,7 @@ class Mesh:
         return [t for t in dict.fromkeys(TAG_RE.findall(body or ""))
                 if t in users]
 
-    def post(self, chat_id, sender, body, attachments=None):
+    def post(self, chat_id, sender, body, attachments=None, reply_to=None):
         meta = self.get_chat(chat_id)
         if not meta:
             raise MeshError("No such chat")
@@ -561,6 +561,16 @@ class Mesh:
         msg = {"id": f"{ns:x}-{sender}", "ns": ns, "ts": utcnow(),
                "from": sender, "kind": u["kind"], "body": body,
                "tags": self.parse_tags(body), "files": files}
+        # replies carry a denormalized quote of the original — it renders
+        # even when the original scrolled out of the fetched tail. Replying
+        # to an agent's message triggers it exactly like a tag (workers
+        # check reply_to.from), so replies work without explicit @tags.
+        if isinstance(reply_to, dict) and reply_to.get("id"):
+            msg["reply_to"] = {
+                "id": str(reply_to.get("id"))[:80],
+                "from": str(reply_to.get("from") or "")[:64],
+                "body": str(reply_to.get("body") or "")[:220],
+            }
         self.cx.append_jsonl(f"chats/{chat_id}/msgs/{sender}.jsonl", msg)
         return msg
 

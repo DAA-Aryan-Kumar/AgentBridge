@@ -122,7 +122,13 @@ def render_context(msgs, agent, staged=None):
             local = (staged or {}).get(f.get("name"))
             names.append(f"{f['name']} -> read it at {local}" if local else f["name"])
         files = ("  [files: " + ", ".join(names) + "]") if names else ""
-        lines.append(f"[{m.get('ts')}] {who}: {m.get('body', '')}{files}")
+        # replies read as threads; replying to YOUR message = it addresses you
+        rt = m.get("reply_to") or {}
+        rline = ""
+        if rt.get("from"):
+            excerpt = (rt.get("body") or "").replace("\n", " ")[:70]
+            rline = f' [replying to @{rt["from"]}: "{excerpt}"]'
+        lines.append(f"[{m.get('ts')}] {who}:{rline} {m.get('body', '')}{files}")
     return "\n".join(lines)
 
 
@@ -286,7 +292,10 @@ def should_reply(rule, msg, agent, users):
     if rule == "all":
         return True
     if rule == "tagged":
-        return agent in (msg.get("tags") or [])
+        # replying to one of this agent's messages counts as tagging it —
+        # replies are the tag, no explicit @name needed (2026-07-05)
+        return (agent in (msg.get("tags") or [])
+                or (msg.get("reply_to") or {}).get("from") == agent)
     if rule == "humans":
         return (users.get(msg.get("from"), {}).get("kind")) == "human"
     return False
@@ -436,8 +445,14 @@ class Worker:
                          and m.get("event") == "add_member"
                          and m.get("target") == self.agent] or [0])
         rule = self.mesh.reply_rule(self.agent, chat_id)
-        trigger = any(should_reply(rule, m, self.agent, users) for m in new
-                      if m.get("kind") != "info" and msg_ns(m) > joined_ns)
+        # keep the LAST triggering message: the agent's answer posts as a
+        # reply to it, so every agent message carries a quote in the UI
+        trigger_msg = None
+        for m in new:
+            if m.get("kind") != "info" and msg_ns(m) > joined_ns \
+                    and should_reply(rule, m, self.agent, users):
+                trigger_msg = m
+        trigger = trigger_msg is not None
         if not trigger or msgs[-1].get("from") == self.agent:
             # a sync-wait status bubble may be lingering from an earlier
             # poll — this batch resolved without a run, so retire it
@@ -556,7 +571,10 @@ class Worker:
         outfiles = [p for p in self.outbox.iterdir() if p.is_file()] \
             if self.outbox.is_dir() else []
         self.mesh.post(chat_id, self.agent, reply,
-                       attachments=[str(p) for p in outfiles])
+                       attachments=[str(p) for p in outfiles],
+                       reply_to={"id": trigger_msg.get("id"),
+                                 "from": trigger_msg.get("from"),
+                                 "body": trigger_msg.get("body") or ""})
         sent = self.outbox / "sent"
         sent.mkdir(exist_ok=True)
         for p in outfiles:

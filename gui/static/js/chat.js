@@ -4,10 +4,10 @@
 import { $, esc, extIcon, fmtSize, timeOnly, dayLabel, toast } from "./util.js";
 import { ICONS, BIRD } from "./icons.js";
 import { api, bindOpenFile } from "./api.js";
-import { md, setTaggable } from "./markdown.js";
+import { md, stripMd, setTaggable } from "./markdown.js";
 import { App, Mesh, meshDn, chatDisplay, renderChrome } from "./state.js";
 import { renderSidebar } from "./sidebar.js";
-import { initComposer, renderMeshPending } from "./composer.js";
+import { initComposer, renderMeshPending, renderReplyArea, startReply } from "./composer.js";
 import { V } from "./views.js";
 
 async function renderChats(force) {
@@ -176,7 +176,9 @@ async function renderMeshChat(force) {
       <div class="msg ${msg.mine ? "mine" : ""}" data-mid="${esc(msg.id || "")}">
         ${showSender ? `<span class="msg-avatar">${esc((meshDn(msg.from)[0] || "?").toUpperCase())}</span>` : ""}
         <div class="bubble">
+          <button class="msg-arrow" aria-label="Message menu">${ICONS.chevD}</button>
           ${showSender ? `<div class="sender">${esc(meshDn(msg.from))} ${kindTag}</div>` : ""}
+          ${msg.reply_to ? replyQuote(msg.reply_to, isDm, ms) : ""}
           ${md(msg.body || "")}${files}</div>
         ${lastOfMinute(i) ? `<div class="meta">${esc(timeOnly(msg.ts))}</div>` : ""}
       </div>`);
@@ -215,11 +217,13 @@ async function renderMeshChat(force) {
   if (!Mesh.msgCounts) Mesh.msgCounts = {};
   const grew = data.messages.length > (Mesh.msgCounts[chatId] ?? data.messages.length);
   Mesh.msgCounts[chatId] = data.messages.length;
+  const menuCtx = { isDm, canReply: isMember && !meta.archived };
   if (Mesh.structKey === structKey && $("#transcript")) {
     const tr = $("#transcript");
     const nearBottom = tr.scrollHeight - tr.scrollTop - tr.clientHeight < 120;
     const prevTop = tr.scrollTop;
     tr.innerHTML = bubbles;
+    bindTranscript(tr, chatId, data, menuCtx);
     bindOpenFile(tr, chatId, ".mesh-att");
     if (grew) {   // the newest bubble slides in
       const last = tr.querySelector(".msg:last-of-type");
@@ -261,6 +265,7 @@ async function renderMeshChat(force) {
     </div>
     <div id="transcript" class="${isDm ? "dm" : ""}">${bubbles}</div>
     <div id="pending-area"></div>
+    <div id="reply-area"></div>
     ${!isMember && !meta.archived ? `
     <div class="banner" style="margin:10px 18px 12px">You are reading as a
       non-member — a member can add you from the chat info page.</div>` : ""}
@@ -327,9 +332,11 @@ async function renderMeshChat(force) {
 
   initComposer(chatId, members);
   renderMeshPending(chatId);
+  renderReplyArea(chatId);
   bindOpenFile(document, chatId, ".mesh-att");
 
   const tr = $("#transcript");
+  bindTranscript(tr, chatId, data, menuCtx);
   if (Mesh.jumpTo) jumpToMessage();
   else tr.scrollTop = tr.scrollHeight;
   if (hadNew) api("/api/mesh/read", { chat_id: chatId });
@@ -337,6 +344,108 @@ async function renderMeshChat(force) {
   tr.classList.add("chat-in");
 }
 V.renderMeshChat = renderMeshChat;
+
+// quoted original inside a reply bubble (WhatsApp): groups show the
+// sender's name + one preview line, DMs skip the name and get two lines —
+// same total height either way. Clicking jumps to the original.
+function replyQuote(rt, isDm, ms) {
+  const name = rt.from === ms.user ? "You" : meshDn(rt.from);
+  const preview = stripMd(rt.body || "").replace(/\s+/g, " ").trim() || "📎 Attachment";
+  return `
+    <button class="reply-quote ${isDm ? "two" : ""}" data-jump="${esc(rt.id || "")}">
+      ${isDm ? "" : `<div class="rq-name">${esc(name)}</div>`}
+      <div class="rq-body">${esc(preview)}</div>
+    </button>`;
+}
+
+// one delegated listener per transcript element (full renders create a new
+// element; partial renders only swap innerHTML, so per-bubble listeners
+// would either vanish or stack — delegation dodges both)
+function bindTranscript(tr, chatId, data, ctx) {
+  tr._msgs = new Map(data.messages.map((m) => [m.id, m]));
+  tr._ctx = ctx;
+  // bubbles just changed under any open menu — drop it
+  document.querySelectorAll(".msg-menu").forEach((m) => m.remove());
+  if (tr._delegated) return;
+  tr._delegated = true;
+  tr.addEventListener("click", (e) => {
+    const q = e.target.closest(".reply-quote");
+    if (q && q.dataset.jump) {
+      Mesh.jumpTo = q.dataset.jump;
+      jumpToMessage();
+      return;
+    }
+    const ar = e.target.closest(".msg-arrow");
+    if (ar) {
+      const mid = ar.closest(".msg")?.dataset.mid;
+      const msg = tr._msgs.get(mid);
+      // a programmatic click can land while the arrow is display:none —
+      // its rect is all zeros, which would pin the menu to the corner
+      let rect = ar.getBoundingClientRect();
+      if (!rect.width) rect = ar.closest(".bubble").getBoundingClientRect();
+      if (msg) openMsgMenu(rect, msg, chatId, tr._ctx);
+    }
+  });
+  // right-clicking a bubble opens the same menu (WhatsApp desktop)
+  tr.addEventListener("contextmenu", (e) => {
+    const mid = e.target.closest(".msg")?.dataset.mid;
+    const msg = mid && tr._msgs.get(mid);
+    if (!msg) return;
+    e.preventDefault();
+    openMsgMenu({ left: e.clientX, right: e.clientX,
+                  top: e.clientY, bottom: e.clientY }, msg, chatId, tr._ctx);
+  });
+}
+
+// the message context menu. Reply and Copy work; Message X / Forward /
+// Pin / Star / Delete are placeholders for the coming rounds.
+function openMsgMenu(rect, msg, chatId, ctx) {
+  document.querySelectorAll(".msg-menu").forEach((m) => m.remove());
+  const menu = document.createElement("div");
+  menu.className = "menu msg-menu";
+  menu.innerHTML = [
+    ctx.canReply ? `<button data-act="reply">${ICONS.reply} Reply</button>` : "",
+    !msg.mine && !ctx.isDm
+      ? `<button data-act="message">${ICONS.msgUser} Message ${esc(meshDn(msg.from))}</button>` : "",
+    `<button data-act="copy">${ICONS.copy} Copy</button>`,
+    `<button data-act="forward">${ICONS.forward} Forward</button>`,
+    `<button data-act="pin">${ICONS.pin} Pin</button>`,
+    `<button data-act="star">${ICONS.star} Star</button>`,
+    '<div class="menu-sep"></div>',
+    `<button data-act="delete">${ICONS.trash} Delete</button>`,
+  ].join("");
+  document.body.appendChild(menu);
+  const mh = menu.offsetHeight, mw = menu.offsetWidth;
+  let top = rect.bottom + 4;
+  if (top + mh > innerHeight - 8) top = Math.max(8, rect.top - mh - 4);
+  let left = msg.mine ? rect.right - mw : rect.left;
+  left = Math.max(8, Math.min(left, innerWidth - mw - 8));
+  menu.style.top = top + "px";
+  menu.style.left = left + "px";
+  const close = () => {
+    menu.remove();
+    document.removeEventListener("mousedown", away, true);
+  };
+  const away = (e) => { if (!menu.contains(e.target)) close(); };
+  document.addEventListener("mousedown", away, true);
+  menu.addEventListener("click", async (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    const act = b.dataset.act;
+    close();
+    if (act === "reply") {
+      startReply(chatId, msg);
+    } else if (act === "copy") {
+      try {
+        await navigator.clipboard.writeText(stripMd(msg.body || ""));
+        toast("Copied");
+      } catch {
+        toast("Could not access the clipboard", true);
+      }
+    }
+    // message / forward / pin / star / delete: coming rounds
+  });
+}
 
 function jumpToMessage() {
   const id = Mesh.jumpTo;

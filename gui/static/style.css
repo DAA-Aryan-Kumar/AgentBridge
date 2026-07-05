@@ -35,6 +35,11 @@
 
 * { box-sizing: border-box; }
 
+/* the hidden attribute must always win: author display rules (flex rows
+   etc.) silently outrank the UA's [hidden] style — that's why the member
+   search filters "worked nowhere" (user-reported 2026-07-05) */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0; height: 100%;
   font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
@@ -391,6 +396,7 @@ input[type=text], select, textarea {
   word-break: break-word;
   box-shadow: var(--shadow);
   font-size: 13.5px; line-height: 1.5;
+  position: relative;   /* anchors the hover menu-arrow */
 }
 
 /* rendered message content (markdown-ish) */
@@ -489,6 +495,79 @@ input[type=text], select, textarea {
   border-bottom-right-radius: 3px;
 }
 .msg:not(.mine) .bubble { border-bottom-left-radius: 3px; }
+
+/* hover affordance (WhatsApp): a chevron slides into the bubble's top-right
+   over a fade of the bubble's own color, so it reads over any text */
+.msg-arrow {
+  position: absolute; top: 1px; right: 1px; z-index: 2;
+  width: 38px; height: 25px;
+  border: none; padding: 2px 6px 0 0; cursor: pointer;
+  border-radius: 0 9px 0 0;
+  display: none; align-items: flex-start; justify-content: flex-end;
+  color: var(--text-dim);
+  background: linear-gradient(230deg, var(--surface) 42%,
+    color-mix(in srgb, var(--surface) 60%, transparent) 64%, transparent 88%);
+}
+.msg.mine .msg-arrow {
+  background: linear-gradient(230deg, var(--accent-soft) 42%,
+    color-mix(in srgb, var(--accent-soft) 60%, transparent) 64%, transparent 88%);
+}
+.msg .bubble:hover .msg-arrow { display: flex; animation: arrow-in .16s ease; }
+.msg-arrow:hover { color: var(--text); }
+.msg-arrow svg { flex: none; }
+@keyframes arrow-in {
+  from { opacity: 0; transform: translate(7px, -5px); }
+}
+/* live-feed bubbles have no message behind them — no menu */
+.bubble.typing .msg-arrow { display: none !important; }
+
+/* the message context menu opens at the arrow (fixed: transcript scrolls) */
+.msg-menu { position: fixed; top: auto; right: auto; min-width: 196px; }
+
+/* quoted original inside a reply bubble; also reused in the composer bar.
+   Groups: name + 1 preview line. DMs: 2 preview lines, no name — the fixed
+   min-height keeps both the same size. */
+.reply-quote {
+  display: block; width: 100%; min-height: 42px; text-align: left;
+  border: none; cursor: pointer; font: inherit;
+  background: rgba(0, 0, 0, .05);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px; padding: 5px 9px 5px 8px; margin: 0 0 7px;
+}
+/* own bubbles are accent-tinted — the gray overlay muddies there; a white
+   wash matches the look of quotes in received bubbles (user-requested) */
+.msg.mine .reply-quote { background: rgba(255, 255, 255, .55); }
+[data-theme="dark"] .reply-quote,
+[data-theme="dark"] .msg.mine .reply-quote { background: rgba(255, 255, 255, .07); }
+.reply-quote .rq-name {
+  font-size: 11.5px; font-weight: 600; color: var(--accent);
+  margin-bottom: 1px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.reply-quote .rq-body {
+  font-size: 12px; color: var(--text-dim); line-height: 1.4;
+  overflow: hidden; display: -webkit-box;
+  -webkit-box-orient: vertical; -webkit-line-clamp: 1;
+}
+.reply-quote.two .rq-body { -webkit-line-clamp: 2; padding-top: 2px; }
+
+/* reply-in-progress bar docked above the composer */
+#reply-area { padding: 0 18px; flex: none; }
+#reply-area .reply-bar {
+  display: flex; align-items: center; gap: 4px;
+  background: var(--bg-alt); border: 1px solid var(--border);
+  border-radius: 12px; padding: 5px 6px;
+  margin-bottom: 7px;
+  animation: reply-in .15s ease;
+}
+#reply-area .reply-quote {
+  flex: 1; min-width: 0; margin: 0; cursor: default;
+  background: var(--surface);
+}
+[data-theme="dark"] #reply-area .reply-quote { background: var(--bg); }
+@keyframes reply-in {
+  from { opacity: 0; transform: translateY(9px); }
+}
 
 .msg .meta {
   font-size: 10.5px; color: var(--text-faint); margin: 3px 6px 0;

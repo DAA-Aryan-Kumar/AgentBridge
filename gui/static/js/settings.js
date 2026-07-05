@@ -4,6 +4,7 @@
 import { $, esc, toast, setTheme } from "./util.js";
 import { ICONS } from "./icons.js";
 import { api } from "./api.js";
+import { csel } from "./csel.js";
 import { App, Mesh, Settings, RULE_LABELS, meshDn, renderChrome } from "./state.js";
 import { renderSidebar } from "./sidebar.js";
 import { V } from "./views.js";
@@ -122,6 +123,15 @@ async function renderSettings() {
         <div class="row" style="margin-top:10px">
           <button onclick="openTarget('home')">Open config folder</button>
         </div>
+      </div>
+      <div class="card" style="max-width:640px">
+        <h2>Performance</h2>
+        <dl class="kv" style="grid-template-columns:minmax(110px,160px) 1fr">
+          <dt>Check for news</dt><dd><span id="poll-slot"></span></dd>
+        </dl>
+        <p class="hint" style="margin-bottom:0">How often this window re-reads
+        the shared folder. Faster feels snappier; slower is lighter on OneDrive
+        and disk. Applies from the next tick — no restart needed.</p>
       </div>`;
   }
   $("#content").innerHTML = `<div class="settings-body">${html}</div>`;
@@ -139,6 +149,18 @@ async function renderSettings() {
   if (shared2) shared2.addEventListener("click", (e) => {
     e.preventDefault(); window.openTarget("shared");
   });
+  const pollSlot = $("#poll-slot");
+  if (pollSlot) pollSlot.appendChild(csel({
+    options: [
+      { v: "1000", label: "Every second" },
+      { v: "2500", label: "Every 2.5 seconds (default)" },
+      { v: "5000", label: "Every 5 seconds" },
+      { v: "10000", label: "Every 10 seconds" },
+      { v: "30000", label: "Every 30 seconds" },
+    ],
+    value: localStorage.getItem("pollMs") || "2500",
+    onChange: (v) => localStorage.setItem("pollMs", v),
+  }));
   document.querySelectorAll(".ag-save").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const agent = btn.dataset.agent;

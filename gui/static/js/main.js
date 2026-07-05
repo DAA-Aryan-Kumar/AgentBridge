@@ -136,5 +136,13 @@ window.addEventListener("hashchange", route);
     location.hash = App.state.configured ? "#/chats" : "#/setup";
   }
   route();
-  setInterval(() => refresh(false), 2500);
+  // poll cadence is user-tunable (Settings → Connection); re-read each
+  // tick so a change applies without a reload
+  (function poll() {
+    const ms = Math.max(1000, +(localStorage.getItem("pollMs") || 2500) || 2500);
+    setTimeout(async () => {
+      try { await refresh(false); } catch { /* next tick retries */ }
+      poll();
+    }, ms);
+  })();
 })();
