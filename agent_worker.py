@@ -48,6 +48,8 @@ REPO = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO))
 from mesh import Mesh, read_json, atomic_write_json, utcnow  # noqa: E402
 
+__version__ = "0.20.0"  # worker code version (printed by the AVD update script)
+
 HOME = Path.home() / ".agentbridge"
 
 
@@ -286,6 +288,76 @@ def retire_feed(mesh_root, agent, chat_id=None):
         os.replace(tmp, path)
     except Exception:
         pass
+
+
+class DirWatcher:
+    """Wakes the worker the instant a file changes under the mesh tree, so a
+    new message is picked up in milliseconds instead of waiting out the full
+    poll interval. A daemon thread runs a blocking ReadDirectoryChangesW and
+    sets an Event on any change; the main loop waits on that Event with a
+    timeout so it still polls if no notification fires.
+
+    Best-effort by design — the Event is only a "wake up" hint, never the
+    source of truth (disk is): OneDrive doesn't reliably emit notifications
+    for files it syncs DOWN from another machine, so the timed poll must
+    remain the fallback. Degrades to pure polling when it can't start
+    (non-Windows, no folder-backed root, CreateFileW fails)."""
+
+    def __init__(self, root):
+        self.event = threading.Event()
+        self.active = False
+        if root is None or os.name != "nt":
+            return
+        try:
+            self._start_windows(str(root))
+            self.active = True
+        except Exception as e:
+            say(f"[worker] dir watcher unavailable ({type(e).__name__}: {e}) "
+                f"— falling back to polling")
+
+    def _start_windows(self, root):
+        import ctypes
+        from ctypes import wintypes
+        FILE_LIST_DIRECTORY = 0x0001
+        FILE_SHARE_ALL = 0x1 | 0x2 | 0x4  # read | write | delete
+        OPEN_EXISTING = 3
+        FILE_FLAG_BACKUP_SEMANTICS = 0x02000000  # required to open a dir
+        # name changes (new .jsonl / renames), writes and size changes cover
+        # both a fresh message file and an appended line to an existing one
+        FILTER = 0x1 | 0x2 | 0x8 | 0x10  # FILE_NAME|DIR_NAME|SIZE|LAST_WRITE
+        INVALID = ctypes.c_void_p(-1).value
+
+        k32 = ctypes.windll.kernel32
+        k32.CreateFileW.restype = wintypes.HANDLE
+        k32.CreateFileW.argtypes = [
+            wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+            wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+        k32.ReadDirectoryChangesW.restype = wintypes.BOOL
+
+        handle = k32.CreateFileW(
+            root, FILE_LIST_DIRECTORY, FILE_SHARE_ALL, None,
+            OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, None)
+        if not handle or handle == INVALID:
+            raise ctypes.WinError(ctypes.get_last_error())
+
+        buf = ctypes.create_string_buffer(8192)
+        nbytes = wintypes.DWORD()
+
+        def loop():
+            while True:
+                ok = k32.ReadDirectoryChangesW(
+                    handle, buf, len(buf), True, FILTER,
+                    ctypes.byref(nbytes), None, None)
+                if not ok:  # handle closed / error — stop; polling carries on
+                    break
+                self.event.set()
+
+        threading.Thread(target=loop, daemon=True).start()
+
+    def wait(self, timeout):
+        """Block until a change is seen or `timeout` elapses."""
+        self.event.wait(timeout)
+        self.event.clear()
 
 
 def msg_ns(m):
@@ -636,8 +708,11 @@ class Worker:
 
     def run(self, once=False, dry_run=False):
         poll = int(self.cfg.get("poll_seconds", 10))
+        watcher = None if once else DirWatcher(self.mesh.root)
+        mode = ("watching + %ds poll fallback" % poll) if watcher and \
+            watcher.active else ("polling every %ds" % poll)
         say(f"[worker] agent=@{self.agent} shared={self.mesh.root} "
-              f"poll={poll}s — Ctrl+C to stop")
+              f"— {mode} — Ctrl+C to stop")
         while True:
             try:
                 self.cycle(dry_run=dry_run)
@@ -648,7 +723,9 @@ class Worker:
             if once:
                 return
             try:
-                time.sleep(poll)
+                # returns early the instant the mesh tree changes; the poll
+                # is the fallback for changes the watcher doesn't catch
+                watcher.wait(poll)
             except KeyboardInterrupt:
                 return
 
