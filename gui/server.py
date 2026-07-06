@@ -995,6 +995,12 @@ def api_mesh_open_file(data):
     if not user:
         return {"error": "Sign in first"}
     chat_id = data.get("chat_id") or ""
+    meta = m.get_chat(chat_id)
+    if not meta:
+        return {"error": "No such chat"}
+    denied = _not_member(meta, user)
+    if denied:
+        return denied
     rel = (data.get("path") or "").replace("\\", "/")
     files_root = (m.chat_dir(chat_id) / "files").resolve()
     target = (m.chat_dir(chat_id) / rel).resolve()
@@ -1017,6 +1023,12 @@ def api_mesh_save(data):
     if not user:
         return {"error": "Sign in first"}
     chat_id = data.get("chat_id") or ""
+    meta = m.get_chat(chat_id)
+    if not meta:
+        return {"error": "No such chat"}
+    denied = _not_member(meta, user)
+    if denied:
+        return denied
     paths = data.get("paths") or []
     if not paths:
         return {"error": "Nothing to save"}

@@ -653,8 +653,11 @@ class Mesh:
         state file (single writer holds), beside the read cursor. The
         snapshot (from/body/ts) makes the global starred list renderable
         without scanning any message log."""
-        if not self.get_chat(chat_id):
+        meta = self.get_chat(chat_id)
+        if not meta:
             raise MeshError("No such chat")
+        if username not in (meta.get("members") or []):
+            raise MeshError("Only members can star messages")
         key = self._cursor_key(chat_id, username)
         cur = self.cx.read_json(key) or {}
         stars = cur.get("starred") or {}

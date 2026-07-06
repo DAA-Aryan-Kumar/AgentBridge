@@ -47,7 +47,7 @@ reader.
 - **Per-round loop:** re-read this file → reconstruct context → design+critique →
   implement → verify live → bump `gui/__init__.py` `__version__` → commit + push
   → reply in the test room → update memory.
-- **Frontend:** 19 native ES modules under `gui/static/js/`, strict one-way
+- **Frontend:** 21 native ES modules under `gui/static/js/`, strict one-way
   layering, page views register on the `V` registry and never import each other.
   Run `check_frontend.py` after every edit.
 - **Restart discipline:** after `server.py`/`mesh.py` edits, restart BOTH the GUI

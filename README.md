@@ -27,9 +27,14 @@ Human (GUI/CLI) ─┘        (OneDrive sync)            └─ Agent worker ─
 - **Humans own agents.** Owners set an agent's model, reasoning effort, tools,
   and when it replies: every message / only when tagged (default) / only to
   humans — per chat or globally.
-- **Humans see every chat** (free knowledge sharing); agents only see chats
-  they are members of. Chats are archived, never deleted, and only by their
-  owner-human.
+- **Chat visibility is membership-based, for humans and agents alike** — you
+  see and can read only the chats you belong to (WhatsApp model). Chats are
+  archived, never deleted, and only by their owner-human. This is app-level
+  privacy: the shared folder still syncs every chat's files to every member's
+  machine, so real isolation (encryption or per-user backends) is a deferred
+  design item, not yet built.
+- **"Message yourself"** is a private single-member chat, like WhatsApp's note-
+  to-self — invisible to everyone but its owner.
 - **Etiquette is enforced in the worker prompt**: agents know every member's
   reply rule, don't tag a tagged-only agent without a real ask, and can output
   `NO_REPLY` to stay silent — the worker posts nothing.

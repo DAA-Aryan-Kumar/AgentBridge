@@ -6,20 +6,28 @@ conventions that aren't obvious from the code alone.
 
 ## Current state
 
-- **Version:** `gui/__init__.py` `__version__` is the source of truth (v0.19.0
+- **Version:** `gui/__init__.py` `__version__` is the source of truth (v0.24.1
   at handoff), bumped once per shipped round.
 - **Everything is committed and pushed.** A clone is a complete copy of the
   source.
 - **What works today:** humans + agents sharing rooms over a synced folder;
-  DMs and groups; @tag + reply-to triggering; message context menu with
-  Reply / Message @X / Copy / Pin / Star (multi-pin with a cycling banner,
-  private per-user stars shown as literal snapshots in chat info); read-more
-  clamp on long messages; live typing/working presence; free chatting (anyone
-  may chat any agent — the agent's owner is pulled in automatically so no agent
-  is ever in a room without a responsible human).
-- **In flight:** forward has its backend + API + attribution rendering done;
-  the UI is next, gated behind a select-messages feature. `Edit`, `Forward`
-  and `Delete` are present in the message menu but inert.
+  DMs, groups, and private "message yourself" chats (a single-member self
+  chat, WhatsApp's note-to-self); **chat visibility is membership-based for
+  everyone** — humans no longer see chats they aren't in; @tag + reply-to
+  triggering; message context menu with Reply / Message @X / Copy / Pin / Star
+  / **Forward** (multi-pin with a cycling banner, private per-user stars shown
+  as literal snapshots in chat info); **select-messages mode** (bulk star,
+  save-to-folder, forward) and the **Forward picker** (recent chats + contacts,
+  shared `picker.js` multi-select surface) are both fully shipped; new-group
+  creation is an in-sidebar builder (chip tray → search → list → name step),
+  not a modal; read-more clamp on long messages; live typing/working presence;
+  free chatting (anyone may chat any agent — the agent's owner is pulled in
+  automatically, in EITHER direction, so no agent is ever in a room without a
+  responsible human).
+- **In flight / still stubbed:** `Edit`, `Delete`, and `Clear chat` are present
+  in their menus but inert (toast only) — delete lands with the tombstone
+  design below. Read-receipt ticks are a frontend placeholder with no
+  delivered/read backend yet.
 
 ## What lives outside this repo
 
@@ -37,9 +45,12 @@ machine (see the last section).
 
 ## Operating conventions (follow these)
 
-- **Frontend is 19 native ES modules** under `gui/static/js/` with strict
+- **Frontend is 21 native ES modules** under `gui/static/js/` with strict
   one-way layering; page views never import each other — they register on the
-  `V` registry (`views.js`) and call sideways through it. Run
+  `V` registry (`views.js`) and call sideways through it. `picker.js` (shared
+  multi-select UI) sits as a primitive BELOW the views, alongside
+  csel/modal/composer, precisely so two views (members.js, forward.js) can both
+  use it without a forbidden view→view import. Run
   **`python check_frontend.py` after every frontend edit** (it `node --check`s
   every module and verifies imports resolve).
 - **After editing `server.py` or `mesh.py`, restart BOTH the GUI server and
@@ -63,19 +74,25 @@ machine (see the last section).
 
 ## Next work queue
 
-1. **Select-messages** feature, then the **forward UI** on top of it (backend
-   is ready).
-2. **Delete** — two modes: delete-for-everyone as a *tombstone record in the
+1. **Delete** — two modes: delete-for-everyone as a *tombstone record in the
    sender's own message file* (single-writer holds; restricted to own
    messages), delete-for-me as a *hidden-ids overlay* in the user's per-chat
-   state file (the same pattern stars already use). Full rationale is in the
-   memory's storage-architecture note.
-3. **Read receipts**, then **edit-message** (edit record in the sender's file;
+   state file (the same pattern stars already use). Also wires up **Clear
+   chat**, currently a stub in the same menu. Full rationale is in the
+   memory's storage-architecture note. Flagged DEEP by the user — be careful.
+2. **Read receipts**, then **edit-message** (edit record in the sender's file;
    renderers apply the latest).
-4. Longer-horizon sessions already scoped in memory: a **permissions overhaul**
+3. Longer-horizon sessions already scoped in memory: a **permissions overhaul**
    (who may pin, per-chat agent permissions) and an **agent-worker overhaul**
    (uniform capability exposure to agents, context-window management, agent
-   choosing reply-vs-tag), then the **setup/account overhaul**.
+   choosing reply-vs-tag), then a **settings overhaul**, then the
+   **setup/account overhaul**.
+4. **WhatsApp-parity gap features** (after the overhauls above): block a user,
+   emoji reactions, history-on-join policy, multi-admin roles, group invite
+   links, profile photo.
+5. **True privacy**: deliberate encryption vs. per-user backends, then
+   implement so no one — human or agent — can read a chat they're not in, even
+   on disk (today's membership-based visibility, v0.24.0, is app-level only).
 
 The memory's reminder list is the authoritative, up-to-date backlog — read it
 first.

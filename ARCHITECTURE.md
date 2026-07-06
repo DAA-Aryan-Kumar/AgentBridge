@@ -131,7 +131,18 @@ mesh/
 {"id": "dm-06aa6862", "kind": "dm", "name": "Aryan · CoCo",
  "created": "...", "created_by": "aryan", "owner": "aryan",
  "members": ["aryan", "coco"], "archived": false}
+
+// self ("message yourself" — v0.23+, mesh.create_self_chat)
+{"id": "self-9b791bf1", "kind": "self", "name": "Aryan",
+ "created": "...", "created_by": "aryan", "owner": "aryan",
+ "members": ["aryan"], "archived": false}
 ```
+
+- A **`self`** chat is a private, single-member chat (WhatsApp's note-to-self):
+  `create_self_chat` dedupes to one per user. It renders exactly like a DM
+  (`isDmLike()` in `state.js` treats `dm` and `self` the same — no avatars, no
+  sender names, "Chat info" not "Group info") but is invisible to everyone but
+  its one member, same as any other chat under the membership-visibility rule.
 
 - `owner` is a **single human** (not the `owners[]` list that lives on agent
   records — different field, different cardinality). The owner is the only one
@@ -493,7 +504,7 @@ change its `config.json` shape without checking every `get_bridge()`/
 
 ## 5. Frontend architecture (`gui/static/js/`)
 
-19 native ES modules, **zero build step** — the browser imports them directly
+21 native ES modules, **zero build step** — the browser imports them directly
 (`<script type="module" src="js/main.js">`), so "run the app" and "see the
 current source" are the same action.
 
@@ -502,11 +513,16 @@ current source" are the same action.
 ```
 util / icons / api / markdown        (leaf helpers — import nothing view-ish)
   → state                            (App / Mesh / Settings stores)
-    → csel / modal / composer        (UI primitives)
+    → csel / modal / composer / picker   (UI primitives)
       → sidebar                      (below the page views)
-        → chat / details / media / search / members / settings / wizard   (page views)
+        → chat / details / media / search / members / forward / settings / wizard   (page views)
           → main                     (router + boot; imports every view once)
 ```
+
+`picker.js` (the shared multi-select surface: checkbox on the right, comma-list
+send-bar) sits at the UI-primitives layer specifically so two *views*
+(`members.js`'s Add-member, `forward.js`'s "Forward message to") can both
+consume it without a forbidden view→view import.
 
 **A page-view module never imports another page-view module.** They call each
 other only through the `V` registry (`views.js`): each view module assigns
@@ -531,12 +547,14 @@ to trigger something in details.js, you call `V.renderChatDetails(...)`, not
 | `csel.js` | — | Custom `<select>` replacement (native selects clip inside scrolling panes and ignore theming) |
 | `modal.js` | — | `openModal`/`closeModal`/`confirmModal` (replaces browser `confirm()`) |
 | `composer.js` | — | Message composer: autosize, tag-highlight backdrop, caret-following `@` autofill, attachments, typing heartbeat |
-| `sidebar.js` | `renderSidebar` (imported directly by `chat.js`/`settings.js` — it sits *below* page views, not sideways, so this is the one legal direct cross-module import) | Chat list / settings nav / new-chat form, whichever the rail selects |
-| `chat.js` | `renderChats`, `renderMeshChat`, `renderNewChat`, `openMsgMenu` | Auth gate, empty state, open-chat transcript + header + message context menu |
-| `details.js` | `renderChatDetails` | Chat info pane (WhatsApp "Group info" clone) + per-chat agents page; dispatches to subviews |
+| `picker.js` | — | `pickerRow`/`pickerSection`/`pickerFooter`/`bindPicker` — the shared multi-select surface (checkbox on the right, comma-list send-bar) used by Add-member and the Forward picker |
+| `sidebar.js` | `renderSidebar` (imported directly by `chat.js`/`settings.js` — it sits *below* page views, not sideways, so this is the one legal direct cross-module import) | Chat list / settings nav / new-chat form / **in-sidebar new-group builder** (chip tray → search → tap-add list → name step — replaced the old modal), whichever the rail/state selects |
+| `chat.js` | `renderChats`, `renderMeshChat`, `renderNewChat`, `openMsgMenu`, `exitSelect` | Auth gate, empty state, open-chat transcript + header + message context menu + select-messages mode |
+| `details.js` | `renderChatDetails`, `exitGroup` | Chat info pane (WhatsApp "Group info" clone) + per-chat agents page; dispatches to subviews |
 | `media.js` | `renderChatMedia` | Media/Docs/Links tabs, month-grouped, renders *into* the details pane |
 | `search.js` | `renderChatSearch` | In-chat search — fetches the transcript on demand, doesn't reuse chat-info's payload |
-| `members.js` | `showAddMembers`, `showSearchMembers`, `showCreateGroup` | Add/search-member and new-group modals |
+| `members.js` | `showAddMembers`, `showSearchMembers` | Add/search-member modals, built on `picker.js` (New-group no longer lives here — see `sidebar.js`) |
+| `forward.js` | `openForwardPicker` | "Forward message to" picker (recent chats + other contacts, built on `picker.js`); a contact target resolves to a DM on send |
 | `settings.js` | `renderSettings` | Profile/Account/Chats(theme)/My agents/Connection pages |
 | `wizard.js` | `renderSetup` | Legacy-shaped setup wizard; hidden from nav, reachable only while unconfigured |
 | `main.js` | `refresh` | Hash router, boot sequence, poll loop, shell chrome (rail/sidebar resize) |
@@ -619,13 +637,19 @@ in only one of the three places is the classic way to introduce a subtle bug.
      responsible human remains for it here" pill. This is recursive in effect
      but not in code — it's computed as a single pass over the *current*
      member list before writing.
-2. **Membership is symmetric between humans and agents** (v0.9.0+) — posting
-   requires membership for *everyone*, not just agents. Humans additionally
-   get **read access to every chat regardless of membership** (the audit
-   principle) via `chats_for()`'s human/agent branch; a non-member human sees
-   a read-only banner in the UI but the mesh layer doesn't special-case that —
-   it's purely a UI affordance on top of `post()` correctly rejecting the
-   write.
+2. **Membership is symmetric between humans and agents, for BOTH read and
+   write** (posting has required membership since v0.9.0; read visibility
+   joined it in v0.24.0 — see §2's visibility note). There is no more human
+   exemption: `chats_for()` and the GUI read endpoints (`chat`, `chat_info`,
+   `starred`, `livefeed`) apply the same membership check to everyone. A
+   non-member gets an error from the read endpoints and is bounced out of the
+   UI, not shown a read-only view (the earlier "reading as a non-member"
+   banner was removed as dead code). The membership gate also had to be added
+   to `star_message` (mesh.py — previously checked only that the chat existed)
+   and to `open_file`/`save` (server.py — previously validated only that the
+   requested path stayed inside the chat's own `files/` folder, not that the
+   caller belonged to it) once the visibility work made "no membership check"
+   a real gap instead of a moot one.
 3. **Tagging etiquette is a prompt convention, not a mesh-enforced rule**:
    tagging a `"tagged"`-rule agent *forces* it to run (that's the only signal
    it has), so the worker prompt explicitly tells every agent "only tag such
@@ -695,34 +719,46 @@ in only one of the three places is the classic way to introduce a subtle bug.
 
 ## 8. Feature inventory (what's real vs. scaffolded)
 
-Fully working: DMs + groups, free chatting with the owner-invariant cascade
-(§6), @tag + reply-to triggering, reply rules (all/tagged/humans, global +
-per-chat), multi-pin with a cycling banner + expiry, private stars with
-literal snapshots, read-more clamping, live typing/working presence, archive
-(never-delete) + owner-only permanent delete, in-chat search, media/docs/links
-browser, mesh-wide stand-down switch, per-agent rate cap, config-driven
-`--sql-read-only` opt-out (§6.6).
+Fully working: DMs + groups + private "message yourself" chats, membership-
+based chat visibility for humans and agents alike (§2), free chatting with the
+owner-invariant cascade (§6), @tag + reply-to triggering, reply rules
+(all/tagged/humans, global + per-chat), multi-pin with a cycling banner +
+expiry, private stars with literal snapshots, **select-messages mode** (bulk
+star/save, and the entry point into Forward), **Forward** (picker over recent
+chats + other contacts, built on the shared `picker.js` — a contact target
+resolves to a DM on send; forwarded copies keep `fwd`+inert tags per below),
+in-sidebar new-group builder (chip tray → search → tap-add list → name step),
+inline image thumbnails in the transcript, read-more clamping, live
+typing/working presence, archive (never-delete) + owner-only permanent
+delete, in-chat search, media/docs/links browser (month-grouped), mesh-wide
+stand-down switch, per-agent rate cap, config-driven `--sql-read-only`
+opt-out (§6.6).
 
-**In flight / stubbed** (present in the message-context menu, backend-ready
-or partially so, but not wired to a finished UI flow):
-- **Forward**: `Mesh.forward_message()` and `POST /api/mesh/forward` are
-  complete and usable today from the CLI or another agent; the *UI* is
-  intentionally gated behind a not-yet-built select-messages feature.
-- **Delete**: the plan (not yet built) is delete-for-everyone as a tombstone
-  record written into the **sender's own** message file (so single-writer
-  still holds — WhatsApp restricts delete to your own messages for the same
-  structural reason) and delete-for-me as a hidden-ids overlay in the same
-  per-user `state/<user>.json` file that already holds stars.
+**In flight / stubbed** (present in their menus, backend-ready or partially
+so, but not wired to a finished flow):
+- **Clear chat / Delete chat**: menu entries exist (Clear chat, then Delete
+  chat for DMs / Exit group for groups) but only toast — not implemented. The
+  plan is delete-for-everyone as a tombstone record written into the
+  **sender's own** message file (so single-writer still holds — WhatsApp
+  restricts delete to your own messages for the same structural reason) and
+  delete-for-me as a hidden-ids overlay in the same per-user
+  `state/<user>.json` file that already holds stars.
 - **Edit**: planned as an edit record appended to the sender's file, with
   renderers applying the latest edit — same single-writer logic as delete.
-- **Read receipts**: not yet designed.
+- **Read receipts**: the double-tick renders (frontend placeholder) but there
+  is no delivered/read backend yet — every message shows as merely "sent."
 
 Deliberately deferred (see the mesh memory's reminder list for the full,
 current backlog — it changes faster than this doc should try to track):
 permissions overhaul (who may pin, per-chat agent tool permissions), an
 agent-worker overhaul (uniform capability exposure — pins/replies/stars to
-agents, context-window management strategy), the account/setup overhaul
-(machine-based agent ownership, mobile/PWA for humans).
+agents, context-window management strategy), a settings overhaul, the
+account/setup overhaul (machine-based agent ownership, mobile/PWA for humans),
+WhatsApp-parity gaps still open after §2's visibility fix (block a user, emoji
+reactions, history-on-join policy, multi-admin roles, group invite links,
+profile photo), and **true privacy** — deliberately choosing encryption vs.
+per-user backends so that visibility (§2) becomes a real security boundary
+instead of an app-level convention.
 
 ---
 
