@@ -48,7 +48,7 @@ REPO = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO))
 from mesh import Mesh, read_json, atomic_write_json, utcnow  # noqa: E402
 
-__version__ = "0.20.0"  # worker code version (printed by the AVD update script)
+__version__ = "0.20.1"  # worker code version (printed by the AVD update script)
 
 HOME = Path.home() / ".agentbridge"
 
@@ -64,7 +64,7 @@ def say(msg):
 # base flags per agent CLI family; both are Claude-Code derivatives and
 # speak stream-json. {prompt} and {reply_file} are filled per run.
 CMD_TEMPLATES = {
-    "cortex": ('cortex -w "{workdir}" --sql-read-only --auto-accept-plans '
+    "cortex": ('cortex -w "{workdir}" {sql_flags} --auto-accept-plans '
                '--max-turns 60 --output-format stream-json {blocklist} '
                '-o "{reply_file}" -p "{prompt}"'),
     "claude": ('claude --output-format stream-json --verbose --max-turns 60 '
@@ -73,14 +73,22 @@ CMD_TEMPLATES = {
 
 # Fallback when a CLI update rejects the flags above (usage error): only the
 # conveniences are dropped (-w: cwd covers it; -o: reply is recovered from the
-# stream; --auto-accept-plans). SAFETY flags — --sql-read-only and the
-# blocklist — are never dropped.
+# stream; --auto-accept-plans). SAFETY flags — {sql_flags} and the blocklist —
+# are never dropped by the fallback.
 CMD_TEMPLATES_MINIMAL = {
-    "cortex": ('cortex --sql-read-only --max-turns 60 '
+    "cortex": ('cortex {sql_flags} --max-turns 60 '
                '--output-format stream-json {blocklist} -p "{prompt}"'),
     "claude": ('claude --output-format stream-json --verbose --max-turns 60 '
                '{blocklist} -p "{prompt}"'),
 }
+
+# --sql-read-only is the DEFAULT and, when on, is never dropped (fallback
+# included) — it is the system's primary safety rail against an agent writing
+# to a warehouse. An owner may opt a single agent OUT with "sql_read_only":
+# false in its worker config, but ONLY when that agent's Snowflake ROLE is
+# scoped to a safe (e.g. sandbox) schema — the flag alone does not limit blast
+# radius. This is an interim knob; a proper per-agent capability model lands in
+# the permissions/flags overhaul.
 
 PROMPT = (
     "You are {display} (@{agent}), an AI agent in the multi-user chat "
@@ -479,9 +487,12 @@ class Worker:
         tmpl = source.get(tmpl, tmpl)
         blocked = self.cfg.get("disallowed_tools") or []
         blocklist = " ".join(f'--disallowed-tools "{t}"' for t in blocked)
+        # read-only SQL is the default; an owner opts a cortex agent out only
+        # when its Snowflake role is safely scoped (see CMD_TEMPLATES note)
+        sql_flags = "--sql-read-only" if self.cfg.get("sql_read_only", True) else ""
         cmd = tmpl.format(prompt=prompt.replace('"', "'"),
                           reply_file=reply_file, workdir=self.workdir,
-                          blocklist=blocklist)
+                          blocklist=blocklist, sql_flags=sql_flags)
         # owner-set model from the agent's mesh record (GUI Settings → Model);
         # both CLI families take --model. Sanitized: it rides a shell string.
         model = ((settings or {}).get("model") or "").strip()
