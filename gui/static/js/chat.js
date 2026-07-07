@@ -336,12 +336,18 @@ async function renderMeshChat(force) {
 
   const isOwner = meta.owner === ms.user;
   const title = chatDisplay(meta, ms.user);
+  // a DM with an agent carries the agent tag in the header — inside a DM the
+  // bubbles have no sender line, so the header is the only place it can show
+  const dmPeer = meta.kind === "dm"
+    ? (meta.members || []).find((u) => u !== ms.user) : null;
+  const headAgentTag = dmPeer && ms.users?.[dmPeer]?.kind === "agent"
+    ? ' <span class="kind-tag">agent</span>' : "";
   $("#content").innerHTML = `
     <div class="chat-top" id="chat-top" title="Open chat info">
       <button class="chat-back" id="chat-back">${ICONS.back}</button>
       <span class="chat-avatar" style="width:36px;height:36px;font-size:15px;flex:none">${esc((title[0] || "#").toUpperCase())}</span>
       <div class="chat-title-btn" style="min-width:0">
-        <div class="chat-head-name">${esc(title)}
+        <div class="chat-head-name">${esc(title)}${headAgentTag}
           ${meta.archived ? '<span class="kind-tag">archived</span>' : ""}</div>
         ${isDm ? "" : `<div class="chat-head-sub">${esc(memberLine)}</div>`}
       </div>
@@ -413,6 +419,9 @@ async function renderMeshChat(force) {
   const permBtn = $("#agents-perm-btn");
   if (permBtn) permBtn.addEventListener("click", () => {
     Mesh.agentsView = true;
+    // opened from the composer (not via chat info): the page gets a Close
+    // button that dismisses the pane outright, instead of a Back to chat info
+    Mesh.agentsFromComposer = true;
     location.hash = `#/chats/${chatId}/details`;
   });
   syncPinBanner(chatId, pins);
@@ -569,7 +578,7 @@ function openMsgMenu(rect, msg, chatId, ctx) {
       msg.mine ? `<button data-act="edit">${ICONS.pencil} Edit</button>` : "",
       `<button data-act="forward">${ICONS.forward} Forward</button>`,
       `<button data-act="pin">${ICONS.pin} ${isPinned ? "Unpin" : "Pin"}</button>`,
-      `<button data-act="star">${ICONS.star} ${isStarred ? "Unstar" : "Star"}</button>`,
+      `<button data-act="star">${isStarred ? ICONS.starOff : ICONS.star} ${isStarred ? "Unstar" : "Star"}</button>`,
       '<div class="menu-sep"></div>',
       `<button data-act="delete" class="danger-item">${ICONS.trash} Delete</button>`,
     ].join("");

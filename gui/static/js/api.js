@@ -23,6 +23,10 @@ window.openTarget = openTarget;  // inline onclick= handlers in templates
 export function bindOpenFile(scope, chatId, selector) {
   scope.querySelectorAll(selector).forEach((b) => {
     b.addEventListener("click", async () => {
+      // the OS handoff can lag on a synced folder — a brief toast confirms
+      // the click landed and the file is opening in its default app
+      const name = (b.dataset.path || "").split("/").pop() || "file";
+      toast(`Opening ${name}…`);
       const r = await api("/api/mesh/open_file", { chat_id: chatId, path: b.dataset.path });
       if (r.error) toast(r.error, true);
     });

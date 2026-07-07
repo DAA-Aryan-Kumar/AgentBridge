@@ -435,9 +435,12 @@ async function renderChatStarred(info) {
 function renderChatAgents(agents, meta) {
   const chatId = Mesh.chatId;
   const isDm = isDmLike(meta || {});
+  // reached from the composer's hand → a Close that dismisses the pane;
+  // reached from chat info → a Back that returns to it
+  const fromComposer = Mesh.agentsFromComposer;
   $("#details-pane").innerHTML = `
     <div class="pane-head">
-      <button class="icon-btn" id="ca-back">${ICONS.back}</button>
+      <button class="icon-btn" id="ca-back">${fromComposer ? ICONS.close : ICONS.back}</button>
       <span class="pane-title">Your agents</span>
     </div>
     <div class="card pane-view" style="border-bottom:none">
@@ -457,6 +460,11 @@ function renderChatAgents(agents, meta) {
   $("#ca-back").addEventListener("click", () => {
     Mesh.agentsView = false;
     Mesh.detailsKey = "";
+    if (fromComposer) {
+      Mesh.agentsFromComposer = false;   // close the pane, back to the chat
+      location.hash = `#/chats/${chatId}`;
+      return;
+    }
     renderChatDetails();
   });
   mountRuleSlots($("#details-pane"), chatId);

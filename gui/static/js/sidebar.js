@@ -98,12 +98,10 @@ function renderNewChatSidebar() {
       </span>
     </button>`;
   };
-  const agentSec = agents.length
-    ? `<div class="modal-sec nc-sec">Agents</div>` + agents.map(person).join("") : "";
-  // humans grouped alphabetically by display name (WhatsApp contacts); any
-  // name not starting with a letter files under "#"
-  const memberGroups = () => {
-    const sorted = [...humans].sort((a, b) =>
+  // agents and humans both group alphabetically by display name (WhatsApp
+  // contacts); any name not starting with a letter files under "#"
+  const alphaGroups = (list) => {
+    const sorted = [...list].sort((a, b) =>
       a.display.localeCompare(b.display, undefined, { sensitivity: "base" }));
     let out = "", cur = null;
     for (const u of sorted) {
@@ -114,8 +112,10 @@ function renderNewChatSidebar() {
     }
     return out;
   };
+  const agentSec = agents.length
+    ? `<div class="modal-sec nc-sec">Agents</div>` + alphaGroups(agents) : "";
   const memberSec = humans.length
-    ? `<div class="modal-sec nc-sec">Members</div>` + memberGroups() : "";
+    ? `<div class="modal-sec nc-sec">Members</div>` + alphaGroups(humans) : "";
   const html = `
     <div style="padding:12px 10px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
@@ -196,11 +196,16 @@ function renderChatListSidebar() {
   const chats = ms.chats || [];
   const archived = chats.filter((c) => c.archived);
   const listed = Mesh.showArchived ? archived : chats.filter((c) => !c.archived);
-  const row = (c) => `
+  const row = (c) => {
+    // a DM with an agent shows the agent tag next to its name, like the header
+    const peer = c.kind === "dm" ? (c.members || []).find((u) => u !== ms.user) : null;
+    const agentTag = peer && ms.users?.[peer]?.kind === "agent"
+      ? ' <span class="kind-tag">agent</span>' : "";
+    return `
     <div class="chat-row ${c.id === Mesh.chatId ? "active" : ""}" data-chat="${esc(c.id)}">
       <div class="chat-avatar ${c.archived ? "arch" : ""}">${esc((chatDisplay(c, ms.user)[0] || "#").toUpperCase())}</div>
       <div class="chat-mid">
-        <div class="chat-name">${esc(chatDisplay(c, ms.user))}</div>
+        <div class="chat-name">${esc(chatDisplay(c, ms.user))}${agentTag}</div>
         <div class="chat-last">${!c.last ? "No messages yet"
           : c.last.deleted ? (c.last.from === ms.user
               ? "You deleted this message" : "This message was deleted")
@@ -212,6 +217,7 @@ function renderChatListSidebar() {
         ${c.unread && !c.archived ? `<span class="unread-badge">${c.unread}</span>` : ""}
       </div>
     </div>`;
+  };
   let html = "";
   if (Mesh.showArchived) {
     html = `<button class="arch-row" id="arch-toggle">${ICONS.back}
@@ -248,20 +254,24 @@ function renderNewGroupSidebar() {
   if (ng.step === "name") return renderNewGroupName();
 
   const listed = Object.values(ms.users).filter((u) => u.username !== ms.user);
-  const agents = listed.filter((u) => u.kind === "agent");
-  const humans = listed.filter((u) => u.kind === "human")
-    .sort((a, b) => a.display.localeCompare(b.display, undefined, { sensitivity: "base" }));
+  const byName = (a, b) => a.display.localeCompare(b.display, undefined, { sensitivity: "base" });
+  const agents = listed.filter((u) => u.kind === "agent").sort(byName);
+  const humans = listed.filter((u) => u.kind === "human").sort(byName);
   const row = (u) => pickerRow({ value: u.username, initial: u.display,
     name: u.display, sub: `@${u.username}`, tag: u.kind === "agent" ? "agent" : "" });
-  let memberRows = "", cur = null;
-  for (const u of humans) {
-    const first = (u.display.trim()[0] || "#").toUpperCase();
-    const letter = /[A-Z]/.test(first) ? first : "#";
-    if (letter !== cur) { memberRows += `<div class="nc-alpha">${letter}</div>`; cur = letter; }
-    memberRows += row(u);
-  }
-  const listHtml = pickerSection("Agents", agents.map(row).join(""))
-    + (memberRows ? `<div class="modal-sec nc-sec">Members</div>${memberRows}` : "");
+  // both sections group alphabetically by display name (same as new-chat)
+  const alphaRows = (list) => {
+    let rows = "", cur = null;
+    for (const u of list) {
+      const first = (u.display.trim()[0] || "#").toUpperCase();
+      const letter = /[A-Z]/.test(first) ? first : "#";
+      if (letter !== cur) { rows += `<div class="nc-alpha">${letter}</div>`; cur = letter; }
+      rows += row(u);
+    }
+    return rows;
+  };
+  const listHtml = pickerSection("Agents", alphaRows(agents))
+    + (humans.length ? `<div class="modal-sec nc-sec">Members</div>${alphaRows(humans)}` : "");
 
   const html = `
     <div class="ng-wrap">

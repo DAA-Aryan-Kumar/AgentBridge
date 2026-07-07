@@ -105,6 +105,9 @@ window.addEventListener("hashchange", route);
 (async function start() {
   initTheme();
   $("#side-new").addEventListener("click", () => { location.hash = "#/new"; });
+  // the brand header is home: go to the default (no active chat) window.
+  // FUTURE: per-chat connection details will move here (see memory).
+  $("#side-head").addEventListener("click", () => { location.hash = "#/chats"; });
   // rail: navigate; clicking ANY rail item also brings back a collapsed
   // sidebar (was active-item-only — user found that surprising)
   const railGo = (target) => {
