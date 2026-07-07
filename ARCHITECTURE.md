@@ -109,6 +109,18 @@ mesh/
   syncs the whole `mesh/` tree, so the JSON is still readable on disk. Real
   isolation (no one reads a chat they're not in) needs per-chat encryption or
   per-user backends — a deferred setup/account-overhaul decision.
+- **Message delete = the same app-level model** (v0.24.3): `mesh.messages_for(
+  chat_id, username)` is the single read choke-point that computes each user's
+  view from two overlays — deleted-for-everyone messages tombstoned (body /
+  files / tags stripped, `deleted={by,at}` set; reply-quotes to a redacted
+  parent blanked; starred snapshots + pins purged), then this user's
+  deleted-for-me `hidden` set removed. **Every** reader routes through it — the
+  transcript + client search (`api_mesh_chat`), the media/links panes
+  (`api_mesh_chat_info`), the sidebar preview (`chats_for` → `_last_message`),
+  and crucially the **agent worker's context build** (`process_chat` reads
+  `messages_for`, not `messages`) — so no human or agent can read a deleted
+  body. Delete-for-everyone is sender-only; the raw `.jsonl` is untouched (full
+  audit), so true erasure again waits on the encryption / per-user-backend work.
 - An agent has one or more `owners` (humans). **An agent must always have at
   least one owner** — `update_agent`'s `revoke_owner` refuses to drop the last
   one. Ownership is what makes the free-chatting invariant enforceable (§6).
@@ -196,15 +208,18 @@ mesh/
 
 ```jsonc
 {"read_ts": "...", "updated": "...",
- "starred": {"<msg_id>": {"from": "...", "body": "...", "ts": "...", "at": "..."}}}
+ "starred": {"<msg_id>": {"from": "...", "body": "...", "ts": "...", "at": "..."}},
+ "hidden": {"<msg_id>": "<at>"}}   // delete-for-me (v0.24.3)
 ```
 
-One file holds **both** the read cursor and the private star overlay for that
-user in that chat — `mark_read()` always **merges**, never overwrites, because
-an earlier version that overwrote this file on every chat-open silently wiped
-stars (a real, fixed bug). Any future per-user, per-chat overlay (delete-for-me
-is the planned next one — see §8) belongs in this same file for the same
-reason: it's the one place a single writer already owns.
+One file holds the read cursor and the private per-user overlays for that user
+in that chat — `mark_read()` always **merges**, never overwrites, because an
+earlier version that overwrote this file on every chat-open silently wiped
+stars (a real, fixed bug). Every per-user, per-chat overlay (stars, and
+delete-for-me's `hidden` set) lives in this same file for the same reason: it's
+the one place a single writer already owns. Delete-for-**everyone** is instead
+a chat-level `chats/<id>/redactions.json` (`{msg_id: {by, at}}`), since it's
+shared, not per-user — see the deletion note below.
 
 ### Pins (`meta.pins`, v0.18+)
 
@@ -304,7 +319,10 @@ Full public surface, grouped as they appear in the file:
 | `pins_active` / `pin_active` / `pin_message` / `unpin_message` | §2.3 |
 | `star_message` / `starred_ids` / `starred_all` | §2.4 |
 | `chats_for(username, include_archived=False)` | the visibility rule: everyone (human or agent) sees only chats they're a member of; sorted by last-activity |
-| `messages(chat_id, tail=200)` | reads every member's `.jsonl`, merges, sorts by `(ts, id)` — `tail=0` means "all" |
+| `messages(chat_id, tail=200)` | RAW read: every member's `.jsonl`, merged, sorted by `(ts, id)` — `tail=0` means "all". The audit view; never served to a user directly |
+| `messages_for(chat_id, username, tail=200)` | the app-level read choke-point (§2): applies redactions (tombstones) + this user's `hidden` set. Every human/agent read path uses this, not `messages` |
+| `hide_messages` / `unhide_messages(chat_id, username, ids)` | delete-for-me + its undo (per-user `hidden` overlay) |
+| `redact_messages(chat_id, username, ids)` | delete-for-everyone (sender-only, validates the whole batch, purges star/pin copies); irreversible |
 | `parse_tags(body)` | regex `@name` extraction, filtered to real usernames |
 | `post(chat_id, sender, body, attachments, reply_to, forward_of)` | the single message-creation path; enforces membership + not-archived, stages attachments into `files/` with collision-safe renaming, stamps `ns`/`id`/`tags` |
 | `forward_message(src_chat, msg_id, targets, by)` | copies body + re-ships attachments into each target via `post()`, `forward_of=` sets `fwd` attribution and blanks tags |
@@ -730,21 +748,23 @@ resolves to a DM on send; forwarded copies keep `fwd`+inert tags per below),
 in-sidebar new-group builder (chip tray → search → tap-add list → name step),
 inline image thumbnails in the transcript, read-more clamping, live
 typing/working presence, archive (never-delete) + owner-only permanent
-delete, in-chat search, media/docs/links browser (month-grouped), mesh-wide
+delete, **message delete** (for-me hide + sender-only for-everyone tombstone,
+§2), in-chat search, media/docs/links browser (month-grouped), mesh-wide
 stand-down switch, per-agent rate cap, config-driven `--sql-read-only`
 opt-out (§6.6).
 
 **In flight / stubbed** (present in their menus, backend-ready or partially
 so, but not wired to a finished flow):
-- **Clear chat / Delete chat**: menu entries exist (Clear chat, then Delete
-  chat for DMs / Exit group for groups) but only toast — not implemented. The
-  plan is delete-for-everyone as a tombstone record written into the
-  **sender's own** message file (so single-writer still holds — WhatsApp
-  restricts delete to your own messages for the same structural reason) and
-  delete-for-me as a hidden-ids overlay in the same per-user
-  `state/<user>.json` file that already holds stars.
+- **Clear chat**: the menu entry exists but only toasts — not implemented
+  (next round). It will be a per-user "cleared before <ts>" cursor in
+  `state/<user>.json`, the same overlay family as delete-for-me.
 - **Edit**: planned as an edit record appended to the sender's file, with
   renderers applying the latest edit — same single-writer logic as delete.
+
+  (**Message delete** — the two-overlay design once sketched here — shipped
+  in v0.24.3: delete-for-me is a `hidden` set in `state/<user>.json`, and
+  delete-for-everyone (sender-only) is a chat-level `redactions.json`, applied
+  by `mesh.messages_for()` on every read path. See §2.)
 - **Read receipts**: the double-tick renders (frontend placeholder) but there
   is no delivered/read backend yet — every message shows as merely "sent."
 

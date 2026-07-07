@@ -202,6 +202,8 @@ function renderChatListSidebar() {
       <div class="chat-mid">
         <div class="chat-name">${esc(chatDisplay(c, ms.user))}</div>
         <div class="chat-last">${!c.last ? "No messages yet"
+          : c.last.deleted ? (c.last.from === ms.user
+              ? "You deleted this message" : "This message was deleted")
           : c.last.kind === "info" ? esc(c.last.body || "")
           : esc(meshDn(c.last.from)) + ": " + esc(c.last.body || "📎 file")}</div>
       </div>

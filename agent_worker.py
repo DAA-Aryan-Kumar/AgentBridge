@@ -132,6 +132,9 @@ def render_context(msgs, agent, staged=None, pins=None):
         lines.append(f'[PINNED by @{pin.get("by")} until {pin.get("until")}] '
                      f'@{pin.get("from")}: "{excerpt}"')
     for m in msgs[-30:]:
+        if m.get("deleted"):   # tombstone — the body is gone, say so, no more
+            lines.append(f"[{m.get('ts')}] · a message was deleted")
+            continue
         if m.get("kind") == "info":   # membership notes read as events
             lines.append(f"[{m.get('ts')}] · {m.get('body', '')}")
             continue
@@ -510,7 +513,10 @@ class Worker:
             cursor = int(self.state["cursors"].get(chat_id) or 0)
         except (ValueError, TypeError):
             cursor = 0  # pre-ns cursor format; rescan from the start
-        msgs = self.mesh.messages(chat_id, tail=0)
+        # messages_for applies the delete overlays: an agent must never read a
+        # deleted message's body (deleted-for-everyone comes back tombstoned,
+        # body stripped). Agents have no delete-for-me overlay of their own.
+        msgs = self.mesh.messages_for(chat_id, self.agent, tail=0)
         new = [m for m in msgs if msg_ns(m) > cursor]
         if not new:
             return False
@@ -550,7 +556,8 @@ class Worker:
         # reply to it, so every agent message carries a quote in the UI
         trigger_msg = None
         for m in new:
-            if m.get("kind") != "info" and msg_ns(m) > joined_ns \
+            if m.get("kind") != "info" and not m.get("deleted") \
+                    and msg_ns(m) > joined_ns \
                     and should_reply(rule, m, self.agent, users):
                 trigger_msg = m
         trigger = trigger_msg is not None

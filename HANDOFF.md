@@ -6,7 +6,7 @@ conventions that aren't obvious from the code alone.
 
 ## Current state
 
-- **Version:** `gui/__init__.py` `__version__` is the source of truth (v0.24.1
+- **Version:** `gui/__init__.py` `__version__` is the source of truth (v0.24.3
   at handoff), bumped once per shipped round.
 - **Everything is committed and pushed.** A clone is a complete copy of the
   source.
@@ -23,11 +23,13 @@ conventions that aren't obvious from the code alone.
   not a modal; read-more clamp on long messages; live typing/working presence;
   free chatting (anyone may chat any agent — the agent's owner is pulled in
   automatically, in EITHER direction, so no agent is ever in a room without a
-  responsible human).
-- **In flight / still stubbed:** `Edit`, `Delete`, and `Clear chat` are present
-  in their menus but inert (toast only) — delete lands with the tombstone
-  design below. Read-receipt ticks are a frontend placeholder with no
-  delivered/read backend yet.
+  responsible human); **message delete** — WhatsApp-style delete-for-me (a
+  private per-user hide, with a toast + Undo) and sender-only delete-for-everyone
+  (a tombstone: "You/This message was deleted"), enforced so no human or agent
+  can read a deleted body (v0.24.3, §2 of ARCHITECTURE.md).
+- **In flight / still stubbed:** `Edit` and `Clear chat` are present in their
+  menus but inert (toast only). Read-receipt ticks are a frontend placeholder
+  with no delivered/read backend yet.
 
 ## What lives outside this repo
 
@@ -74,14 +76,12 @@ machine (see the last section).
 
 ## Next work queue
 
-1. **Delete** — two modes: delete-for-everyone as a *tombstone record in the
-   sender's own message file* (single-writer holds; restricted to own
-   messages), delete-for-me as a *hidden-ids overlay* in the user's per-chat
-   state file (the same pattern stars already use). Also wires up **Clear
-   chat**, currently a stub in the same menu. Full rationale is in the
-   memory's storage-architecture note. Flagged DEEP by the user — be careful.
+1. **Clear chat** — the last stub in the chat ⋮ menu. Plan: a per-user
+   "cleared before <ts>" cursor in `state/<user>.json` (the same overlay family
+   as delete-for-me, which shipped in v0.24.3). Flagged DEEP by the user — be
+   careful. (Message **delete** is now done — see §2 of ARCHITECTURE.md.)
 2. **Read receipts**, then **edit-message** (edit record in the sender's file;
-   renderers apply the latest).
+   renderers apply the latest — same single-writer pattern as delete).
 3. Longer-horizon sessions already scoped in memory: a **permissions overhaul**
    (who may pin, per-chat agent permissions) and an **agent-worker overhaul**
    (uniform capability exposure to agents, context-window management, agent

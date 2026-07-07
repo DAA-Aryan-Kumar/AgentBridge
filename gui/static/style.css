@@ -500,6 +500,14 @@ input[type=text], select, textarea {
   border-radius: 999px;
 }
 
+/* deleted-message tombstone: a muted, italic bubble — the body is a ban
+   glyph + label, everything else (reply, star, files) is gone. */
+.msg.deleted .bubble .msg-body.tomb {
+  display: flex; align-items: center; gap: 6px;
+  color: var(--text-dim); font-style: italic;
+}
+.msg.deleted .bubble .msg-body.tomb svg { flex: none; opacity: 0.8; }
+
 /* compact unread control */
 .unread-pill {
   align-self: center; display: inline-flex; align-items: center; gap: 10px;
@@ -1553,6 +1561,13 @@ pre.configdump {
   background: var(--bad); color: #fff; font-weight: 600;
 }
 .cf-go:hover, [data-theme="dark"] .cf-go:hover { filter: brightness(1.12); background: var(--bad); }
+/* delete dialog: options stack (WhatsApp), full-width pills. "Delete for
+   me" is the safe/alt pill (accent, not red); "everyone" keeps the red .cf-go */
+.cf-actions.cf-col { flex-direction: column; align-items: stretch; gap: 8px; }
+.cf-actions.cf-col .cf-go { padding: 10px 22px; }
+.cf-actions.cf-col .cf-cancel { padding: 9px 14px; align-self: center; }
+.cf-go.alt { background: var(--accent); }
+.cf-go.alt:hover, [data-theme="dark"] .cf-go.alt:hover { background: var(--accent); }
 
 /* in-chat search (slides over chat info in the same pane) */
 .search-box {
@@ -1699,6 +1714,13 @@ button:not(:disabled), .chat-row, .tag-opt, .search-hit, .snav, .arch-row,
 /* leading icon slot: gold ★ for a star, the starOff glyph for an unstar */
 #toast .toast-ic { flex: none; display: inline-flex; align-items: center; }
 #toast .toast-ic svg { width: 17px; height: 17px; color: var(--text-dim); }
+/* in-progress spinner for a slow delete (shared-folder lag) */
+#toast .toast-spin {
+  flex: none; width: 15px; height: 15px; border-radius: 50%;
+  border: 2px solid var(--text-dim); border-top-color: transparent;
+  animation: toast-spin 0.7s linear infinite;
+}
+@keyframes toast-spin { to { transform: rotate(360deg); } }
 #toast .toast-star { font-size: 16px; line-height: 1; color: #EAB308; }
 #toast .toast-act {
   flex: none; border: none; border-radius: 999px;

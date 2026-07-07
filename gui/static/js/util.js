@@ -61,9 +61,11 @@ export function toast(msg, opts) {
   const t = $("#toast");
   // opts.icon is trusted markup (our own ICONS / a glyph span), rendered
   // ahead of the message; opts.check is the plain ✓ success tick.
-  const lead = opts.icon
-    ? `<span class="toast-ic">${opts.icon}</span>`
-    : (opts.check ? '<span class="toast-check">✓</span>' : "");
+  const lead = opts.spinner
+    ? '<span class="toast-spin" aria-hidden="true"></span>'
+    : (opts.icon
+      ? `<span class="toast-ic">${opts.icon}</span>`
+      : (opts.check ? '<span class="toast-check">✓</span>' : ""));
   t.innerHTML = lead +
     `<span class="toast-msg">${esc(msg)}</span>` +
     (opts.action ? `<button class="toast-act">${esc(opts.action)}</button>` : "");
@@ -88,7 +90,9 @@ export function toast(msg, opts) {
     if (opts.onAction) opts.onAction();
   });
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.hidden = true; }, opts.duration || 3600);
+  // a spinner toast holds until the caller replaces it (long safety timeout)
+  toastTimer = setTimeout(() => { t.hidden = true; },
+                          opts.duration || (opts.spinner ? 60000 : 3600));
 }
 
 // the ≤1100px breakpoint puts the details pane on TOP of the chat — pane

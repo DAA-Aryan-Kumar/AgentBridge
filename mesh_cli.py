@@ -94,7 +94,7 @@ def cmd_chats(m, args):
 
 def cmd_read(m, args):
     chat_id = resolve_chat(m, args.chat)
-    for msg in m.messages(chat_id, tail=args.tail):
+    for msg in m.messages_for(chat_id, args.as_user, tail=args.tail):
         files = ("  [files: " + ", ".join(f["name"] for f in msg["files"]) + "]"
                  if msg.get("files") else "")
         say(f"--- @{msg['from']} ({msg.get('kind', '?')})  {msg.get('ts', '')}")

@@ -184,6 +184,24 @@ async function renderMeshChat(force) {
       prevFrom = null;
       continue;
     }
+    // a deleted-for-everyone tombstone: greyed, aligned to its sender, and
+    // "mostly non-interactable" — the chevron is its only live control (one
+    // option, Delete: a silent for-me removal of the trace).
+    if (msg.deleted) {
+      const label = msg.mine ? "You deleted this message"
+                             : "This message was deleted";
+      parts.push(`
+        <div class="msg ${msg.mine ? "mine" : ""} deleted" data-mid="${esc(msg.id || "")}">
+          <span class="msg-check" aria-hidden="true">${ICONS.check}</span>
+          <div class="bubble">
+            <button class="msg-arrow" aria-label="Message menu">${ICONS.chevD}</button>
+            <div class="msg-body tomb">${ICONS.banned}<span>${label}</span></div>
+            <span class="meta"><span class="meta-time">${esc(timeOnly(msg.ts))}</span></span>
+          </div>
+        </div>`);
+      prevFrom = null;
+      continue;
+    }
     // image attachments show an inline thumbnail (WhatsApp); everything else
     // keeps the file chip. Both open the file on click (.mesh-att).
     const files = (msg.files || []).map((f) => isImg(f.name)
@@ -282,7 +300,8 @@ async function renderMeshChat(force) {
   if (!Mesh.msgCounts) Mesh.msgCounts = {};
   const grew = data.messages.length > (Mesh.msgCounts[chatId] ?? data.messages.length);
   Mesh.msgCounts[chatId] = data.messages.length;
-  const menuCtx = { isDm, canReply: isMember && !meta.archived,
+  const menuCtx = { isDm, selfChat: meta.kind === "self",
+                    canReply: isMember && !meta.archived,
                     starred: starredSet, pins };
   if (Mesh.structKey === structKey && $("#transcript")) {
     const tr = $("#transcript");
@@ -538,18 +557,23 @@ function openMsgMenu(rect, msg, chatId, ctx) {
   menu.className = "menu msg-menu";
   const isPinned = !!(ctx.pins || []).some((p) => p.id === msg.id);
   const isStarred = !!(ctx.starred && ctx.starred.has(msg.id));
-  menu.innerHTML = [
-    ctx.canReply ? `<button data-act="reply">${ICONS.reply} Reply</button>` : "",
-    !msg.mine && !ctx.isDm
-      ? `<button data-act="message">${ICONS.msgUser} Message ${esc(meshDn(msg.from))}</button>` : "",
-    `<button data-act="copy">${ICONS.copy} Copy</button>`,
-    msg.mine ? `<button data-act="edit">${ICONS.pencil} Edit</button>` : "",
-    `<button data-act="forward">${ICONS.forward} Forward</button>`,
-    `<button data-act="pin">${ICONS.pin} ${isPinned ? "Unpin" : "Pin"}</button>`,
-    `<button data-act="star">${ICONS.star} ${isStarred ? "Unstar" : "Star"}</button>`,
-    '<div class="menu-sep"></div>',
-    `<button data-act="delete">${ICONS.trash} Delete</button>`,
-  ].join("");
+  if (msg.deleted) {
+    // the tombstone's lone control: remove the trace for me (silent)
+    menu.innerHTML = `<button data-act="del-trace">${ICONS.trash} Delete</button>`;
+  } else {
+    menu.innerHTML = [
+      ctx.canReply ? `<button data-act="reply">${ICONS.reply} Reply</button>` : "",
+      !msg.mine && !ctx.isDm
+        ? `<button data-act="message">${ICONS.msgUser} Message ${esc(meshDn(msg.from))}</button>` : "",
+      `<button data-act="copy">${ICONS.copy} Copy</button>`,
+      msg.mine ? `<button data-act="edit">${ICONS.pencil} Edit</button>` : "",
+      `<button data-act="forward">${ICONS.forward} Forward</button>`,
+      `<button data-act="pin">${ICONS.pin} ${isPinned ? "Unpin" : "Pin"}</button>`,
+      `<button data-act="star">${ICONS.star} ${isStarred ? "Unstar" : "Star"}</button>`,
+      '<div class="menu-sep"></div>',
+      `<button data-act="delete" class="danger-item">${ICONS.trash} Delete</button>`,
+    ].join("");
+  }
   document.body.appendChild(menu);
   const mh = menu.offsetHeight, mw = menu.offsetWidth;
   let top = rect.bottom + 4;
@@ -569,7 +593,9 @@ function openMsgMenu(rect, msg, chatId, ctx) {
     if (!b) return;
     const act = b.dataset.act;
     close();
-    if (act === "reply") {
+    if (act === "del-trace") {
+      hideSilently(chatId, [msg.id]);
+    } else if (act === "reply") {
       startReply(chatId, msg);
       // replying needs the composer: a pane that COVERS the chat closes
       if (ctx.fromPane && paneCoversChat()) location.hash = `#/chats/${chatId}`;
@@ -618,8 +644,12 @@ function openMsgMenu(rect, msg, chatId, ctx) {
       // so open the picker straight away.
       if (ctx.fromPane) V.openForwardPicker(chatId, [msg.id]);
       else enterSelect(chatId, { mode: "forward", preselect: [msg.id] });
+    } else if (act === "delete") {
+      // WhatsApp: Delete drops into the familiar selection mode with this
+      // message already ticked; the delete flow fires from the trash action.
+      enterSelect(chatId, { preselect: [msg.id] });
     }
-    // edit / delete: coming rounds
+    // edit: coming round
   });
 }
 
@@ -816,8 +846,7 @@ function buildSelectPane(chatId) {
   if (!forwardOnly) {
     $("#sp-star").addEventListener("click", () => bulkStar(chatId));
     $("#sp-save").addEventListener("click", () => bulkSave(chatId));
-    // delete is deferred to a later round — wired so it slots in when built
-    $("#sp-delete").addEventListener("click", () => toast("Delete lands in a coming round"));
+    $("#sp-delete").addEventListener("click", () => bulkDelete(chatId));
   }
 }
 
@@ -936,4 +965,78 @@ async function bulkSave(chatId) {
   exitSelect();
   const where = (r.dest || "").split(/[\\/]/).filter(Boolean).pop() || "the folder";
   toast(`Saved ${r.saved} file${r.saved === 1 ? "" : "s"} to ${where}`, { check: true });
+}
+
+// ---- delete -----------------------------------------------------------------
+// The trash action ALWAYS opens the confirm dialog (consistent). Only whether
+// "Delete for everyone" appears varies: it needs every pick to be my own,
+// non-info, live message AND the chat not to be my own self-chat.
+function bulkDelete(chatId) {
+  const ids = selectedInOrder();
+  if (!ids.length) return;
+  const tr = $("#transcript");
+  const msgs = tr?._msgs;
+  const me = Mesh.state?.user;
+  const selfChat = !!tr?._ctx?.selfChat;
+  const canEveryone = !selfChat && ids.every((id) => {
+    const m = msgs?.get(id);
+    return m && m.from === me && m.kind !== "info" && !m.deleted;
+  });
+  deleteDialog(chatId, ids, canEveryone);
+}
+
+function deleteDialog(chatId, ids, canEveryone) {
+  const n = ids.length;
+  const box = openModal(`
+    <div class="cf-title">Delete message${n === 1 ? "" : "s"}?</div>
+    <div class="cf-actions cf-col">
+      ${canEveryone ? `<button class="cf-go" id="del-all">Delete for everyone</button>` : ""}
+      <button class="cf-go alt" id="del-me">Delete for me</button>
+      <button class="cf-cancel" id="del-cancel">Cancel</button>
+    </div>`);
+  box.classList.add("confirm");
+  box.parentElement.classList.add("confirm-scrim");
+  box.querySelector("#del-cancel").addEventListener("click", closeModal);
+  const all = box.querySelector("#del-all");
+  if (all) all.addEventListener("click", () => { closeModal(); deleteForEveryone(chatId, ids); });
+  box.querySelector("#del-me").addEventListener("click", () => { closeModal(); deleteForMe(chatId, ids); });
+}
+
+// delete-for-everyone: redact, tombstones appear in place. No toast (the
+// dialog was the confirmation; it's irreversible).
+async function deleteForEveryone(chatId, ids) {
+  const r = await api("/api/mesh/delete_messages",
+                      { chat_id: chatId, ids, scope: "everyone" });
+  if (r.error) { toast(r.error, true); return; }
+  exitSelect();
+  refreshChat();
+}
+
+// delete-for-me: hide privately, with a toast + Undo. A spinner rides in the
+// toast only if the call is slow (local is instant; the shared folder lags).
+async function deleteForMe(chatId, ids) {
+  const n = ids.length;
+  exitSelect();
+  const spin = setTimeout(() => toast("Deleting…", { spinner: true }), 300);
+  const r = await api("/api/mesh/delete_messages",
+                      { chat_id: chatId, ids, scope: "me" });
+  clearTimeout(spin);
+  if (r.error) { toast(r.error, true); return; }
+  refreshChat();
+  toast(`${n} message${n === 1 ? "" : "s"} deleted for me`, {
+    icon: ICONS.trash, action: "Undo",
+    onAction: async () => {
+      await api("/api/mesh/undelete_messages", { chat_id: chatId, ids });
+      refreshChat();
+    },
+  });
+}
+
+// the tombstone's lone "Delete": a silent for-me removal of the trace — no
+// dialog, no toast, no undo (the message is already gone for everyone).
+async function hideSilently(chatId, ids) {
+  const r = await api("/api/mesh/delete_messages",
+                      { chat_id: chatId, ids, scope: "me" });
+  if (r.error) { toast(r.error, true); return; }
+  refreshChat();
 }

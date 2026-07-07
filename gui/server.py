@@ -565,9 +565,12 @@ def _public_user(u):
 def _msg_snippet(msg):
     if not msg:
         return None
-    return {"from": msg.get("from"), "ts": msg.get("ts"),
+    snip = {"from": msg.get("from"), "ts": msg.get("ts"),
             "body": (msg.get("body") or "")[:120],
             "files": len(msg.get("files") or [])}
+    if msg.get("deleted"):   # tombstone: the sidebar shows "…deleted…" instead
+        snip["deleted"] = True
+    return snip
 
 
 def api_mesh_state():
@@ -651,7 +654,10 @@ def api_mesh_chat(params):
         tail = max(1, min(1000, int(params.get("tail", "200"))))
     except ValueError:
         tail = 200
-    msgs = m.messages(chat_id, tail=tail)
+    # messages_for applies the delete overlays (deleted-for-everyone
+    # tombstoned, this user's deleted-for-me removed) so no deleted body ever
+    # reaches the client — the transcript AND the client-side search read this
+    msgs = m.messages_for(chat_id, user, tail=tail)
     for msg in msgs:
         msg["mine"] = msg.get("from") == user
     # expired pins are LAZY: readers just don't see them (no cleanup write)
@@ -739,9 +745,11 @@ def api_mesh_chat_info(params):
         return denied
     link_re = re.compile(r"https?://[^\s<>\"')\]]+")
     files, links = [], []
-    msgs = m.messages(chat_id, tail=0)
+    # via messages_for so a deleted message's attachments/links drop out of
+    # the media + links panes too (its files/body are stripped in the overlay)
+    msgs = m.messages_for(chat_id, user, tail=0)
     for msg in msgs:
-        if msg.get("kind") == "info":
+        if msg.get("kind") == "info" or msg.get("deleted"):
             continue
         for f in (msg.get("files") or []):
             files.append(dict(f, **{"from": msg.get("from"),
@@ -965,6 +973,47 @@ def api_mesh_forward(data):
     return {"ok": True, "forwarded": len(out)}
 
 
+def api_mesh_delete_messages(data):
+    """Delete messages: scope 'me' (private hide, reversible) or 'everyone'
+    (redact for all, sender-only, irreversible). Membership-gated; the
+    backend re-checks sender ownership for the 'everyone' scope."""
+    m = get_mesh()
+    user = session_user(m)
+    if not user:
+        return {"error": "Sign in first"}
+    chat_id = data.get("chat_id") or ""
+    meta = m.get_chat(chat_id)
+    if not meta:
+        return {"error": "No such chat"}
+    denied = _not_member(meta, user)
+    if denied:
+        return denied
+    ids = [str(i) for i in (data.get("ids") or [])]
+    if data.get("scope") == "everyone":
+        done = m.redact_messages(chat_id, user, ids)
+        return {"ok": True, "scope": "everyone", "deleted": done}
+    done = m.hide_messages(chat_id, user, ids)
+    return {"ok": True, "scope": "me", "hidden": len(done)}
+
+
+def api_mesh_undelete_messages(data):
+    """Undo a delete-for-me (the toast's Undo)."""
+    m = get_mesh()
+    user = session_user(m)
+    if not user:
+        return {"error": "Sign in first"}
+    chat_id = data.get("chat_id") or ""
+    meta = m.get_chat(chat_id)
+    if not meta:
+        return {"error": "No such chat"}
+    denied = _not_member(meta, user)
+    if denied:
+        return denied
+    ids = [str(i) for i in (data.get("ids") or [])]
+    m.unhide_messages(chat_id, user, ids)
+    return {"ok": True}
+
+
 def api_mesh_typing(data):
     """Typing heartbeat: the composer pings while the user writes; other
     members' windows show a dots-only bubble until it goes stale. One file
@@ -1135,6 +1184,8 @@ POST_ROUTES = {
     "/api/mesh/star": api_mesh_star,
     "/api/mesh/forward": api_mesh_forward,
     "/api/mesh/save": api_mesh_save,
+    "/api/mesh/delete_messages": api_mesh_delete_messages,
+    "/api/mesh/undelete_messages": api_mesh_undelete_messages,
 }
 
 

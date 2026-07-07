@@ -20,6 +20,10 @@ Access model (enforced cooperatively — the folder ACL is the real boundary):
   * You see only chats you are a member of — humans and agents alike (WhatsApp
     model, 2026-07-07; superseded the earlier "humans see everything"). The GUI
     read endpoints enforce membership too, not just the chat list.
+  * Deleted messages are unreadable at the app level (v0.24.3): every reader
+    goes through messages_for(), which tombstones deleted-for-everyone messages
+    and drops each user's deleted-for-me ones. The raw .jsonl is kept (audit),
+    so like visibility this is app-level until true privacy lands.
   * Chats are archived (never deleted), and only by their owner-human.
   * Agents are owned by one or more humans, who set their reply rules
     (all | tagged | humans), model/effort, and tool policy.
@@ -34,7 +38,8 @@ Layout under <shared>/mesh/:
     users/<username>.json
     chats/<chat_id>/meta.json
     chats/<chat_id>/msgs/<username>.jsonl
-    chats/<chat_id>/state/<username>.json      read cursor
+    chats/<chat_id>/state/<username>.json      read cursor + stars + hidden
+    chats/<chat_id>/redactions.json            deleted-for-everyone overlay
     chats/<chat_id>/files/                     attachments
 
 Storage goes through a CONNECTOR (connectors/ package): today a locally-
@@ -699,6 +704,97 @@ class Mesh:
         out.sort(key=lambda s: s.get("ts") or "", reverse=True)
         return out
 
+    # ----------------------------------------------- delete for me / everyone
+
+    def hide_messages(self, chat_id, username, ids):
+        """Delete-for-me: add ids to the user's private `hidden` overlay
+        (beside the read cursor). Reversible via unhide_messages. Any member
+        may hide anything they can see — including a tombstone (that's the
+        tombstone's lone 'Delete', a silent for-me removal of the trace)."""
+        meta = self.get_chat(chat_id)
+        if not meta:
+            raise MeshError("No such chat")
+        if username not in (meta.get("members") or []):
+            raise MeshError("Only members can delete messages")
+        key = self._cursor_key(chat_id, username)
+        cur = self.cx.read_json(key) or {}
+        hidden = cur.get("hidden") or {}
+        now = utcnow()
+        for mid in ids or []:
+            hidden[str(mid)[:80]] = now
+        cur["hidden"] = hidden
+        cur["updated"] = now
+        self.cx.write_json(key, cur)
+        return sorted(hidden)
+
+    def unhide_messages(self, chat_id, username, ids):
+        """Undo a delete-for-me (the toast's Undo)."""
+        key = self._cursor_key(chat_id, username)
+        cur = self.cx.read_json(key) or {}
+        hidden = cur.get("hidden") or {}
+        for mid in ids or []:
+            hidden.pop(str(mid)[:80], None)
+        cur["hidden"] = hidden
+        cur["updated"] = utcnow()
+        self.cx.write_json(key, cur)
+        return sorted(hidden)
+
+    def redact_messages(self, chat_id, username, ids):
+        """Delete-for-everyone: mark ids in the chat-level redactions overlay.
+        Sender-only (WhatsApp) — you may only redact your OWN, non-info
+        messages. Irreversible. Purges any readable COPY of the body too
+        (starred snapshots + pin excerpts) so nothing survives at the app
+        level. Validates the whole batch before writing anything."""
+        meta = self.get_chat(chat_id)
+        if not meta:
+            raise MeshError("No such chat")
+        if username not in (meta.get("members") or []):
+            raise MeshError("Only members can delete messages")
+        by_id = {m.get("id"): m for m in self.messages(chat_id, tail=0)}
+        targets = []
+        for mid in ids or []:
+            src = by_id.get(mid)
+            if not src or src.get("kind") == "info":
+                continue
+            if src.get("from") != username:
+                raise MeshError("You can only delete your own messages "
+                                "for everyone")
+            targets.append(mid)
+        if not targets:
+            return []
+        key = f"chats/{chat_id}/redactions.json"
+        red = self.cx.read_json(key) or {}
+        now = utcnow()
+        for mid in targets:
+            red[mid] = {"by": username, "at": now}
+        self.cx.write_json(key, red)
+        self._purge_redacted_traces(chat_id, meta, targets)
+        return targets
+
+    def _purge_redacted_traces(self, chat_id, meta, ids):
+        """Strip readable copies of now-deleted messages: every member's
+        starred snapshot (holds the full body) and any pin (its banner shows
+        a body excerpt). The starred page and pin banner would otherwise
+        keep serving the deleted content."""
+        idset = set(ids)
+        for member in (meta.get("members") or []):
+            k = self._cursor_key(chat_id, member)
+            cur = self.cx.read_json(k)
+            if not cur:
+                continue
+            stars = cur.get("starred") or {}
+            if any(mid in stars for mid in idset):
+                for mid in idset:
+                    stars.pop(mid, None)
+                cur["starred"] = stars
+                cur["updated"] = utcnow()
+                self.cx.write_json(k, cur)
+        pins = meta.get("pins") or []
+        kept = [p for p in pins if p.get("id") not in idset]
+        if len(kept) != len(pins):
+            meta["pins"] = kept
+            self.cx.write_json(f"chats/{chat_id}/meta.json", meta)
+
     def delete_chat(self, chat_id, by):
         """Owner-only, permanent, for every member — unlike archiving.
         (User decision 2026-07-04: delete exists alongside archive.)"""
@@ -726,7 +822,7 @@ class Mesh:
             # the private self-chat too, so no separate kind check is needed.
             if username not in (meta.get("members") or []):
                 continue
-            meta["last"] = self._last_message(meta["id"])
+            meta["last"] = self._last_message(meta["id"], viewer=username)
             out.append(meta)
         out.sort(key=lambda m: (m.get("last") or {}).get("ts") or m["created"],
                  reverse=True)
@@ -742,8 +838,65 @@ class Mesh:
         msgs.sort(key=lambda m: (m.get("ts") or "", m.get("id") or ""))
         return msgs[-tail:] if tail else msgs
 
-    def _last_message(self, chat_id):
-        msgs = self.messages(chat_id, tail=1)
+    # ------------------------------------------------ deletion (two overlays)
+    # Delete is never a log rewrite — the raw .jsonl stays as the audit trail.
+    # Two overlays compute the app-level view instead:
+    #   • delete-for-me  → the user's private `hidden` set in state/{user}.json
+    #   • delete-for-all → the chat-level redactions.json {id:{by,at}}
+    # messages_for() applies both, and EVERY read path (human transcript +
+    # search, chat-info, sidebar preview, and the agent worker's own context
+    # build) routes through it — so a deleted message can't be read anywhere
+    # at the app level. Physical erasure waits for the encryption /
+    # per-user-backend work (true privacy is a deliberately-later pipeline
+    # item; the shared folder still syncs the whole tree today).
+
+    def _redactions(self, chat_id):
+        return self.cx.read_json(f"chats/{chat_id}/redactions.json") or {}
+
+    def _hidden_ids(self, chat_id, username):
+        if not username:
+            return set()
+        cur = self.cx.read_json(self._cursor_key(chat_id, username)) or {}
+        return set((cur.get("hidden") or {}).keys())
+
+    def _apply_redactions(self, chat_id, msgs, red=None):
+        """Tombstone every deleted-for-everyone message in place: body, files
+        and tags stripped, `deleted={by,at}` set — the raw log is untouched.
+        A reply-quote pointing at a redacted parent is blanked too, so no
+        readable copy of a deleted message survives inside another message."""
+        red = self._redactions(chat_id) if red is None else red
+        if not red:
+            return msgs
+        out = []
+        for m in msgs:
+            if m.get("id") in red:
+                info = red[m["id"]]
+                m = {**m, "body": "", "files": [], "tags": [],
+                     "fwd": None, "reply_to": None,
+                     "deleted": {"by": info.get("by"), "at": info.get("at")}}
+            else:
+                rt = m.get("reply_to")
+                if rt and rt.get("id") in red:
+                    m = {**m, "reply_to": {**rt, "body": "", "deleted": True}}
+            out.append(m)
+        return out
+
+    def messages_for(self, chat_id, username, tail=200):
+        """The app-level view of a chat for `username`: deleted-for-everyone
+        messages tombstoned, this user's deleted-for-me messages removed.
+        Overlays are applied before the tail cut so the tombstones occupy
+        their slots and the returned count stays honest."""
+        msgs = self._apply_redactions(chat_id, self.messages(chat_id, tail=0))
+        hidden = self._hidden_ids(chat_id, username)
+        if hidden:
+            msgs = [m for m in msgs if m.get("id") not in hidden]
+        return msgs[-tail:] if tail else msgs
+
+    def _last_message(self, chat_id, viewer=None):
+        # viewer-scoped so the sidebar preview reflects that reader's overlays
+        # (a tombstone reads "deleted"; a deleted-for-me message is skipped)
+        msgs = (self.messages_for(chat_id, viewer, tail=1) if viewer
+                else self.messages(chat_id, tail=1))
         return msgs[-1] if msgs else None
 
     def parse_tags(self, body):
@@ -823,6 +976,8 @@ class Mesh:
                     if m.get("id") == msg_id and m.get("kind") != "info"), None)
         if not src:
             raise MeshError("Message not found in this chat")
+        if msg_id in self._redactions(src_chat):
+            raise MeshError("This message was deleted")
         chat_dir = self.chat_dir(src_chat)
         attachments = []
         for f in (src.get("files") or []):
@@ -855,8 +1010,11 @@ class Mesh:
     def unread_count(self, chat_id, username):
         cur = self.cx.read_json(self._cursor_key(chat_id, username)) or {}
         read_ts = cur.get("read_ts") or ""
-        return sum(1 for m in self.messages(chat_id, tail=0)
-                   if (m.get("ts") or "") > read_ts and m.get("from") != username)
+        # a tombstone ("This message was deleted") carries no content — it
+        # never counts as unread; deleted-for-me messages are already gone
+        return sum(1 for m in self.messages_for(chat_id, username, tail=0)
+                   if (m.get("ts") or "") > read_ts
+                   and m.get("from") != username and not m.get("deleted"))
 
     # ------------------------------------------------------------- seed
 
