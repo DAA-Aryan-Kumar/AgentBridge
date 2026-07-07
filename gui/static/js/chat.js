@@ -16,6 +16,14 @@ import { V } from "./views.js";
 async function renderChats(force) {
   const s = App.state;
   if (!s?.configured) { location.hash = "#/setup"; return; }
+  // leaving a chat for the no-chat home: paint the empty state NOW (from the
+  // prior mesh state) so the open chat doesn't linger through the state fetch
+  // below and then snap — the "settles after an await" stutter. The fetch still
+  // runs and the sidebar refreshes; the empty surface itself is static.
+  if (!Mesh.chatId && App.page === "chats" && Mesh.listKey !== "empty"
+      && Mesh.state?.available && Mesh.state?.user) {
+    renderEmptyChat();
+  }
   Mesh.state = await api("/api/mesh/state");
   // navigated away while the state was in flight (e.g. quick chat→settings):
   // don't let this stale render paint the empty chat state over the new page
@@ -25,14 +33,15 @@ async function renderChats(force) {
 
   if (!ms.available) {
     $("#content").innerHTML = `
-      <h1>Chats</h1>
-      <p class="page-sub">Humans and Agents, working in the same rooms.</p>
-      <div class="card" style="max-width:560px">
-        <h2>Start the mesh</h2>
-        <p>This creates the shared user directory and chat space inside the
-        bridge's synced folder. The classic two-way bridge keeps working
-        alongside it.</p>
-        <button class="primary" id="mesh-init-btn">Start the mesh</button>
+      <div class="empty-state">
+        <div class="es-box">
+          ${BIRD}
+          <h2>Start the mesh</h2>
+          <p>This creates the shared user directory and chat space inside the
+          bridge's synced folder. The classic two-way bridge keeps working
+          alongside it.</p>
+          <button class="primary" id="mesh-init-btn">Start the mesh</button>
+        </div>
       </div>`;
     $("#mesh-init-btn").addEventListener("click", async () => {
       const r = await api("/api/mesh/init", {});
@@ -68,12 +77,23 @@ async function renderChats(force) {
     else { pane.hidden = true; pane.innerHTML = ""; Mesh.detailsKey = ""; }
     return;
   }
-  $("#details-pane").hidden = true;
+  // no chat selected: the no-chat home. Already showing it (e.g. from the
+  // optimistic paint above) → leave it, nothing here is dynamic.
+  if (Mesh.listKey === "empty" && $("#content > .empty-state")) {
+    $("#details-pane").hidden = true;
+    return;
+  }
+  renderEmptyChat();
+}
+V.renderChats = renderChats;
 
-  // no chat selected: WhatsApp-style empty pane (the list lives in the sidebar)
-  if (!force && Mesh.listKey === "empty" && App.page === "chats") return;
-  Mesh.listKey = "empty";
+// the no-active-chat home surface — WhatsApp-style centered pane (the chat
+// list lives in the sidebar). Extracted so renderChats can paint it
+// synchronously when leaving a chat (see the optimistic paint above).
+function renderEmptyChat() {
+  $("#details-pane").hidden = true;
   clearSelectMode();   // left the chat while selecting: drop the mode + pane
+  Mesh.listKey = "empty";
   $("#content").innerHTML = `
     <div class="empty-state">
       <div>
@@ -83,13 +103,14 @@ async function renderChats(force) {
       </div>
     </div>`;
 }
-V.renderChats = renderChats;
 
 function renderMeshAuth() {
   const mode = Mesh.auth.mode;
   $("#content").innerHTML = `
-    <h1>Chats</h1>
-    <p class="page-sub">Sign in to join the conversation.</p>
+    <div class="empty-state">
+      <div class="es-box">
+        ${BIRD}
+        <h2>Sign in to join the conversation</h2>
     <div class="card" style="max-width:420px">
       <div class="row" style="margin-bottom:14px">
         <button id="auth-login" class="${mode === "login" ? "primary" : ""}">Sign in</button>
@@ -105,6 +126,8 @@ function renderMeshAuth() {
       </div>
       <p class="hint" style="margin-top:12px">Accounts live in the shared
       folder — one account works from any machine that syncs it.</p>
+    </div>
+      </div>
     </div>`;
   $("#auth-login").addEventListener("click", () => { Mesh.auth.mode = "login"; renderMeshAuth(); });
   $("#auth-signup").addEventListener("click", () => { Mesh.auth.mode = "signup"; renderMeshAuth(); });

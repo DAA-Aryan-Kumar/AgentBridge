@@ -188,6 +188,16 @@ body { display: flex; flex-direction: column; }
   color: var(--text-faint); text-align: center;
 }
 .empty-state svg { color: var(--text-faint); opacity: .55; }
+/* centered action box for the bootup surfaces (start-the-mesh, sign-in) — same
+   centered, theme-aware frame as the no-chat home, but interactive */
+.empty-state .es-box {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 8px; width: 100%; max-width: 460px; padding: 0 24px;
+  user-select: text; color: var(--text);
+}
+.empty-state .es-box h2 { margin: 4px 0; font-size: 17px; }
+.empty-state .es-box > p { color: var(--text-dim); margin: 0 0 14px; font-size: 13.5px; max-width: 400px; }
+.empty-state .es-box .card { text-align: left; width: 100%; margin: 0; }
 
 /* settings navigation in the sidebar (WhatsApp-style grouped items) */
 .snav {
@@ -366,10 +376,12 @@ input[type=text], select, textarea {
 }
 
 #transcript {
-  display: flex; flex-direction: column; gap: 10px;
+  display: flex; flex-direction: column; gap: 5px;
   flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0;
   padding: 12px 20px 12px 18px;
 }
+/* day / info pills keep a little breathing room the tighter gap removes */
+#transcript .day-sep, #transcript .info-pill { margin: 4px 0; }
 
 .msg { max-width: 74%; }
 .msg.mine { align-self: flex-end; }
@@ -453,6 +465,11 @@ input[type=text], select, textarea {
 }
 .bubble table.md-table th, .bubble table.md-table td {
   border: 1px solid var(--border-strong); padding: 4px 10px; text-align: left;
+  /* keep columns readable: a floor so they don't crush, a ceiling so one long
+     cell wraps instead of blowing the table out (excess width → horiz scroll,
+     just like a code block) */
+  min-width: 72px; max-width: 340px;
+  overflow-wrap: break-word; vertical-align: top;
 }
 .bubble table.md-table th {
   background: var(--accent-soft); font-weight: 600;
