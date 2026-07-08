@@ -115,14 +115,17 @@ any code:
 
 ## Next work queue
 
-1. **Agent-worker / context-management overhaul** is the next big session
-   (scoped in memory `agentbridge-worker-context`): a human-like unread QUEUE so
-   an agent catches up gracefully after downtime, PARALLEL requests from multiple
-   humans, the agent choosing reply-vs-tag, uniform capability exposure (pins/
-   stars/replies to agents), and the two known worker bugs — duplicate-reply (no
-   per-message answered-guard, only ns-cursor + rate-limit) and the need for a
-   worker PID singleton. `edit-marks-unread` (cross-user unread bump) folds in
-   here. (**Read receipts** shipped v0.24.18 — Sent/Read ticks off the per-member
+1. **Two big overhauls are scoped and ready — the user picks the order** (the
+   memory backlog is ambiguous between them, so don't assume): a **permissions +
+   flags overhaul** (who may pin, per-agent CLI/tool scoping — esp. sql-read-only
+   vs a sandbox-DDL role) and the **agent-worker / context-management overhaul**
+   (memory `agentbridge-worker-context`: a human-like unread QUEUE for graceful
+   catch-up after downtime, PARALLEL requests from multiple humans, the agent
+   choosing reply-vs-tag, uniform capability exposure — pins/stars/replies to
+   agents, and the two known worker bugs: duplicate-reply [no per-message
+   answered-guard, only ns-cursor + rate-limit] and the need for a worker PID
+   singleton). `edit-marks-unread` (cross-user unread bump) folds into the worker
+   one. (**Read receipts** shipped v0.24.18 — Sent/Read ticks off the per-member
    cursors; Delivered deferred to a presence heartbeat. **Round 9** shipped: 9A
    layout v0.24.13 [dynamic preview + clamped transcript-priority panes]; 9B
    v0.24.16 [sidebar chat menu — three per-user overlays `pinned`/`deleted`/
@@ -130,12 +133,10 @@ any code:
    v0.24.17. **8D graceful stand-down** v0.24.12 [`atomic_write_json` retries on
    `PermissionError`, graceful pause error, spinner toast]. The single-instance
    "forking" fix — `serve()` hands off proactively — v0.24.15.)
-2. Longer-horizon sessions already scoped in memory, in order: a **permissions
-   overhaul** (who may pin, per-chat agent tool permissions), then a **settings
-   overhaul**, then the **setup/account overhaul** (machine-based agent
-   ownership; also fully retire `legacy/bridge.py` — still load-bearing as the
-   config/util layer — and the app-packaging pass: quit-on-window-close + the
-   worker PID singleton).
+2. Then, in order: a **settings overhaul**, then the **setup/account overhaul**
+   (machine-based agent ownership; also fully retire `legacy/bridge.py` — still
+   load-bearing as the config/util layer — and the app-packaging pass:
+   quit-on-window-close + the worker PID singleton).
 3. **WhatsApp-parity gap features** (after the overhauls above): block a user,
    emoji reactions, history-on-join policy, multi-admin roles, group invite
    links, profile photo.
