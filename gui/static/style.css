@@ -1146,8 +1146,11 @@ pre.configdump {
 .chat-row:hover .chat-chevron { width: 24px; opacity: 1; }
 .chat-chevron:hover { background: none; color: var(--text); }
 .chat-chevron svg { width: 18px; height: 18px; }
-/* the floating row menu reuses .menu (incl. its danger-item styling) */
-.chat-row-menu { position: fixed; z-index: 60; }
+/* the floating row menu reuses .menu (incl. its danger-item styling). Reset the
+   base `.menu { right: 10px }` and pin a width — otherwise the inline `left`
+   (fixed-position open) plus the inherited `right` stretch it to the screen
+   edge, same trap as #chat-menu above. */
+.chat-row-menu { position: fixed; right: auto; width: 220px; z-index: 60; }
 
 .chat-head {
   display: flex; align-items: center; gap: 12px; flex: none;
