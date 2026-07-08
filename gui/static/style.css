@@ -1399,9 +1399,8 @@ pre.configdump {
 .menu .danger-item:hover, .mem-menu .danger-item:hover,
 [data-theme="dark"] .menu .danger-item:hover,
 [data-theme="dark"] .mem-menu .danger-item:hover { background: var(--danger-hover); }
-.menu .danger-item[disabled] {
-  opacity: .4; font-weight: 600; cursor: default;
-}
+.menu button:disabled, .menu .danger-item[disabled] { cursor: not-allowed; }
+.menu .danger-item[disabled] { opacity: .4; font-weight: 600; }
 .menu .danger-item[disabled]:hover,
 [data-theme="dark"] .menu .danger-item[disabled]:hover { background: none; }
 .mem-row + .mem-row { border-top: 1px solid var(--bg-alt); }

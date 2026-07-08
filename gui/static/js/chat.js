@@ -350,6 +350,11 @@ async function renderMeshChat(force) {
     if (Mesh.select.on) applySelectAfterRender(chatId);
     clampLong(tr, Mesh.msgExpand = Mesh.msgExpand || {});
     syncPinBanner(chatId, pins);
+    // keep the ⋮-menu's Clear item current without a full rebuild: it greys out
+    // the moment the transcript empties and re-enables the moment the first
+    // message lands (was stale until the chat was reopened)
+    const clrBtn = $('#chat-menu [data-act="clear"]');
+    if (clrBtn) clrBtn.disabled = data.messages.length === 0;
     if (grew) {   // the newest bubble slides in
       const last = tr.querySelector(".msg:last-of-type");
       if (last) last.classList.add("msg-in");
@@ -382,10 +387,10 @@ async function renderMeshChat(force) {
   const headAgentTag = dmPeer && ms.users?.[dmPeer]?.kind === "agent"
     ? ' <span class="kind-tag">agent</span>' : "";
   $("#content").innerHTML = `
-    <div class="chat-top" id="chat-top" title="Open chat info">
+    <div class="chat-top" id="chat-top">
       <button class="chat-back" id="chat-back">${ICONS.back}</button>
       <span class="chat-avatar" style="width:36px;height:36px;font-size:15px;flex:none">${esc((title[0] || "#").toUpperCase())}</span>
-      <div class="chat-title-btn" style="min-width:0">
+      <div class="chat-title-btn" style="min-width:0" title="Open chat info">
         <div class="chat-head-name">${esc(title)}${headAgentTag}
           ${meta.archived ? '<span class="kind-tag">archived</span>' : ""}</div>
         ${isDm ? "" : `<div class="chat-head-sub">${esc(memberLine)}</div>`}
