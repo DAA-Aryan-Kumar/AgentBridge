@@ -370,6 +370,10 @@ async function renderMeshChat(force) {
     .map(meshDn).concat(isMember ? ["You"] : []).join(", ");
 
   const isOwner = meta.owner === ms.user;
+  // Clear chat greys out once there's nothing visible left to clear (an
+  // already-cleared or brand-new chat) — messages_for has applied the
+  // per-user clear cursor, so an empty transcript means nothing to clear
+  const canClear = (data.messages || []).length > 0;
   const title = chatDisplay(meta, ms.user);
   // a DM with an agent carries the agent tag in the header — inside a DM the
   // bubbles have no sender line, so the header is the only place it can show
@@ -398,7 +402,7 @@ async function renderMeshChat(force) {
         <button data-act="pause">${ICONS.pause} ${ms.paused ? "Resume all agents" : "Stand down all agents"}</button>
         <button data-act="close">${ICONS.close} Close chat</button>
         <div class="menu-sep"></div>
-        <button data-act="clear">${ICONS.eraser} Clear chat</button>
+        <button data-act="clear" class="danger-item"${canClear ? "" : " disabled"}>${ICONS.eraser} Clear chat</button>
         ${isDm ? `<button data-act="delete" class="danger-item">${ICONS.trash} Delete chat</button>`
           : (isMember && !isOwner ? `<button data-act="exit" class="danger-item">${ICONS.exit} Exit group</button>` : "")}
       </div>
@@ -479,7 +483,7 @@ async function renderMeshChat(force) {
       }
       else if (act === "select") enterSelect(chatId);
       else if (act === "mute") toast("Muting arrives with notification support (PWA / LAN)");
-      else if (act === "clear") toast("Clear chat lands in the next round");
+      else if (act === "clear") { if (!b.disabled) clearChatDialog(chatId); }
       else if (act === "delete") toast("Delete chat lands in the next round");
       else if (act === "exit") V.exitGroup(chatId, title);
       else if (act === "close") location.hash = "#/chats";
@@ -603,7 +607,7 @@ function openMsgMenu(rect, msg, chatId, ctx) {
   const isStarred = !!(ctx.starred && ctx.starred.has(msg.id));
   if (msg.deleted) {
     // the tombstone's lone control: remove the trace for me (silent)
-    menu.innerHTML = `<button data-act="del-trace">${ICONS.trash} Delete</button>`;
+    menu.innerHTML = `<button data-act="del-trace" class="danger-item">${ICONS.trash} Delete</button>`;
   } else {
     menu.innerHTML = [
       ctx.canReply ? `<button data-act="reply">${ICONS.reply} Reply</button>` : "",
@@ -1093,4 +1097,45 @@ async function hideSilently(chatId, ids) {
                       { chat_id: chatId, ids, scope: "me" });
   if (r.error) { toast(r.error, true); return; }
   refreshChat();
+}
+
+// ---- clear chat -------------------------------------------------------------
+// WhatsApp "Clear chat": empties the transcript for ME only (a per-user cursor
+// on the server), the chat stays in my list. A checkbox spares starred
+// messages. The confirm uses the same no-fill pill buttons as the delete
+// dialog (item 6).
+function clearChatDialog(chatId) {
+  const box = openModal(`
+    <div class="cf-title">Clear this chat?</div>
+    <div class="cf-sub">This chat will be empty but will remain in your chat list.</div>
+    <label class="cf-check"><input type="checkbox" id="clear-keep"> Keep starred messages</label>
+    <div class="cf-actions cf-col">
+      <button class="cf-del" id="clear-go">Clear chat</button>
+      <button class="cf-cancel" id="clear-cancel">Cancel</button>
+    </div>`);
+  box.classList.add("confirm");
+  box.parentElement.classList.add("confirm-scrim");
+  box.querySelector("#clear-cancel").addEventListener("click", closeModal);
+  box.querySelector("#clear-go").addEventListener("click", () => {
+    const keep = box.querySelector("#clear-keep").checked;
+    closeModal();
+    clearChat(chatId, keep);
+  });
+}
+
+// Show a spinner toast while the clear round-trips, then slide-swap it for a
+// "Chat cleared" tick. A minimum on-screen time keeps the sequence readable
+// even when the local call returns instantly (user-requested behaviour).
+async function clearChat(chatId, keepStarred) {
+  toast("Clearing chat…", { spinner: true });
+  const started = Date.now();
+  const r = await api("/api/mesh/clear_chat",
+                      { chat_id: chatId, keep_starred: keepStarred });
+  if (r.error) { toast(r.error, true); return; }
+  // a full rebuild (structKey cleared) so the header menu re-evaluates and
+  // the now-empty chat disables its Clear option
+  Mesh.structKey = "";
+  refreshChat();
+  const wait = Math.max(0, 520 - (Date.now() - started));
+  setTimeout(() => toast("Chat cleared", { check: true, swap: true }), wait);
 }

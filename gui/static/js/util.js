@@ -52,47 +52,64 @@ export function fmtSize(bytes) {
 
 let toastTimer = null;
 // toast(msg, true) = error (legacy form). toast(msg, {check, action,
-// onAction, error, duration}) = snackbar with an optional ✓ and an action
-// pill (e.g. Undo). When the info pane is open, snackbars dock inside it
-// instead of covering the composer (WhatsApp behaviour, user-requested).
+// onAction, error, duration, spinner, swap}) = snackbar with an optional ✓
+// and an action pill (e.g. Undo). When the info pane is open, snackbars dock
+// inside it instead of covering the composer (WhatsApp behaviour). `swap`
+// slides the new toast up while an already-showing one slides down — used to
+// replace a spinner toast with its result ("Clearing chat…" → "Chat cleared").
 export function toast(msg, opts) {
   if (opts === true) opts = { error: true };
   opts = opts || {};
   const t = $("#toast");
-  // opts.icon is trusted markup (our own ICONS / a glyph span), rendered
-  // ahead of the message; opts.check is the plain ✓ success tick.
-  const lead = opts.spinner
-    ? '<span class="toast-spin" aria-hidden="true"></span>'
-    : (opts.icon
-      ? `<span class="toast-ic">${opts.icon}</span>`
-      : (opts.check ? '<span class="toast-check">✓</span>' : ""));
-  t.innerHTML = lead +
-    `<span class="toast-msg">${esc(msg)}</span>` +
-    (opts.action ? `<button class="toast-act">${esc(opts.action)}</button>` : "");
-  t.className = opts.error ? "error" : "";
-  // dock over the LEFT sidebar when it's open and not collapsed
-  // (WhatsApp; user corrected the earlier right-pane placement)
-  const side = document.querySelector("#navrail");
-  const sideVisible = side && side.offsetWidth > 60
-    && !document.body.classList.contains("side-collapsed");
-  if (sideVisible) {
-    const r = side.getBoundingClientRect();
-    t.style.left = (r.left + r.width / 2) + "px";
-    t.classList.add("in-pane");
-  } else {
-    t.style.left = "";
-  }
-  t.hidden = false;
-  const act = t.querySelector(".toast-act");
-  if (act) act.addEventListener("click", () => {
+  const doRender = () => {
+    // opts.icon is trusted markup (our own ICONS / a glyph span), rendered
+    // ahead of the message; opts.check is the plain ✓ success tick.
+    const lead = opts.spinner
+      ? '<span class="toast-spin" aria-hidden="true"></span>'
+      : (opts.icon
+        ? `<span class="toast-ic">${opts.icon}</span>`
+        : (opts.check ? '<span class="toast-check">✓</span>' : ""));
+    t.innerHTML = lead +
+      `<span class="toast-msg">${esc(msg)}</span>` +
+      (opts.action ? `<button class="toast-act">${esc(opts.action)}</button>` : "");
+    t.className = opts.error ? "error" : "";
+    // dock over the LEFT sidebar when it's open and not collapsed
+    // (WhatsApp; user corrected the earlier right-pane placement)
+    const side = document.querySelector("#navrail");
+    const sideVisible = side && side.offsetWidth > 60
+      && !document.body.classList.contains("side-collapsed");
+    if (sideVisible) {
+      const r = side.getBoundingClientRect();
+      t.style.left = (r.left + r.width / 2) + "px";
+      t.classList.add("in-pane");
+    } else {
+      t.style.left = "";
+    }
+    t.hidden = false;
+    if (opts.swap) {   // restart the slide-up animation on the live element
+      t.classList.remove("toast-in"); void t.offsetWidth;
+      t.classList.add("toast-in");
+    }
+    const act = t.querySelector(".toast-act");
+    if (act) act.addEventListener("click", () => {
+      clearTimeout(toastTimer);
+      t.hidden = true;
+      if (opts.onAction) opts.onAction();
+    });
     clearTimeout(toastTimer);
-    t.hidden = true;
-    if (opts.onAction) opts.onAction();
-  });
-  clearTimeout(toastTimer);
-  // a spinner toast holds until the caller replaces it (long safety timeout)
-  toastTimer = setTimeout(() => { t.hidden = true; },
-                          opts.duration || (opts.spinner ? 60000 : 3600));
+    // a spinner toast holds until the caller replaces it (long safety timeout)
+    toastTimer = setTimeout(() => { t.hidden = true; },
+                            opts.duration || (opts.spinner ? 60000 : 3600));
+  };
+  // swapping over a visible toast: slide the old one down first, then render
+  if (opts.swap && !t.hidden) {
+    t.classList.remove("toast-in");
+    t.classList.add("toast-out");
+    clearTimeout(toastTimer);
+    setTimeout(() => { t.classList.remove("toast-out"); doRender(); }, 170);
+  } else {
+    doRender();
+  }
 }
 
 // the ≤1100px breakpoint puts the details pane on TOP of the chat — pane

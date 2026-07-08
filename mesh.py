@@ -739,6 +739,31 @@ class Mesh:
         self.cx.write_json(key, cur)
         return sorted(hidden)
 
+    def clear_chat(self, chat_id, username, keep_starred=False):
+        """Clear-for-me: hide every message this user can currently see behind
+        a per-user cursor in state/{user}.json (beside read_ts/stars/hidden).
+        A read overlay only — the raw log and every other member's view are
+        untouched, so clear is the user's private action (WhatsApp 'Clear
+        chat', 2026-07-08). Messages posted AFTER the cursor show normally;
+        with keep_starred the user's starred messages survive the cut."""
+        meta = self.get_chat(chat_id)
+        if not meta:
+            raise MeshError("No such chat")
+        if username not in (meta.get("members") or []):
+            raise MeshError("Only members can clear a chat")
+        # cut at the newest message currently visible to this user, so we
+        # clear exactly what they see — messages_for already drops their
+        # deleted-for-me set and any earlier clear.
+        visible = self.messages_for(chat_id, username, tail=0)
+        cut = max([int(m.get("ns") or 0) for m in visible] or [0])
+        key = self._cursor_key(chat_id, username)
+        cur = self.cx.read_json(key) or {}
+        cur["cleared"] = {"ns": cut, "keep_starred": bool(keep_starred),
+                          "at": utcnow()}
+        cur["updated"] = utcnow()
+        self.cx.write_json(key, cur)
+        return {"ns": cut, "keep_starred": bool(keep_starred)}
+
     def redact_messages(self, chat_id, username, ids):
         """Delete-for-everyone: mark ids in the chat-level redactions overlay.
         Sender-only (WhatsApp) — you may only redact your OWN, non-info
@@ -840,10 +865,12 @@ class Mesh:
 
     # ------------------------------------------------ deletion (two overlays)
     # Delete is never a log rewrite — the raw .jsonl stays as the audit trail.
-    # Two overlays compute the app-level view instead:
+    # Per-user/chat overlays compute the app-level view instead:
     #   • delete-for-me  → the user's private `hidden` set in state/{user}.json
     #   • delete-for-all → the chat-level redactions.json {id:{by,at}}
-    # messages_for() applies both, and EVERY read path (human transcript +
+    #   • clear-for-me   → the user's `cleared` cursor in state/{user}.json
+    #                      (hide everything up to an ns; optional keep-starred)
+    # messages_for() applies them all, and EVERY read path (human transcript +
     # search, chat-info, sidebar preview, and the agent worker's own context
     # build) routes through it — so a deleted message can't be read anywhere
     # at the app level. Physical erasure waits for the encryption /
@@ -858,6 +885,12 @@ class Mesh:
             return set()
         cur = self.cx.read_json(self._cursor_key(chat_id, username)) or {}
         return set((cur.get("hidden") or {}).keys())
+
+    def _cleared(self, chat_id, username):
+        if not username:
+            return None
+        cur = self.cx.read_json(self._cursor_key(chat_id, username)) or {}
+        return cur.get("cleared")
 
     def _apply_redactions(self, chat_id, msgs, red=None):
         """Tombstone every deleted-for-everyone message in place: body, files
@@ -883,13 +916,21 @@ class Mesh:
 
     def messages_for(self, chat_id, username, tail=200):
         """The app-level view of a chat for `username`: deleted-for-everyone
-        messages tombstoned, this user's deleted-for-me messages removed.
-        Overlays are applied before the tail cut so the tombstones occupy
-        their slots and the returned count stays honest."""
+        messages tombstoned, this user's deleted-for-me messages removed, and
+        anything before their clear-chat cursor dropped. Overlays are applied
+        before the tail cut so the tombstones occupy their slots and the
+        returned count stays honest."""
         msgs = self._apply_redactions(chat_id, self.messages(chat_id, tail=0))
         hidden = self._hidden_ids(chat_id, username)
         if hidden:
             msgs = [m for m in msgs if m.get("id") not in hidden]
+        cleared = self._cleared(chat_id, username)
+        if cleared:
+            cut = int(cleared.get("ns") or 0)
+            keep = (set(self.starred_ids(chat_id, username))
+                    if cleared.get("keep_starred") else set())
+            msgs = [m for m in msgs
+                    if int(m.get("ns") or 0) > cut or m.get("id") in keep]
         return msgs[-tail:] if tail else msgs
 
     def _last_message(self, chat_id, viewer=None):

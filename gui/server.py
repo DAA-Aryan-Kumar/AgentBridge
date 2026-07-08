@@ -1014,6 +1014,25 @@ def api_mesh_undelete_messages(data):
     return {"ok": True}
 
 
+def api_mesh_clear_chat(data):
+    """Clear-for-me: drop every message currently visible to this user behind
+    a per-user cursor. Purely the caller's own view — membership-gated, no
+    other member is affected. keep_starred spares their starred messages."""
+    m = get_mesh()
+    user = session_user(m)
+    if not user:
+        return {"error": "Sign in first"}
+    chat_id = data.get("chat_id") or ""
+    meta = m.get_chat(chat_id)
+    if not meta:
+        return {"error": "No such chat"}
+    denied = _not_member(meta, user)
+    if denied:
+        return denied
+    res = m.clear_chat(chat_id, user, keep_starred=bool(data.get("keep_starred")))
+    return {"ok": True, "cleared": res}
+
+
 def api_mesh_typing(data):
     """Typing heartbeat: the composer pings while the user writes; other
     members' windows show a dots-only bubble until it goes stale. One file
@@ -1186,6 +1205,7 @@ POST_ROUTES = {
     "/api/mesh/save": api_mesh_save,
     "/api/mesh/delete_messages": api_mesh_delete_messages,
     "/api/mesh/undelete_messages": api_mesh_undelete_messages,
+    "/api/mesh/clear_chat": api_mesh_clear_chat,
 }
 
 

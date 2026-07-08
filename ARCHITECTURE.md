@@ -121,6 +121,13 @@ mesh/
   `messages_for`, not `messages`) — so no human or agent can read a deleted
   body. Delete-for-everyone is sender-only; the raw `.jsonl` is untouched (full
   audit), so true erasure again waits on the encryption / per-user-backend work.
+- **Clear chat = a third overlay in the same family** (v0.24.8): a per-user
+  `cleared = {ns, keep_starred}` cursor in `state/<username>.json`.
+  `messages_for` drops every message with `ns ≤ cleared.ns` (with `keep_starred`,
+  the user's own starred ids survive the cut), so clear empties the transcript
+  **for that user only** — no other member is affected and the chat stays in
+  their list. New messages (ns past the cursor) show normally; re-clearing just
+  advances the cursor. Being per-user, it never touches an agent's view either.
 - An agent has one or more `owners` (humans). **An agent must always have at
   least one owner** — `update_agent`'s `revoke_owner` refuses to drop the last
   one. Ownership is what makes the free-chatting invariant enforceable (§6).
@@ -209,15 +216,16 @@ mesh/
 ```jsonc
 {"read_ts": "...", "updated": "...",
  "starred": {"<msg_id>": {"from": "...", "body": "...", "ts": "...", "at": "..."}},
- "hidden": {"<msg_id>": "<at>"}}   // delete-for-me (v0.24.3)
+ "hidden": {"<msg_id>": "<at>"},              // delete-for-me (v0.24.3)
+ "cleared": {"ns": 123, "keep_starred": false, "at": "..."}}  // clear-chat (v0.24.8)
 ```
 
 One file holds the read cursor and the private per-user overlays for that user
 in that chat — `mark_read()` always **merges**, never overwrites, because an
 earlier version that overwrote this file on every chat-open silently wiped
-stars (a real, fixed bug). Every per-user, per-chat overlay (stars, and
-delete-for-me's `hidden` set) lives in this same file for the same reason: it's
-the one place a single writer already owns. Delete-for-**everyone** is instead
+stars (a real, fixed bug). Every per-user, per-chat overlay (stars,
+delete-for-me's `hidden` set, and clear-chat's `cleared` cursor) lives in this
+same file for the same reason: it's the one place a single writer already owns. Delete-for-**everyone** is instead
 a chat-level `chats/<id>/redactions.json` (`{msg_id: {by, at}}`), since it's
 shared, not per-user — see the deletion note below.
 
@@ -320,8 +328,9 @@ Full public surface, grouped as they appear in the file:
 | `star_message` / `starred_ids` / `starred_all` | §2.4 |
 | `chats_for(username, include_archived=False)` | the visibility rule: everyone (human or agent) sees only chats they're a member of; sorted by last-activity |
 | `messages(chat_id, tail=200)` | RAW read: every member's `.jsonl`, merged, sorted by `(ts, id)` — `tail=0` means "all". The audit view; never served to a user directly |
-| `messages_for(chat_id, username, tail=200)` | the app-level read choke-point (§2): applies redactions (tombstones) + this user's `hidden` set. Every human/agent read path uses this, not `messages` |
+| `messages_for(chat_id, username, tail=200)` | the app-level read choke-point (§2): applies redactions (tombstones) + this user's `hidden` set + their `cleared` cursor. Every human/agent read path uses this, not `messages` |
 | `hide_messages` / `unhide_messages(chat_id, username, ids)` | delete-for-me + its undo (per-user `hidden` overlay) |
+| `clear_chat(chat_id, username, keep_starred=False)` | clear-for-me (per-user `cleared` ns-cursor; optional keep-starred); a read overlay, no other member affected |
 | `redact_messages(chat_id, username, ids)` | delete-for-everyone (sender-only, validates the whole batch, purges star/pin copies); irreversible |
 | `parse_tags(body)` | regex `@name` extraction, filtered to real usernames |
 | `post(chat_id, sender, body, attachments, reply_to, forward_of)` | the single message-creation path; enforces membership + not-archived, stages attachments into `files/` with collision-safe renaming, stamps `ns`/`id`/`tags` |
@@ -749,22 +758,26 @@ in-sidebar new-group builder (chip tray → search → tap-add list → name ste
 inline image thumbnails in the transcript, read-more clamping, live
 typing/working presence, archive (never-delete) + owner-only permanent
 delete, **message delete** (for-me hide + sender-only for-everyone tombstone,
-§2), in-chat search, media/docs/links browser (month-grouped), mesh-wide
+§2), **clear chat** (per-user `cleared` ns-cursor + optional keep-starred, §2),
+in-chat search, media/docs/links browser (month-grouped), mesh-wide
 stand-down switch, per-agent rate cap, config-driven `--sql-read-only`
 opt-out (§6.6).
 
 **In flight / stubbed** (present in their menus, backend-ready or partially
 so, but not wired to a finished flow):
-- **Clear chat**: the menu entry exists but only toasts — not implemented
-  (next round). It will be a per-user "cleared before <ts>" cursor in
-  `state/<user>.json`, the same overlay family as delete-for-me.
-- **Edit**: planned as an edit record appended to the sender's file, with
-  renderers applying the latest edit — same single-writer logic as delete.
+- **Edit**: two rounds (decided 2026-07-08). (B) human-side edit via a
+  chat-level `edits.json` overlay (sender-only; `messages_for` applies the
+  latest + an `edited` marker — same overlay pattern as delete, raw jsonl kept
+  for audit). (C) edit → agents (the **Hybrid**): edits always show corrected
+  in future agent context, plus the worker re-triggers a reply only when a
+  human edits a message into a mention/question for that agent (its ns-cursor
+  won't catch an in-place edit unaided).
 
-  (**Message delete** — the two-overlay design once sketched here — shipped
-  in v0.24.3: delete-for-me is a `hidden` set in `state/<user>.json`, and
-  delete-for-everyone (sender-only) is a chat-level `redactions.json`, applied
-  by `mesh.messages_for()` on every read path. See §2.)
+  (**Message delete** and **clear chat** — once sketched here — shipped in
+  v0.24.3 / v0.24.8: delete-for-me is a `hidden` set, delete-for-everyone a
+  chat-level `redactions.json`, and clear-chat a `cleared` cursor, all in the
+  same per-user state file / overlay family and applied by `messages_for()` on
+  every read path. See §2.)
 - **Read receipts**: the double-tick renders (frontend placeholder) but there
   is no delivered/read backend yet — every message shows as merely "sent."
 

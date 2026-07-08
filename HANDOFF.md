@@ -6,7 +6,7 @@ conventions that aren't obvious from the code alone.
 
 ## Current state
 
-- **Version:** `gui/__init__.py` `__version__` is the source of truth (v0.24.7
+- **Version:** `gui/__init__.py` `__version__` is the source of truth (v0.24.8
   at handoff), bumped once per shipped round.
 - **Everything is committed and pushed.** A clone is a complete copy of the
   source.
@@ -26,10 +26,13 @@ conventions that aren't obvious from the code alone.
   responsible human); **message delete** — WhatsApp-style delete-for-me (a
   private per-user hide, with a toast + Undo) and sender-only delete-for-everyone
   (a tombstone: "You/This message was deleted"), enforced so no human or agent
-  can read a deleted body (v0.24.3, §2 of ARCHITECTURE.md).
-- **In flight / still stubbed:** `Edit` and `Clear chat` are present in their
-  menus but inert (toast only). Read-receipt ticks are a frontend placeholder
-  with no delivered/read backend yet.
+  can read a deleted body (v0.24.3, §2 of ARCHITECTURE.md); **clear chat** — a
+  private per-user "clear for me" (a `cleared` ns-cursor in the same state-file
+  overlay family, with an optional keep-starred), the chat stays in the list
+  and no other member is affected (v0.24.8).
+- **In flight / still stubbed:** `Edit` is present in the message menu but inert
+  — the human-side edit and the agent-handling of edits are the next two rounds.
+  Read-receipt ticks are a frontend placeholder with no delivered/read backend yet.
 
 ## What lives outside this repo
 
@@ -76,12 +79,17 @@ machine (see the last section).
 
 ## Next work queue
 
-1. **Clear chat** — the last stub in the chat ⋮ menu. Plan: a per-user
-   "cleared before <ts>" cursor in `state/<user>.json` (the same overlay family
-   as delete-for-me, which shipped in v0.24.3). Flagged DEEP by the user — be
-   careful. (Message **delete** is now done — see §2 of ARCHITECTURE.md.)
-2. **Read receipts**, then **edit-message** (edit record in the sender's file;
-   renderers apply the latest — same single-writer pattern as delete).
+1. **Edit message** — present in the message menu but inert. Two rounds
+   (decided 2026-07-08): (B) human-side edit via a chat-level `edits.json`
+   overlay (sender-only, raw jsonl kept for audit; `messages_for` applies the
+   latest edit + sets an `edited` marker — same single-writer/overlay pattern
+   as delete); (C) edit → agents, the **Hybrid**: edits always show corrected
+   in future agent context, PLUS the worker re-triggers a reply only when a
+   human edits a message into a mention/question aimed at this agent (the
+   worker's ns-cursor won't catch an in-place edit on its own). Round C needs a
+   worker restart + a live claude-in-chat test, like the delete round.
+   (**Clear chat** shipped v0.24.8 — per-user `cleared` ns-cursor + keep-starred.)
+2. **Read receipts** — a frontend placeholder with no delivered/read backend.
 3. Longer-horizon sessions already scoped in memory: a **permissions overhaul**
    (who may pin, per-chat agent permissions) and an **agent-worker overhaul**
    (uniform capability exposure to agents, context-window management, agent

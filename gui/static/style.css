@@ -31,6 +31,11 @@
   --text-faint: #A19F9D;
   --good: #107C10;
   --bad: #A4262C;
+  /* danger TEXT: a brighter, higher-contrast red than the muted --bad fill,
+     for red menu items / danger rows that must read against normal white text
+     (dark mode especially). --danger-hover is the pill-shaped hover tint. */
+  --danger-fg: #C42B1C;
+  --danger-hover: rgba(196, 43, 28, .10);
   --warn: #797673;
   --radius: 6px;
   --shadow: 0 1.6px 3.6px rgba(0,0,0,.06), 0 0.3px 0.9px rgba(0,0,0,.04);
@@ -1161,6 +1166,8 @@ pre.configdump {
   --accent-soft: #3B2416;
   --accent-border: #7A4A26;
   --selected: #4A2C19;
+  --danger-fg: #F1707A;
+  --danger-hover: rgba(241, 112, 122, .15);
   --shadow: none;
 }
 [data-theme="dark"] pre.configdump { background: var(--code-bg); }
@@ -1383,8 +1390,20 @@ pre.configdump {
 .mem-menu {
   top: 100%; right: 0; min-width: 190px;
 }
-.mem-menu .danger-item, .menu .danger-item { color: var(--bad); }
-.mem-menu .danger-item svg, .menu .danger-item svg { color: var(--bad); }
+.mem-menu .danger-item, .menu .danger-item {
+  color: var(--danger-fg); font-weight: 600;
+}
+.mem-menu .danger-item svg, .menu .danger-item svg { color: var(--danger-fg); }
+/* dangerous rows get a RED-tinted hover, not the neutral one — outranks
+   both `.menu button:hover` and the dark-mode `button:hover` fallback */
+.menu .danger-item:hover, .mem-menu .danger-item:hover,
+[data-theme="dark"] .menu .danger-item:hover,
+[data-theme="dark"] .mem-menu .danger-item:hover { background: var(--danger-hover); }
+.menu .danger-item[disabled] {
+  opacity: .4; font-weight: 600; cursor: default;
+}
+.menu .danger-item[disabled]:hover,
+[data-theme="dark"] .menu .danger-item[disabled]:hover { background: none; }
 .mem-row + .mem-row { border-top: 1px solid var(--bg-alt); }
 /* NOT scoped to .mem-row: the Add-member row's icon circle needs the same
    size (unscoped, it collapsed to a small green square) */
@@ -1416,11 +1435,12 @@ pre.configdump {
   display: flex; align-items: center; gap: 13px; width: 100%;
   padding: 11px 10px; border: none; border-radius: 6px;
   background: none; font: inherit; font-weight: 600;
-  color: var(--bad); cursor: pointer; text-align: left;
+  color: var(--danger-fg); cursor: pointer; text-align: left;
 }
-.danger-row svg { flex: none; width: 18px; height: 18px; color: var(--bad); }
+.danger-row svg { flex: none; width: 18px; height: 18px; color: var(--danger-fg); }
 .danger-row.neutral, .danger-row.neutral svg { color: var(--text); }
-.danger-row:hover { background: var(--hover); }
+.danger-row:hover { background: var(--danger-hover); }
+.danger-row.neutral:hover { background: var(--hover); }
 .danger-row + .danger-row { border-top: 1px solid var(--bg-alt); }
 
 /* ------------------------------------------------------------ modal */
@@ -1569,28 +1589,45 @@ pre.configdump {
 .modal-box.confirm { width: min(430px, calc(100vw - 44px)); }
 .cf-title { font-size: 16.5px; font-weight: 600; margin: 2px 0 10px; }
 .cf-body { color: var(--text-dim); font-size: 13.5px; }
+/* sub-text under a confirm title (clear-chat explainer) + opt-in checkbox */
+.cf-sub { color: var(--text-dim); font-size: 13.5px; line-height: 1.45; }
+.cf-check {
+  display: flex; align-items: center; gap: 10px; cursor: pointer;
+  margin-top: 15px; font-size: 13.5px; color: var(--text);
+}
+.cf-check input {
+  width: 16px; height: 16px; flex: none;
+  accent-color: var(--accent); cursor: pointer;
+}
 .cf-actions {
   display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px;
 }
+/* every dialog button is a pill, so its hover tint is pill-shaped and
+   consistent across dialog boxes (item 6) */
+.cf-cancel, .cf-go, .cf-del, .cf-pill { border-radius: 999px; }
 .cf-cancel {
   border: none; background: none; color: var(--accent);
   font-weight: 600; padding: 8px 14px;
 }
 .cf-cancel:hover, [data-theme="dark"] .cf-cancel:hover { background: var(--hover); }
 .cf-go {
-  border: none; border-radius: 999px; padding: 8px 22px;
+  border: none; padding: 8px 22px;
   background: var(--bad); color: #fff; font-weight: 600;
 }
 .cf-go:hover, [data-theme="dark"] .cf-go:hover { filter: brightness(1.12); background: var(--bad); }
-/* delete dialog: options stack (WhatsApp) as no-fill text buttons — BOTH
-   Delete rows are red (same treatment as Cancel, just red); Cancel stays accent */
-.cf-actions.cf-col { flex-direction: column; align-items: stretch; gap: 2px; }
-.cf-del {
-  border: none; background: none; color: var(--bad);
-  font-weight: 600; padding: 11px 14px; border-radius: 8px; text-align: left;
+/* delete / clear dialog: options stack (WhatsApp) as no-fill PILL-outlined
+   buttons — destructive rows red-bordered, Cancel neutral (item 6) */
+.cf-actions.cf-col { flex-direction: column; align-items: stretch; gap: 8px; margin-top: 18px; }
+.cf-actions.cf-col > button {
+  padding: 10px 16px; text-align: center; font-weight: 600;
+  background: none; border: 1.5px solid var(--border-strong);
 }
-.cf-del:hover, [data-theme="dark"] .cf-del:hover { background: var(--hover); }
-.cf-actions.cf-col .cf-cancel { padding: 11px 14px; text-align: left; align-self: stretch; }
+.cf-actions.cf-col > .cf-del { color: var(--danger-fg); border-color: var(--danger-fg); }
+.cf-actions.cf-col > .cf-del:hover,
+[data-theme="dark"] .cf-actions.cf-col > .cf-del:hover { background: var(--danger-hover); }
+.cf-actions.cf-col > .cf-cancel { color: var(--text); }
+.cf-actions.cf-col > .cf-cancel:hover,
+[data-theme="dark"] .cf-actions.cf-col > .cf-cancel:hover { background: var(--hover); }
 
 /* in-chat search (slides over chat info in the same pane) */
 .search-box {
@@ -1728,6 +1765,16 @@ button:not(:disabled), .chat-row, .tag-opt, .search-hit, .snav, .arch-row,
 #toast.error { background: var(--bad); color: #fff; border-color: var(--bad); }
 /* left is set inline when docked inside the info pane */
 #toast.in-pane { bottom: 26px; }
+/* toast swap (Clearing chat… → Chat cleared): the old one slides down and
+   fades, the replacement slides up from below. ID-scoped so it outranks the
+   base #toast reply-in animation. Keeps translateX(-50%) so it stays centred. */
+#toast.toast-out { animation: toastOut .17s ease forwards; }
+#toast.toast-in { animation: toastIn .2s ease; }
+@keyframes toastOut { to { transform: translate(-50%, 16px); opacity: 0; } }
+@keyframes toastIn {
+  from { transform: translate(-50%, 16px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
 #toast .toast-check {
   flex: none; width: 17px; height: 17px; border-radius: 50%;
   border: 1.6px solid var(--text-dim); color: var(--text-dim);
