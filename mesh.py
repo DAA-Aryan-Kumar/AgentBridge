@@ -1173,6 +1173,13 @@ class Mesh:
         key = self._cursor_key(chat_id, username)
         cur = self.cx.read_json(key) or {}
         cur["read_ts"] = ts or utcnow()
+        # also record the ns high-water mark of what this user can now see, so
+        # read receipts compare ns-to-ns (the client's own ordering key, immune
+        # to cross-machine wall-clock skew) instead of comparing ts strings.
+        # Best-effort: read_ts stays authoritative for unread_count.
+        last = self.messages_for(chat_id, username, tail=1)
+        if last and last[-1].get("ns") is not None:
+            cur["read_ns"] = last[-1]["ns"]
         cur["forced_unread"] = False   # opening the chat clears a manual mark-unread
         cur["updated"] = utcnow()
         self.cx.write_json(key, cur)
@@ -1185,6 +1192,54 @@ class Mesh:
         return sum(1 for m in self.messages_for(chat_id, username, tail=0)
                    if (m.get("ts") or "") > read_ts
                    and m.get("from") != username and not m.get("deleted"))
+
+    def read_cursor(self, chat_id, username):
+        """The high-water mark this member has read: (read_ns, read_ts).
+        read_ns (a message `ns`) is skew-safe and preferred; read_ts is the
+        wall-clock fallback for cursors written before the ns upgrade."""
+        cur = self.cx.read_json(self._cursor_key(chat_id, username)) or {}
+        ns = cur.get("read_ns")
+        return (int(ns) if ns is not None else None, cur.get("read_ts") or "")
+
+    def receipts_for(self, chat_id, viewer, msgs):
+        """Read-receipt status for `viewer`'s OWN messages in `msgs`, derived
+        from the per-member read cursors mark_read already writes — no new
+        write path. A member has 'read' a message once their read cursor
+        reaches it. Like WhatsApp/Telegram an edit does NOT reset the ticks —
+        the 'edited' marker appears but the receipt stands. DMs collapse to the
+        single peer; a group message is 'read' only when EVERY other member has
+        read it. Returns {msg_id: {state, read_by, total}}; empty for a
+        self-chat or a non-member viewer.
+
+        `msgs` is passed in (already computed by the caller via messages_for)
+        so this only costs one small cursor read per other member."""
+        meta = self.get_chat(chat_id)
+        members = (meta or {}).get("members") or []
+        if not meta or viewer not in members:
+            return {}
+        others = [u for u in members if u != viewer]
+        if not others:
+            return {}   # self-chat: nobody else to read it
+        cursors = {u: self.read_cursor(chat_id, u) for u in others}
+        out = {}
+        for m in msgs:
+            if m.get("from") != viewer or m.get("deleted"):
+                continue   # only my own, live messages carry a receipt
+            mns, mts = m.get("ns"), (m.get("ts") or "")
+            read_by = 0
+            for u in others:
+                rns, rts = cursors[u]
+                if rns is not None and mns is not None:
+                    seen = rns >= int(mns)          # skew-safe ns compare
+                else:
+                    seen = rts >= mts               # legacy wall-clock fallback
+                if seen:
+                    read_by += 1
+            out[m["id"]] = {
+                "state": "read" if read_by >= len(others) else "sent",
+                "read_by": read_by, "total": len(others),
+            }
+        return out
 
     # ------------------------------------------------------------- seed
 

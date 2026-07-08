@@ -753,6 +753,8 @@ input[type=text], select, textarea {
 }
 .bubble .meta .ticks { display: inline-flex; margin-left: 1px; }
 .bubble .meta .ticks svg { width: 15px; height: 15px; }
+/* sent = the meta's faint grey (inherited); read = the accent, both ticks */
+.bubble .meta .ticks.read { color: var(--accent); }
 /* "edited" tag ahead of the time (WhatsApp) — same faint weight as the time */
 .bubble .meta .meta-edited { font-style: italic; opacity: .9; }
 

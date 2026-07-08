@@ -266,9 +266,7 @@ async function renderMeshChat(force) {
       msg.edited ? '<span class="meta-edited">edited</span>' : ""
     }${
       starred ? '<span class="star-mini">★</span>' : ""
-    }<span class="meta-time">${esc(timeOnly(msg.ts))}</span>${
-      msg.mine ? `<span class="ticks" aria-label="Sent">${ICONS.ticks}</span>` : ""
-    }</span>`;
+    }<span class="meta-time">${esc(timeOnly(msg.ts))}</span>${receiptTicks(msg, isDm)}</span>`;
     parts.push(`
       <div class="msg ${msg.mine ? "mine" : ""}" data-mid="${esc(msg.id || "")}">
         <span class="msg-check" aria-hidden="true">${ICONS.check}</span>
@@ -542,6 +540,22 @@ function replyQuote(rt, isDm, ms) {
       ${isDm ? "" : `<div class="rq-name">${esc(name)}</div>`}
       <div class="rq-body">${esc(preview)}</div>
     </button>`;
+}
+
+// read receipt on my own live messages: single grey tick = sent, double blue
+// = read. In a group the double tick means EVERY other member has read; the
+// tooltip carries the running count. Deleted/system messages carry no receipt.
+// State comes from msg.receipt (server, from the other members' read cursors).
+function receiptTicks(msg, isDm) {
+  if (!msg.mine || msg.deleted || msg.kind === "info") return "";
+  const r = msg.receipt;
+  const read = !!(r && r.state === "read");
+  let label = read ? "Read" : "Sent";
+  if (r && !isDm && r.total > 1) {
+    label = read ? `Read by all ${r.total}` : `Read by ${r.read_by}/${r.total}`;
+  }
+  return `<span class="ticks${read ? " read" : ""}" title="${esc(label)}" `
+       + `aria-label="${esc(label)}">${read ? ICONS.ticks : ICONS.tick}</span>`;
 }
 
 // one delegated listener per transcript element (full renders create a new

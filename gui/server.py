@@ -662,6 +662,13 @@ def api_mesh_chat(params):
     msgs = m.messages_for(chat_id, user, tail=tail)
     for msg in msgs:
         msg["mine"] = msg.get("from") == user
+    # read receipts ride only on my OWN messages, derived from the other
+    # members' read cursors (no extra message read — msgs is reused)
+    receipts = m.receipts_for(chat_id, user, msgs)
+    for msg in msgs:
+        r = receipts.get(msg.get("id"))
+        if r:
+            msg["receipt"] = r
     # expired pins are LAZY: readers just don't see them (no cleanup write)
     meta["pins"] = m.pins_active(meta)
     meta.pop("pin", None)
