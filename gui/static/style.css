@@ -130,7 +130,9 @@ body { display: flex; flex-direction: column; }
 #shell { display: flex; flex: 1; min-height: 0; overflow-x: hidden; }
 
 #navrail {
-  width: 300px; flex: none; position: relative;
+  /* wider default for full-screen use, but viewport-clamped so it never
+     dominates a big monitor; the resizer's saved px width overrides this */
+  width: clamp(300px, 26vw, 420px); flex: none; position: relative;
   background: var(--bg-rail);
   border-right: 1px solid var(--border);
   padding: 0; display: flex; flex-direction: column;
@@ -167,7 +169,9 @@ body { display: flex; flex-direction: column; }
 #side-chats { flex: 1; overflow-y: auto; padding: 6px; }
 #side-chats .chat-row.active { background: var(--selected); }
 #side-chats .chat-avatar { width: 38px; height: 38px; font-size: 15px; }
-#side-chats .chat-last { max-width: 190px; }
+/* the preview reflows to the sidebar's live width (chat-mid is flex:1
+   min-width:0) — no fixed cap, so widening the sidebar fills the space
+   and the chevron/pin can push it on hover (round 9) */
 #side-chats.slide { animation: side-slide .16s ease; }
 @keyframes side-slide {
   from { opacity: .35; transform: translateX(-14px); }
@@ -1117,7 +1121,7 @@ pre.configdump {
 .chat-name { font-weight: 600; }
 .chat-last {
   color: var(--text-dim); font-size: 12.5px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 460px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .chat-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .chat-time { font-size: 11px; color: var(--text-faint); }
@@ -1219,7 +1223,7 @@ pre.configdump {
 /* chat info: right side panel on wide screens; covers the chat area on
    medium; full screen (minus rail) on mobile */
 #details-pane {
-  width: 400px; flex: none; min-width: 0;
+  width: clamp(320px, 24vw, 420px); flex: none; min-width: 0;
   border-left: 1px solid var(--border);
   background: var(--bg-alt); overflow-y: auto; overflow-x: hidden;
   padding: 16px 18px;
@@ -1664,14 +1668,17 @@ pre.configdump {
   0%, 45% { background: var(--selection); border-color: var(--accent); }
 }
 
-@media (max-width: 1100px) {
+/* transcript-priority: when the viewport can't hold the sidebar, a readable
+   transcript, AND the details pane, the details pane takes over the transcript
+   area rather than squeezing it (kept the widest, calmest column) */
+@media (max-width: 1200px) {
   body.details-open #content.chat-mode { display: none; }
   #details-pane { flex: 1; width: auto; }
 }
 
 /* ------------------------------------------------------- responsiveness */
 
-#content.chat-mode { min-width: 320px; }
+#content.chat-mode { min-width: 500px; }
 
 /* forms never blow out their grid/card */
 .kv dd { min-width: 0; }

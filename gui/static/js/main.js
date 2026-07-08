@@ -124,7 +124,8 @@ window.addEventListener("hashchange", route);
   }
   // resizable sidebar, width persisted; double-click collapses it
   const savedW = parseInt(localStorage.getItem("sidebarW"), 10);
-  if (savedW) $("#navrail").style.width = savedW + "px";
+  // clamp a saved width to the current bounds (older builds allowed narrower)
+  if (savedW) $("#navrail").style.width = Math.min(560, Math.max(260, savedW)) + "px";
   $("#side-resizer").addEventListener("dblclick", () => {
     document.body.classList.add("side-collapsed");
     localStorage.setItem("sideCollapsed", "1");
@@ -132,7 +133,7 @@ window.addEventListener("hashchange", route);
   $("#side-resizer").addEventListener("mousedown", (e) => {
     e.preventDefault();
     const move = (ev) => {
-      const w = Math.min(480, Math.max(220, ev.clientX - 58));
+      const w = Math.min(560, Math.max(260, ev.clientX - 58));
       $("#navrail").style.width = w + "px";
       localStorage.setItem("sidebarW", w);
     };

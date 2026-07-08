@@ -6,7 +6,7 @@ conventions that aren't obvious from the code alone.
 
 ## Current state
 
-- **Version:** `gui/__init__.py` `__version__` is the source of truth (v0.24.12
+- **Version:** `gui/__init__.py` `__version__` is the source of truth (v0.24.13
   at handoff), bumped once per shipped round.
 - **Everything is committed and pushed.** A clone is a complete copy of the
   source.
@@ -82,16 +82,22 @@ machine (see the last section).
 
 ## Next work queue
 
-1. **Sidebar chat menu + layout (Round 9, next).** The left chat-list rows only
+1. **Round 9B — sidebar chat menu (next).** The left chat-list rows only
    click-to-open today — add a hover **chevron** + **right-click menu** mirroring
-   the chat-header menu (Pin/Unpin — a NEW per-user overlay, Mark-as-unread — new,
-   Archive/Clear/Delete/Exit — reuse existing endpoints; Mute stays as an
-   "arriving" stub; skip favourites/lists). Split: **9A** = layout (kill the
-   `.chat-last` 190px cap so the preview reflows; widths list `clamp(300,26vw,420)`,
-   details `clamp(300,24vw,400)`, transcript min ~520px else details overlays);
-   **9B** = chevron + menu + pin/unpin + fold in edit-marks-unread. Big worker
-   unread-queue + parallel requests are DEFERRED to the context-mgmt overhaul
-   (see memory `agentbridge-worker-context`).
+   the chat-header menu: **Pin/Unpin** (a NEW per-user overlay, toast+undo,
+   pins to top), **Mark-as-unread** (new; `mark_read`/`unread_count` exist),
+   Archive / Clear / Exit-group (reuse existing endpoints), and **Delete chat** —
+   which is NOT actually wired yet ([chat.js:494](gui/static/js/chat.js) is still a
+   placeholder toast even though `api_mesh_delete_chat` exists; 9B must wire it with
+   a danger dialog and DECIDE semantics: our owner-only permanent-for-everyone vs
+   WhatsApp's per-user hide). Mute stays an "arriving" stub (user asked); skip
+   favourites/lists; fold in **edit-marks-unread**. Big worker unread-queue +
+   parallel requests DEFERRED to the context-mgmt overhaul (memory
+   `agentbridge-worker-context`).
+   (**9A layout** shipped v0.24.13: removed the `.chat-last` 190px cap so the
+   preview reflows to the sidebar width; `#navrail` `clamp(300,26vw,420)`,
+   `#details-pane` `clamp(320,24vw,420)`, `#content.chat-mode` min 500px, details
+   pane takes over the transcript below 1200px; resizer bounds raised to 260–560.)
    (**8D graceful stand-down/resume** shipped v0.24.12: `atomic_write_json` retries
    on `PermissionError` ~2s then the pause endpoint returns a graceful error;
    GUI shows spinner→result/timeout toast. **Edit** shipped v0.24.10/v0.24.11;
