@@ -1312,7 +1312,8 @@ pre.configdump {
   flex: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.csel > button .csel-caret { color: var(--text-dim); font-size: 10px; flex: none; }
+.csel > button .csel-caret { color: var(--text-dim); flex: none; display: inline-flex; }
+.csel > button .csel-caret svg { width: 15px; height: 15px; }   /* app chevron, unified */
 .csel-pop {
   position: fixed; z-index: 30; min-width: 210px; max-height: 260px;
   overflow-y: auto; padding: 4px;
@@ -1327,7 +1328,7 @@ pre.configdump {
 }
 .csel-opt:hover { background: var(--hover); }
 .csel-opt.sel, .csel-opt.sel:hover {
-  background: var(--accent-soft); font-weight: 600;
+  background: var(--hover); font-weight: 600;   /* greyish, not the accent tint */
 }
 
 /* ------------------------------------------------------- details pane */

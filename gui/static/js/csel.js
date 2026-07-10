@@ -2,6 +2,7 @@
    scrolling panes, so options render in a fixed-position popup on body. */
 
 import { esc } from "./util.js";
+import { ICONS } from "./icons.js";
 
 export function csel({ options, value, onChange }) {
   const root = document.createElement("div");
@@ -11,7 +12,7 @@ export function csel({ options, value, onChange }) {
     (options.find((o) => String(o.v) === String(root.dataset.value)) || options[0]).label;
   const btn = document.createElement("button");
   btn.type = "button";
-  btn.innerHTML = `<span class="csel-value"></span><span class="csel-caret">▾</span>`;
+  btn.innerHTML = `<span class="csel-value"></span><span class="csel-caret">${ICONS.chevD}</span>`;
   btn.querySelector(".csel-value").textContent = label();
   root.appendChild(btn);
   let pop = null;

@@ -4,7 +4,7 @@
 import { $, esc, toast, setTheme } from "./util.js";
 import { ICONS } from "./icons.js";
 import { api } from "./api.js";
-import { csel } from "./csel.js";
+import { csel, mountCsels } from "./csel.js";
 import { openModal, closeModal, openPhotoViewer } from "./modal.js";
 import { App, Mesh, Settings, RULE_LABELS, meshDn, meshAvatar, meshAvatarInner, renderChrome } from "./state.js";
 import { renderSidebar } from "./sidebar.js";
@@ -107,10 +107,8 @@ async function renderSettings() {
               value="${esc(st.model || "")}" placeholder="agent default"></dd>
             <dt>Reasoning effort</dt><dd><input type="text" class="ag-reason" data-agent="${esc(a.username)}"
               value="${esc(st.reasoning || "")}" placeholder="agent default"></dd>
-            <dt>Default reply rule</dt><dd><select class="ag-default" data-agent="${esc(a.username)}">
-              ${Object.entries(RULE_LABELS).map(([r, label]) =>
-                `<option value="${r}" ${(st.default_rule || "tagged") === r ? "selected" : ""}>${label}</option>`).join("")}
-            </select></dd>
+            <dt>Default reply rule</dt><dd><span class="csel-slot ag-default"
+              data-agent="${esc(a.username)}" data-value="${esc(st.default_rule || "tagged")}"></span></dd>
             <dt>Replies per hour</dt><dd><input type="number" min="1" max="1000" step="1"
               class="ag-rate" data-agent="${esc(a.username)}" list="ag-rate-presets"
               value="${st.max_replies_per_hour != null ? esc(st.max_replies_per_hour) : ""}"
@@ -198,6 +196,11 @@ async function renderSettings() {
     value: localStorage.getItem("pollMs") || "2500",
     onChange: (v) => localStorage.setItem("pollMs", v),
   }));
+  // reply-rule dropdowns (My agents) use the SAME custom select as Performance
+  // (task 13) — the old native <select> brought its own scrollbar + arrow.
+  // mountCsels fills each .csel-slot from its data-value and writes back to it.
+  mountCsels($(".settings-body"),
+    Object.entries(RULE_LABELS).map(([v, label]) => ({ v, label })));
   document.querySelectorAll(".ag-save").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const agent = btn.dataset.agent;
@@ -206,7 +209,7 @@ async function renderSettings() {
       const patch = {
         model: document.querySelector(`.ag-model[data-agent="${agent}"]`).value.trim() || null,
         reasoning: document.querySelector(`.ag-reason[data-agent="${agent}"]`).value.trim() || null,
-        default_rule: document.querySelector(`.ag-default[data-agent="${agent}"]`).value,
+        default_rule: document.querySelector(`.ag-default[data-agent="${agent}"]`).dataset.value,
         // blank clears back to the default; otherwise clamp to a sane band
         max_replies_per_hour: rateRaw === "" || isNaN(rateN)
           ? null : Math.max(1, Math.min(1000, rateN)),
