@@ -228,7 +228,9 @@ body { display: flex; flex-direction: column; }
 .snav:hover { background: var(--hover); }
 .snav.active, .snav.active:hover { background: var(--chat-active); }
 .snav svg { width: 20px; height: 20px; color: var(--text-dim); flex: none; }
-.snav.active svg { color: var(--chat-active-fg); }
+/* settings nav: selected = grey highlight only, NEUTRAL icon (the accent
+   selected-icon lives in the RAIL only — user, round 13). */
+.snav.active svg { color: var(--text); }
 .snav .snav-label { font-weight: 600; }
 .snav .snav-desc { font-size: 12px; color: var(--text-dim); margin-top: 1px; }
 
