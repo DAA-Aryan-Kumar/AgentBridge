@@ -2,6 +2,7 @@
    (CSS switches). confirmModal replaces browser confirm(). */
 
 import { esc } from "./util.js";
+import { ICONS } from "./icons.js";
 
 export function openModal(html) {
   closeModal();
@@ -53,6 +54,67 @@ export function alertModal({ title, body, action = "OK" }) {
     box.parentElement.classList.add("confirm-scrim");
     box.querySelector("#al-ok").addEventListener("click", () => { closeModal(); resolve(); });
   });
+}
+
+// Profile-photo VIEWER (round E3, task 6/7): a minimal lightbox — dark scrim +
+// the enlarged photo + the name + a close ✕. The photo FLIPs from its on-screen
+// thumbnail (`origin`) to a centred square, then the name/close fade in; closing
+// reverses the flight back into the thumbnail. `url` is the image src, `name`
+// the caption, `origin` the avatar element to fly from.
+export function openPhotoViewer(url, name, origin) {
+  if (!url) return;
+  document.querySelector(".photo-viewer")?.remove();   // one at a time
+  const pv = document.createElement("div");
+  pv.className = "photo-viewer";
+  pv.innerHTML = `
+    <div class="pv-backdrop"></div>
+    <button class="pv-close" aria-label="Close">${ICONS.close}</button>
+    <img class="pv-img" alt="" src="${esc(url)}">
+    <div class="pv-name">${esc(name || "")}</div>`;
+  document.body.appendChild(pv);
+  const img = pv.querySelector(".pv-img");
+
+  // map the (CSS-sized) centred target rect back onto the origin thumbnail, so
+  // the first painted frame sits ON the thumbnail; the rAF release animates out.
+  const flyTransform = () => {
+    const o = origin?.getBoundingClientRect();
+    const t = img.getBoundingClientRect();
+    if (!o || !t.width) return null;
+    const s = o.width / t.width;
+    const dx = (o.left + o.width / 2) - (t.left + t.width / 2);
+    const dy = (o.top + o.height / 2) - (t.top + t.height / 2);
+    return `translate(${dx}px, ${dy}px) scale(${s})`;
+  };
+  const start = flyTransform();
+  if (start) { img.style.transform = start; img.style.borderRadius = "50%"; }
+  requestAnimationFrame(() => {
+    pv.classList.add("open");
+    img.style.transform = "";        // → identity: fly to centre
+    img.style.borderRadius = "";
+  });
+
+  let closing = false;
+  const close = () => {
+    if (closing) return;
+    closing = true;
+    document.removeEventListener("keydown", onKey);
+    const back = flyTransform();     // re-measure (window may have moved)
+    pv.classList.remove("open");
+    pv.classList.add("closing");
+    if (back) { img.style.transform = back; img.style.borderRadius = "50%"; }
+    const done = () => pv.remove();
+    img.addEventListener("transitionend", done, { once: true });
+    setTimeout(done, 320);           // fallback if transitionend is missed
+  };
+  pv.addEventListener("mousedown", (e) => {
+    if (e.target === img) return;    // clicking the photo itself does nothing
+    close();
+  });
+  // explicit click on ✕ too, so keyboard/assistive activation (which fires
+  // click but not mousedown) still closes; the `closing` guard dedupes.
+  pv.querySelector(".pv-close").addEventListener("click", close);
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  document.addEventListener("keydown", onKey);
 }
 
 // live filter for modal lists: hides non-matching .modal-row items and any

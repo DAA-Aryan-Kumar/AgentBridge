@@ -126,6 +126,9 @@ body { display: flex; flex-direction: column; }
   position: relative; overflow: hidden;
 }
 .msg-avatar { overflow: hidden; }   /* already position:absolute in the gutter */
+/* a viewable avatar (one that actually has a photo) invites a click → the
+   photo viewer opens (task 6/7); the hand cursor only shows when there's a pic */
+.ci-avatar.viewable, .pf-photo.viewable { cursor: pointer; }
 
 /* --- profile-photo editor (Settings → Profile), WhatsApp "Edit profile" --- */
 .pf-photo-wrap { position: relative; width: 120px; margin: 6px auto 24px; }
@@ -135,7 +138,7 @@ body { display: flex; flex-direction: column; }
   display: grid; place-items: center; position: relative; overflow: hidden;
 }
 .pf-edit {
-  position: absolute; left: 50%; bottom: -10px; transform: translateX(-50%);
+  position: absolute; z-index: 3; left: 50%; bottom: -10px; transform: translateX(-50%);
   display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
   background: var(--surface); border: 1px solid var(--border); color: var(--accent);
   border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 12.5px;
@@ -452,6 +455,11 @@ input[type=text], input[type=number], select, textarea {
 @keyframes menu-pop {
   from { opacity: 0; transform: translateY(-4px); }
 }
+/* the centred photo menus (Group Info / Profile) drop straight down; sharing
+   menu-pop would clobber their translateX(-50%) centring and read as a sideways
+   slide (task 7, 2026-07-11). Left-aligned ag/ng photo menus keep plain pop. */
+@keyframes menu-drop-c { from { opacity: 0; transform: translate(-50%, -6px); } }
+.ci-photo-menu, .pf-menu { animation: menu-drop-c .14s ease; }
 
 #transcript {
   display: flex; flex-direction: column; gap: 5px;
@@ -1476,7 +1484,9 @@ pre.configdump {
 .ci-avatar-wrap { position: relative; width: 88px; margin: 0 auto 10px; }
 .ci-avatar-wrap .ci-avatar { margin: 0; }
 .ci-cam {
-  position: absolute; right: -2px; bottom: -2px; padding: 0;
+  position: absolute; z-index: 3; right: -2px; bottom: -2px; padding: 0;
+  /* z-index beats the photo (.avatar-img z-index 2) so the badge isn't hidden
+     behind the pic once one is set (task 8, 2026-07-11) */
   width: 30px; height: 30px; border-radius: 50%; cursor: pointer;
   display: grid; place-items: center;
   background: var(--accent); color: #fff; border: 2px solid var(--surface);
@@ -1618,6 +1628,44 @@ pre.configdump {
 }
 @keyframes modal-in {
   from { opacity: 0; transform: translateY(14px) scale(.98); }
+}
+
+/* ---- profile-photo viewer (lightbox), round E3 tasks 6/7 -----------------
+   Minimal: dark backdrop + the enlarged photo + name + close. The photo FLIPs
+   from its thumbnail to this centred square (transform set inline by JS, then
+   released); the backdrop + name + close fade in behind/around it. */
+.photo-viewer { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; }
+.pv-backdrop {
+  position: absolute; inset: 0; background: rgba(0, 0, 0, .86);
+  opacity: 0; transition: opacity .26s ease;
+}
+.photo-viewer.open .pv-backdrop { opacity: 1; }
+.pv-img {
+  position: relative; z-index: 1;
+  width: min(78vw, 78vh, 460px); height: min(78vw, 78vh, 460px);
+  object-fit: cover; border-radius: 14px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, .5);
+  transition: transform .3s cubic-bezier(.22, .61, .36, 1), border-radius .3s ease;
+  will-change: transform;
+}
+.pv-close {
+  position: absolute; top: 16px; right: 18px; z-index: 2;
+  width: 40px; height: 40px; border-radius: 50%; border: none; padding: 0;
+  display: grid; place-items: center; cursor: pointer;
+  background: rgba(255, 255, 255, .12); color: #fff;
+  opacity: 0; transition: opacity .18s ease;
+}
+.pv-close:hover { background: rgba(255, 255, 255, .22); }
+.pv-close svg { width: 22px; height: 22px; }
+.pv-name {
+  position: absolute; z-index: 2; left: 0; right: 0; bottom: max(6vh, 40px);
+  text-align: center; padding: 0 20px;
+  color: #fff; font-weight: 600; font-size: 16px;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, .5);
+  opacity: 0; transition: opacity .18s ease;
+}
+.photo-viewer.open .pv-close, .photo-viewer.open .pv-name {
+  opacity: 1; transition-delay: .18s;   /* appear after the photo lands */
 }
 /* reserve the scrollbar gutter ALWAYS so the picker rows (and their right-edge
    checkbox) never shift left when the footer tray shrinks the list into

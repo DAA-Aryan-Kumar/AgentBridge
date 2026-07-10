@@ -6,7 +6,7 @@ import { ICONS } from "./icons.js";
 import { api, bindOpenFile } from "./api.js";
 import { md } from "./markdown.js";
 import { mountCsels } from "./csel.js";
-import { confirmModal } from "./modal.js";
+import { confirmModal, openPhotoViewer } from "./modal.js";
 import { App, Mesh, RULE_LABELS, meshDn, dmOther, chatDisplay, isDmLike, meshAvatarInner, meshChatAvatarInner } from "./state.js";
 import { mediaThumb } from "./files.js";
 import { V } from "./views.js";
@@ -218,6 +218,14 @@ async function renderChatDetails() {
   // browser) — bound ONCE; the old separate .media-tile-btn/.cd-file
   // binds stacked two listeners and opened every file twice
   bindOpenFile($("#details-pane"), chatId, ".cd-file");
+  // click the chat photo → open the viewer, but ONLY when there's actually a
+  // photo (the hand cursor + click are gated on the rendered <img>) — task 6
+  const ciAva = $(".ci-identity .ci-avatar");
+  const ciAvaImg = ciAva?.querySelector(".avatar-img");
+  if (ciAva && ciAvaImg) {
+    ciAva.classList.add("viewable");
+    ciAva.addEventListener("click", () => openPhotoViewer(ciAvaImg.src, title, ciAva));
+  }
   // owner: change the group photo — Take photo / Upload photo / Remove, using
   // the shared capture flows registered by settings.js on V
   const ciPhoto = $("#ci-photo");

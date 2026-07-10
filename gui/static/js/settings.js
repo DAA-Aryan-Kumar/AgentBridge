@@ -5,7 +5,7 @@ import { $, esc, toast, setTheme } from "./util.js";
 import { ICONS } from "./icons.js";
 import { api } from "./api.js";
 import { csel } from "./csel.js";
-import { openModal, closeModal } from "./modal.js";
+import { openModal, closeModal, openPhotoViewer } from "./modal.js";
 import { App, Mesh, Settings, RULE_LABELS, meshDn, meshAvatar, meshAvatarInner, renderChrome } from "./state.js";
 import { renderSidebar } from "./sidebar.js";
 import { V } from "./views.js";
@@ -37,6 +37,7 @@ async function renderSettings() {
           <div class="pf-photo">${meshAvatarInner(ms.user)}</div>
           <button class="pf-edit" id="pf-edit">${ICONS.camera} Edit</button>
           <div class="menu pf-menu" id="pf-menu" hidden>
+            ${hasPhoto ? `<button data-act="view">${ICONS.eye} View photo</button>` : ""}
             <button data-act="camera">${ICONS.camera} Take photo</button>
             <button data-act="upload">${ICONS.media} Upload photo</button>
             ${hasPhoto ? `<button class="danger-item" data-act="remove">${ICONS.trash} Remove photo</button>` : ""}
@@ -280,9 +281,17 @@ async function renderSettings() {
         setTimeout(() => document.addEventListener("mousedown", closer), 0);
       }
     });
+    // in Settings the viewer opens from the "View photo" menu item (NOT by
+    // clicking the pic — user's task 7), flying from the .pf-photo disc
+    const pf = $(".pf-photo");
+    const viewPhoto = () => {
+      const img = pf?.querySelector(".avatar-img");
+      if (img) openPhotoViewer(img.src, meshDn(ms.user), pf);
+    };
     menu.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
       menu.hidden = true;
-      if (b.dataset.act === "camera") openCamera(uploadAvatar);
+      if (b.dataset.act === "view") viewPhoto();
+      else if (b.dataset.act === "camera") openCamera(uploadAvatar);
       else if (b.dataset.act === "upload") file.click();
       else if (b.dataset.act === "remove") removeAvatar();
     }));
