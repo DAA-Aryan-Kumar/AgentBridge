@@ -1,6 +1,6 @@
 # Working agreement — read this FIRST, every round
 
-This is the standing contract between me (Claude) and Sanskar for AgentBridge
+This is the standing contract between me (Claude) and Aryan for AgentBridge
 work. Re-read it at the start of every round before touching anything. It is
 deliberately terse and imperative — it is a checklist for me, not prose for a
 reader.
@@ -21,10 +21,10 @@ reader.
    before "what is easiest to code?" UI is the current focus; treat UX as a
    first-class constraint, not a finish.
    **Presenting the plan does NOT end the round.** I present the plan inline and
-   explicitly ask Sanskar "does this plan work?" — then WAIT for the answer and
+   explicitly ask Aryan "does this plan work?" — then WAIT for the answer and
    continue in the same round. Never stop/hand off just because a plan is ready.
 
-3. **We are partners; debate is expected.** Sanskar will be wrong sometimes; so
+3. **We are partners; debate is expected.** Aryan will be wrong sometimes; so
    will I. Push back with reasoning, offer alternatives, disagree constructively.
    Do not rubber-stamp. A good objection now beats a rewrite later.
 
@@ -37,7 +37,7 @@ reader.
    `server.py`/`mesh.py` edits. Only commit once I've *seen* it work. State
    failures honestly.
 
-5. **Decompose big asks myself.** If Sanskar hands me a large task in one prompt,
+5. **Decompose big asks myself.** If Aryan hands me a large task in one prompt,
    that's a signal the workplan wasn't fully thought through — not a license to
    sprint. Break it down, and spend the freed-up budget on rule 4 (thorough
    review of whatever I built this round).
@@ -56,7 +56,7 @@ reader.
   `Get-Content`/`Set-Content` (UTF-16+BOM mangles em-dashes). Use Python for
   version bumps.
 - **Testing:** dedicated test human + QA room on the live mesh (creds in memory).
-  Sanskar tests live mid-round — expect concurrent writes; `meta.json` is
+  Aryan tests live mid-round — expect concurrent writes; `meta.json` is
   last-writer-wins. Run deterministic asserts in throwaway scratch rooms.
 - **Safety rails never dropped:** agent tool blocklist + read-only flags stay in
   all fallback paths; unattended agents never get blanket auto-approve.

@@ -7,7 +7,7 @@ import { api, bindOpenFile } from "./api.js";
 import { md } from "./markdown.js";
 import { mountCsels } from "./csel.js";
 import { confirmModal } from "./modal.js";
-import { App, Mesh, RULE_LABELS, meshDn, dmOther, chatDisplay, isDmLike } from "./state.js";
+import { App, Mesh, RULE_LABELS, meshDn, dmOther, chatDisplay, isDmLike, meshAvatarInner } from "./state.js";
 import { mediaThumb } from "./files.js";
 import { V } from "./views.js";
 
@@ -66,7 +66,7 @@ async function renderChatDetails() {
     const removable = isOwner && u !== meta.owner;
     return `
       <div class="mem-row">
-        <span class="mem-avatar">${esc((meshDn(u)[0] || "?").toUpperCase())}</span>
+        <span class="mem-avatar">${meshAvatarInner(u)}</span>
         <span style="min-width:0">
           <div class="mem-name">${esc(meshDn(u))}
             ${rec.kind === "agent" ? '<span class="kind-tag">agent</span>' : ""}</div>
@@ -94,7 +94,7 @@ async function renderChatDetails() {
       <span class="pane-title">${isDm ? "Chat info" : "Group info"}</span>
     </div>
     <div class="ci-identity">
-      <div class="ci-avatar">${esc((title[0] || "#").toUpperCase())}</div>
+      <div class="ci-avatar">${isDm ? meshAvatarInner(dmOther(meta, ms.user)) : esc((title[0] || "#").toUpperCase())}</div>
       <div class="ci-name-row" id="ci-name-row">
         <span class="ci-name">${esc(title)}
           ${meta.archived ? '<span class="kind-tag">archived</span>' : ""}</span>

@@ -5,7 +5,8 @@ import { $, esc, toast, setTheme } from "./util.js";
 import { ICONS } from "./icons.js";
 import { api } from "./api.js";
 import { csel } from "./csel.js";
-import { App, Mesh, Settings, RULE_LABELS, meshDn, renderChrome } from "./state.js";
+import { openModal, closeModal } from "./modal.js";
+import { App, Mesh, Settings, RULE_LABELS, meshDn, meshAvatar, meshAvatarInner, renderChrome } from "./state.js";
 import { renderSidebar } from "./sidebar.js";
 import { V } from "./views.js";
 
@@ -29,18 +30,25 @@ async function renderSettings() {
 
   let html = "";
   if (section === "profile") {
+    const hasPhoto = !!meshAvatar(ms.user);
     html = `${back}<h1>Profile</h1>
       <div class="card" style="max-width:560px">
-        <div style="display:flex;align-items:center;gap:16px">
-          <span class="acct-big" style="width:64px;height:64px;font-size:26px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:700">${esc((meshDn(ms.user)[0] || "?").toUpperCase())}</span>
-          <div>
-            <div style="font-weight:600;font-size:16px">${esc(meshDn(ms.user))}</div>
-            <div class="hint">@${esc(ms.user)} · member</div>
+        <div class="pf-photo-wrap">
+          <div class="pf-photo">${meshAvatarInner(ms.user)}</div>
+          <button class="pf-edit" id="pf-edit">${ICONS.camera} Edit</button>
+          <div class="menu pf-menu" id="pf-menu" hidden>
+            <button data-act="upload">${ICONS.media} Upload photo</button>
+            ${hasPhoto ? `<button class="danger-item" data-act="remove">${ICONS.trash} Remove photo</button>` : ""}
           </div>
         </div>
-        <p class="hint" style="margin-bottom:0">Display name and profile photo
-        editing arrive with the account overhaul.</p>
-      </div>`;
+        <div style="text-align:center">
+          <div style="font-weight:600;font-size:16px">${esc(meshDn(ms.user))}</div>
+          <div class="hint">@${esc(ms.user)} · member</div>
+        </div>
+        <p class="hint" style="margin:16px 0 0;text-align:center">Display name
+        editing arrives with the account overhaul.</p>
+      </div>
+      <input type="file" id="pf-file" accept="image/*" hidden>`;
   } else if (section === "account") {
     html = `${back}<h1>Account</h1>
       <div class="card" style="max-width:560px">
@@ -211,5 +219,152 @@ async function renderSettings() {
     Mesh.state.paused = r.paused;
     renderChrome();
   });
+
+  // ---- profile photo: Edit → menu (Upload photo / Remove) ----
+  const pfEdit = $("#pf-edit");
+  if (pfEdit) {
+    const menu = $("#pf-menu");
+    const file = $("#pf-file");
+    pfEdit.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const opening = menu.hidden;
+      menu.hidden = !opening;
+      if (opening) {   // dismiss on the next outside click
+        const closer = (ev) => {
+          if (!menu.contains(ev.target) && !pfEdit.contains(ev.target)) {
+            menu.hidden = true;
+            document.removeEventListener("mousedown", closer);
+          }
+        };
+        setTimeout(() => document.addEventListener("mousedown", closer), 0);
+      }
+    });
+    menu.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+      menu.hidden = true;
+      if (b.dataset.act === "upload") file.click();
+      else if (b.dataset.act === "remove") removeAvatar();
+    }));
+    file.addEventListener("change", () => {
+      const f = file.files && file.files[0];
+      file.value = "";   // allow re-picking the same file
+      if (f) openAvatarAdjust(f);
+    });
+  }
 }
 V.renderSettings = renderSettings;
+
+// ---- profile photo: upload → adjust (crop/zoom in a circle) → downsize -------
+
+function openAvatarAdjust(file) {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => { URL.revokeObjectURL(url); mountAvatarAdjuster(img); };
+  img.onerror = () => { URL.revokeObjectURL(url); toast("Couldn't read that image", true); };
+  img.src = url;
+}
+
+// A fixed 300px stage with a centred 260px crop circle. The image pans/zooms
+// but is clamped so the circle is always fully covered; on confirm the
+// circle's bounding square is drawn into a 512×512 export canvas and exported
+// as JPEG — downsized entirely client-side (the backend keeps no image library).
+function mountAvatarAdjuster(img) {
+  const S = 300, D = 260, c = S / 2, cropL = c - D / 2, cropT = c - D / 2;
+  const box = openModal(`
+    <div class="ava-adjust">
+      <div class="ava-adjust-head">
+        <button class="icon-btn" id="ava-cancel" aria-label="Cancel">${ICONS.close}</button>
+        <span>Drag to reposition</span>
+      </div>
+      <div class="ava-stage">
+        <canvas id="ava-canvas" width="${S}" height="${S}"></canvas>
+        <div class="ava-mask"></div>
+      </div>
+      <div class="ava-zoom">
+        <span class="ava-zi">&minus;</span>
+        <input type="range" id="ava-zoom" min="1" max="4" step="0.005" value="1">
+        <span class="ava-zi">+</span>
+      </div>
+      <button class="ava-confirm primary" id="ava-confirm" aria-label="Set photo">${ICONS.check}</button>
+    </div>`);
+  box.classList.add("ava-modal");
+  const canvas = box.querySelector("#ava-canvas");
+  const ctx = canvas.getContext("2d");
+  const slider = box.querySelector("#ava-zoom");
+  const minScale = D / Math.min(img.width, img.height);
+  let zoom = 1, scale = minScale;
+  let ox = (S - img.width * scale) / 2, oy = (S - img.height * scale) / 2;
+  const clamp = () => {
+    const w = img.width * scale, h = img.height * scale;
+    ox = Math.min(cropL, Math.max(cropL + D - w, ox));
+    oy = Math.min(cropT, Math.max(cropT + D - h, oy));
+  };
+  const draw = () => {
+    ctx.clearRect(0, 0, S, S);
+    ctx.drawImage(img, ox, oy, img.width * scale, img.height * scale);
+  };
+  clamp(); draw();
+  let drag = null;
+  canvas.addEventListener("pointerdown", (e) => {
+    drag = { x: e.clientX, y: e.clientY, ox, oy };
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    ox = drag.ox + (e.clientX - drag.x);
+    oy = drag.oy + (e.clientY - drag.y);
+    clamp(); draw();
+  });
+  const endDrag = () => { drag = null; };
+  canvas.addEventListener("pointerup", endDrag);
+  canvas.addEventListener("pointercancel", endDrag);
+  const zoomTo = (nz) => {
+    nz = Math.max(1, Math.min(4, nz));
+    const ns = minScale * nz;
+    ox = c - (c - ox) * (ns / scale);   // zoom about the circle centre
+    oy = c - (c - oy) * (ns / scale);
+    zoom = nz; scale = ns;
+    clamp(); draw();
+    slider.value = String(nz);
+  };
+  slider.addEventListener("input", () => zoomTo(parseFloat(slider.value)));
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    zoomTo(zoom * (e.deltaY < 0 ? 1.06 : 0.94));
+  }, { passive: false });
+  box.querySelector("#ava-cancel").addEventListener("click", closeModal);
+  box.querySelector("#ava-confirm").addEventListener("click", () => {
+    const out = document.createElement("canvas");
+    out.width = out.height = 512;
+    const sx = (cropL - ox) / scale, sy = (cropT - oy) / scale, sz = D / scale;
+    out.getContext("2d").drawImage(img, sx, sy, sz, sz, 0, 0, 512, 512);
+    out.toBlob((blob) => uploadAvatar(blob), "image/jpeg", 0.85);
+  });
+}
+
+async function uploadAvatar(blob) {
+  if (!blob) { toast("Couldn't process that image", true); return; }
+  closeModal();
+  toast("Setting profile image", { spinner: true });
+  try {
+    const r = await fetch("/api/mesh/set_avatar", { method: "POST", body: blob });
+    const j = await r.json();
+    if (j.error) { toast(j.error, { error: true, swap: true }); return; }
+    const u = Mesh.state?.users?.[Mesh.state.user];   // show it now, don't wait for the poll
+    if (u) u.avatar = j.avatar;
+    toast("Profile image set", { check: true, swap: true });
+    renderSettings();
+    renderSidebar();
+  } catch (e) {
+    toast("Couldn't set the photo — try again", { error: true, swap: true });
+  }
+}
+
+async function removeAvatar() {
+  const r = await api("/api/mesh/clear_avatar", {});
+  if (r.error) { toast(r.error, true); return; }
+  const u = Mesh.state?.users?.[Mesh.state.user];
+  if (u) delete u.avatar;
+  toast("Profile photo removed", { check: true });
+  renderSettings();
+  renderSidebar();
+}

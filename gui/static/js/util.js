@@ -14,6 +14,28 @@ export function dn(role) {
   return known[role] || (role ? role[0].toUpperCase() + role.slice(1) : "");
 }
 
+// Profile photos. An avatar renders as either the member's uploaded photo
+// (served from /api/mesh/avatar, cache-busted by the record's sha marker) or,
+// as the fallback, the first letter of their display name (the historical
+// look). avatarInner() returns the INNER markup for an existing avatar
+// container, so every call site keeps its own size/shape CSS — the container
+// just needs position:relative + overflow:hidden (see style.css). The initial
+// stays as the container's centered text and the <img> overlays it; on load
+// error (e.g. another machine has the record but not yet the synced jpg) the
+// image removes itself and the initial shows through.
+export function avatarUrl(username, avatar) {
+  const v = avatar && avatar.sha256 ? avatar.sha256.slice(0, 16) : "";
+  return `/api/mesh/avatar?user=${encodeURIComponent(username)}&v=${v}`;
+}
+export function avatarInner(name, username, avatar) {
+  const initial = esc((String(name || "").trim()[0] || "?").toUpperCase());
+  if (avatar && username) {
+    return initial + `<img class="avatar-img" alt="" src="${
+      esc(avatarUrl(username, avatar))}" onerror="this.remove()">`;
+  }
+  return initial;
+}
+
 export function fmtTime(tsUtc) {
   if (!tsUtc) return "never";
   const d = new Date(tsUtc);

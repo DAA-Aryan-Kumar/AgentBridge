@@ -248,6 +248,57 @@ class Mesh:
         u["auth"] = hash_password(new_password)
         self.cx.write_json(self._user_key(username), u)
 
+    # --------------------------------------------------------- profile photo
+    # Stored as a downsized JPEG the identity OWNS (single-writer): the image
+    # bytes live in avatars/<username>.jpg, and a tiny marker on the record
+    # ({sha256, updated}) rides the state payload. The sha doubles as the URL
+    # cache-buster, so viewers refetch only when the photo actually changes.
+    # The bytes are NOT embedded in the record — the state payload is polled
+    # every few seconds for every user, so keeping images out of it matters.
+
+    def _avatar_path(self, username):
+        """Local file for a member's profile photo (folder-backed stores
+        only). None when the connector has no filesystem (e.g. an API backend)
+        — callers surface a graceful MeshError, same reality as inline images."""
+        root = self.cx.local_path("avatars")
+        return (root / f"{username}.jpg") if root is not None else None
+
+    def set_avatar(self, username, jpeg_bytes):
+        """Store a member's (already client-downsized) profile photo and stamp
+        the record's avatar marker. SELF-only is enforced by the caller (the
+        GUI session); the mesh only needs the account to exist."""
+        u = self.get_user(username)
+        if not u:
+            raise MeshError("No such account")
+        if not jpeg_bytes:
+            raise MeshError("The image was empty")
+        dest = self._avatar_path(username)
+        if dest is None:
+            raise MeshError("This storage backend can't hold images yet")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_name(dest.name + ".tmp")
+        tmp.write_bytes(jpeg_bytes)
+        tmp.replace(dest)   # atomic — a reader never sees a half-written file
+        u["avatar"] = {"sha256": hashlib.sha256(jpeg_bytes).hexdigest(),
+                       "updated": utcnow()}
+        self.cx.write_json(self._user_key(username), u)
+        return u["avatar"]
+
+    def clear_avatar(self, username):
+        """Remove a member's profile photo (file + record marker)."""
+        u = self.get_user(username)
+        if not u:
+            raise MeshError("No such account")
+        dest = self._avatar_path(username)
+        if dest is not None:
+            try:
+                dest.unlink()
+            except FileNotFoundError:
+                pass
+        if u.pop("avatar", None) is not None:
+            self.cx.write_json(self._user_key(username), u)
+        return True
+
     def owns(self, human, agent_username):
         a = self.get_user(agent_username)
         return bool(a and a.get("kind") == "agent"

@@ -4,7 +4,7 @@
 import { $, esc, fmtTime, toast } from "./util.js";
 import { ICONS } from "./icons.js";
 import { api } from "./api.js";
-import { App, Mesh, Settings, meshDn, chatDisplay } from "./state.js";
+import { App, Mesh, Settings, meshDn, chatDisplay, meshAvatarInner, isDmLike, dmOther } from "./state.js";
 import { pickerRow, pickerSection } from "./picker.js";
 import { V } from "./views.js";
 
@@ -18,8 +18,8 @@ const SETTINGS_SECTIONS = [
 
 export function renderSidebar() {
   const ms = Mesh.state;
-  $("#rail-avatar").textContent =
-    ms?.user ? (meshDn(ms.user)[0] || "?").toUpperCase() : "?";
+  $("#rail-avatar").innerHTML =
+    ms?.user ? meshAvatarInner(ms.user) : "?";
   $("#side-new").hidden = App.page !== "chats";
   if (App.page === "settings") return renderSettingsSidebar();
   if (App.page === "new") {
@@ -56,7 +56,7 @@ function renderSettingsSidebar() {
   const active = Settings.section || (innerWidth > 760 ? "profile" : null);
   const html = `
     <div class="side-account-card">
-      <span class="acct-big">${esc((meshDn(ms.user)[0] || "?").toUpperCase())}</span>
+      <span class="acct-big">${meshAvatarInner(ms.user)}</span>
       <div style="min-width:0">
         <div style="font-weight:600">${esc(meshDn(ms.user))}</div>
         <div class="hint">@${esc(ms.user)}</div>
@@ -91,7 +91,7 @@ function renderNewChatSidebar() {
       ? ` · with @${esc((u.owners || [])[0] || "?")}` : "";
     return `
     <button class="mem-add nc-dm" data-user="${esc(u.username)}">
-      <span class="mem-avatar" style="background:var(--accent)">${esc((u.display[0] || "?").toUpperCase())}</span>
+      <span class="mem-avatar" style="background:var(--accent)">${meshAvatarInner(u.username)}</span>
       <span style="min-width:0">
         <div class="mem-name">${esc(u.display)}
           ${u.kind === "agent" ? '<span class="kind-tag">agent</span>' : ""}</div>
@@ -130,7 +130,7 @@ function renderNewChatSidebar() {
         <span style="min-width:0"><div class="mem-name">New group</div></span>
       </button>
       <button class="mem-add" id="nc-self">
-        <span class="mem-avatar" style="background:var(--accent)">${esc((meshDn(ms.user)[0] || "?").toUpperCase())}</span>
+        <span class="mem-avatar" style="background:var(--accent)">${meshAvatarInner(ms.user)}</span>
         <span style="min-width:0">
           <div class="mem-name">${esc(meshDn(ms.user))} <span class="kind-tag">You</span></div>
           <div class="mem-sub">Message yourself</div>
@@ -221,8 +221,13 @@ function renderChatListSidebar() {
       + (hasCount ? `<span class="unread-badge">${c.unread}</span>`
         : dot ? `<span class="unread-badge dot"></span>` : "");
   };
+  // DM/self rows show the other member's profile photo; group rows keep the
+  // initial until the group-image round.
+  const chatAvaInner = (c) => isDmLike(c)
+    ? meshAvatarInner(dmOther(c, ms.user))
+    : esc((chatDisplay(c, ms.user)[0] || "#").toUpperCase());
   const rowSig = (c) => JSON.stringify([c.id === Mesh.chatId, !!c.archived,
-    nameHtml(c), lastHtml(c), timeText(c), tagsHtml(c)]);
+    nameHtml(c), lastHtml(c), timeText(c), tagsHtml(c), chatAvaInner(c)]);
 
   // ---- granular update: same chats in the same order, list already built →
   // touch only the rows whose content changed. This is the fix for "the sidebar
@@ -240,7 +245,7 @@ function renderChatListSidebar() {
       el.classList.toggle("active", c.id === Mesh.chatId);
       const av = el.querySelector(".chat-avatar");
       av.className = "chat-avatar" + (c.archived ? " arch" : "");
-      av.textContent = (chatDisplay(c, ms.user)[0] || "#").toUpperCase();
+      av.innerHTML = chatAvaInner(c);
       el.querySelector(".chat-name").innerHTML = nameHtml(c);
       el.querySelector(".chat-last").innerHTML = lastHtml(c);
       el.querySelector(".chat-time").textContent = timeText(c);
@@ -253,7 +258,7 @@ function renderChatListSidebar() {
   // sidebar variant). Bindings set here survive across granular updates.
   const rowHtml = (c) => `
     <div class="chat-row ${c.id === Mesh.chatId ? "active" : ""}" data-chat="${esc(c.id)}">
-      <div class="chat-avatar ${c.archived ? "arch" : ""}">${esc((chatDisplay(c, ms.user)[0] || "#").toUpperCase())}</div>
+      <div class="chat-avatar ${c.archived ? "arch" : ""}">${chatAvaInner(c)}</div>
       <div class="chat-mid">
         <div class="chat-name">${nameHtml(c)}</div>
         <div class="chat-last">${lastHtml(c)}</div>

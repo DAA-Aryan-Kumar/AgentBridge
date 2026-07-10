@@ -7,7 +7,7 @@ import { ICONS, BIRD, extIcon } from "./icons.js";
 import { isImg, fileUrl } from "./files.js";
 import { api, bindOpenFile } from "./api.js";
 import { md, stripMd, setTaggable } from "./markdown.js";
-import { App, Mesh, meshDn, chatDisplay, renderChrome, isDmLike } from "./state.js";
+import { App, Mesh, meshDn, chatDisplay, renderChrome, isDmLike, dmOther, meshAvatarInner } from "./state.js";
 import { renderSidebar } from "./sidebar.js";
 import { initComposer, renderMeshPending, renderReplyArea, startReply } from "./composer.js";
 import { openModal, closeModal } from "./modal.js";
@@ -278,7 +278,7 @@ async function renderMeshChat(force) {
     parts.push(`
       <div class="msg ${msg.mine ? "mine" : ""}" data-mid="${esc(msg.id || "")}">
         <span class="msg-check" aria-hidden="true">${ICONS.check}</span>
-        ${showSender ? `<span class="msg-avatar">${esc((meshDn(msg.from)[0] || "?").toUpperCase())}</span>` : ""}
+        ${showSender ? `<span class="msg-avatar">${meshAvatarInner(msg.from)}</span>` : ""}
         <div class="bubble">
           <button class="msg-arrow" aria-label="Message menu">${ICONS.chevD}</button>
           ${showSender ? `<div class="sender">${esc(meshDn(msg.from))} ${kindTag}</div>` : ""}
@@ -291,7 +291,7 @@ async function renderMeshChat(force) {
   // humans typing (dots only). Styled like a regular incoming message —
   // avatar in the gutter, name inside the bubble, none of either in DMs.
   const feedHead = (who) => isDm ? "" :
-    `<span class="msg-avatar">${esc((meshDn(who)[0] || "?").toUpperCase())}</span>`;
+    `<span class="msg-avatar">${meshAvatarInner(who)}</span>`;
   const feedSender = (who, isAgent) => isDm ? "" :
     `<div class="sender">${esc(meshDn(who))}${isAgent ? ' <span class="kind-tag">agent</span>' : ""}</div>`;
   for (const f of feeds) {
@@ -394,10 +394,15 @@ async function renderMeshChat(force) {
     ? (meta.members || []).find((u) => u !== ms.user) : null;
   const headAgentTag = dmPeer && ms.users?.[dmPeer]?.kind === "agent"
     ? ' <span class="kind-tag">agent</span>' : "";
+  // DM/self header shows the peer's photo; a group keeps the initial (until
+  // the group-image round)
+  const headAva = isDmLike(meta)
+    ? meshAvatarInner(dmOther(meta, ms.user))
+    : esc((title[0] || "#").toUpperCase());
   $("#content").innerHTML = `
     <div class="chat-top" id="chat-top">
       <button class="chat-back" id="chat-back">${ICONS.back}</button>
-      <span class="chat-avatar" style="width:36px;height:36px;font-size:15px;flex:none">${esc((title[0] || "#").toUpperCase())}</span>
+      <span class="chat-avatar" style="width:36px;height:36px;font-size:15px;flex:none">${headAva}</span>
       <div class="chat-title-btn" style="min-width:0" title="Open chat info">
         <div class="chat-head-name">${esc(title)}${headAgentTag}
           ${meta.archived ? '<span class="kind-tag">archived</span>' : ""}</div>
@@ -751,7 +756,7 @@ async function messageInfoDialog(chatId, msg) {
   if (r.error) { toast(r.error, true); return; }
   const memRow = (m) => `
     <div class="mi-mem">
-      <span class="mem-avatar">${esc((meshDn(m.user)[0] || "?").toUpperCase())}</span>
+      <span class="mem-avatar">${meshAvatarInner(m.user)}</span>
       <span class="mi-mem-name">${esc(meshDn(m.user))}</span>
       <span class="mi-time">${m.ts ? esc(fmtTime(m.ts)) : "—"}</span>
     </div>`;

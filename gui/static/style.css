@@ -110,6 +110,56 @@ body { display: flex; flex-direction: column; }
   outline: 2px solid var(--text-faint); outline-offset: 2px;   /* neutral, not accent */
 }
 
+/* --- profile photos --- an uploaded image (avatarInner in util.js) overlays
+   the initial letter in any circular avatar container; the initial shows
+   through while the image loads or if it fails (cross-machine sync gap). */
+.avatar-img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; border-radius: inherit; display: block;
+}
+.rail-avatar, .acct-big, .chat-avatar, .mem-avatar, .ci-avatar {
+  position: relative; overflow: hidden;
+}
+.msg-avatar { overflow: hidden; }   /* already position:absolute in the gutter */
+
+/* --- profile-photo editor (Settings → Profile), WhatsApp "Edit profile" --- */
+.pf-photo-wrap { position: relative; width: 120px; margin: 6px auto 24px; }
+.pf-photo {
+  width: 120px; height: 120px; border-radius: 50%; margin: 0 auto;
+  background: var(--accent); color: #fff; font-weight: 700; font-size: 46px;
+  display: grid; place-items: center; position: relative; overflow: hidden;
+}
+.pf-edit {
+  position: absolute; left: 50%; bottom: -10px; transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  background: var(--surface); border: 1px solid var(--border); color: var(--accent);
+  border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 12.5px;
+  font-weight: 600; cursor: pointer; box-shadow: 0 2px 6px rgba(0, 0, 0, .14);
+}
+.pf-edit svg { width: 15px; height: 15px; }
+.pf-menu {
+  position: absolute; top: calc(100% + 6px); left: 50%; right: auto;
+  transform: translateX(-50%); min-width: 184px;
+}
+
+/* --- profile-photo adjust modal (crop + zoom inside an illuminated circle) */
+.modal-box.ava-modal { width: auto; }
+.ava-adjust { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.ava-adjust-head { display: flex; align-items: center; gap: 8px; align-self: flex-start; font-weight: 600; }
+.ava-stage { position: relative; width: 300px; height: 300px; touch-action: none; }
+.ava-stage canvas { display: block; border-radius: 10px; background: #111; cursor: grab; }
+.ava-stage canvas:active { cursor: grabbing; }
+.ava-mask {
+  position: absolute; inset: 0; pointer-events: none; border-radius: 10px;
+  background: radial-gradient(circle at 50% 50%, transparent 0 128px,
+    rgba(255, 255, 255, .85) 128px 130px, rgba(0, 0, 0, .5) 130px);
+}
+.ava-zoom { display: flex; align-items: center; gap: 12px; width: 300px; color: var(--text-dim); }
+.ava-zoom .ava-zi { font-size: 18px; line-height: 1; user-select: none; }
+.ava-zoom input[type=range] { flex: 1; }
+.ava-confirm { width: 50px; height: 50px; border-radius: 50%; display: grid; place-items: center; padding: 0; }
+.ava-confirm svg { width: 22px; height: 22px; }
+
 .app-glyph {
   width: 26px; height: 26px; border-radius: 6px;
   background: var(--accent);
@@ -1368,7 +1418,17 @@ pre.configdump {
   display: flex; align-items: center; gap: 6px;
   padding: 0 4px; position: relative;
 }
-.ci-name-row .ci-name { flex: 1; text-align: center; padding-left: 34px; }
+/* a long group name scrolls WITHIN its own space: min-width:0 stops it from
+   pushing the ✎ off the edge, so the rename ✎ stays put and aligned with the
+   description ✎. Selectable + copyable (Ctrl/Cmd+C) with no extra button; the
+   scrollbar is hidden (select-drag / shift-wheel scrolls) for a clean look
+   (round 14). Short names still centre; a long name starts at its beginning. */
+.ci-name-row .ci-name {
+  flex: 1; min-width: 0; text-align: center; padding-left: 34px;
+  overflow-x: auto; white-space: nowrap;
+  user-select: text; cursor: text; scrollbar-width: none;
+}
+.ci-name-row .ci-name::-webkit-scrollbar { display: none; }
 .ci-name-row:not(:has(.ci-pencil)) .ci-name { padding-left: 0; }
 .ci-pencil { flex: none; color: var(--text-dim); }
 .ci-ok { flex: none; color: var(--accent); }
