@@ -93,8 +93,29 @@ export function chatDisplay(meta, viewer) {
   return meta.kind === "dm" ? meshDn(dmOther(meta, viewer)) : meta.name;
 }
 
+// composer drafts persist per DEVICE (localStorage), scoped by user + chat, so
+// an unsent message survives a reload / app restart (task 2, 2026-07-11). Only
+// the typed text is stored — staged attachments and the reply ref are transient
+// and stay in-memory. localStorage is inherently per-device (not synced), which
+// is exactly the requested scope.
+function draftKey(chatId) {
+  return `ab:draft:${Mesh.state?.user || "?"}:${chatId}`;
+}
+export function saveDraft(chatId) {
+  const body = Mesh.drafts[chatId]?.body || "";
+  try {
+    if (body) localStorage.setItem(draftKey(chatId), body);
+    else localStorage.removeItem(draftKey(chatId));
+  } catch { /* storage disabled/full: drafts just won't persist this session */ }
+}
+
 export function meshDraft(chatId) {
-  const d = Mesh.drafts[chatId] || (Mesh.drafts[chatId] = { body: "", atts: [] });
+  let d = Mesh.drafts[chatId];
+  if (!d) {   // first touch this session: hydrate the text from this device
+    let saved = "";
+    try { saved = localStorage.getItem(draftKey(chatId)) || ""; } catch { /* ignore */ }
+    d = Mesh.drafts[chatId] = { body: saved, atts: [] };
+  }
   if (!d.atts) d.atts = d.att ? [d.att] : [];   // pre-multifile drafts
   return d;
 }

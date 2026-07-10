@@ -6,7 +6,7 @@ import { $, esc, fmtSize, toast } from "./util.js";
 import { ICONS, extIcon } from "./icons.js";
 import { api } from "./api.js";
 import { stripMd } from "./markdown.js";
-import { Mesh, meshDn, meshDraft } from "./state.js";
+import { Mesh, meshDn, meshDraft, saveDraft } from "./state.js";
 import { alertModal } from "./modal.js";
 import { V } from "./views.js";
 
@@ -132,6 +132,7 @@ export function initComposer(chatId, members) {
   let lastTyping = 0;
   body.addEventListener("input", (e) => {
     draft.body = e.target.value;
+    saveDraft(chatId);   // persist per device so it survives a reload/restart
     autosize();
     if (body.value && Date.now() - lastTyping > 3000) {
       lastTyping = Date.now();
@@ -155,6 +156,7 @@ export function initComposer(chatId, members) {
     const caret = tagCtx.start + t.u.length + 1;
     body.setSelectionRange(caret, caret);
     draft.body = body.value;
+    saveDraft(chatId);
     autosize();
     closePop();
     body.focus();
@@ -217,6 +219,7 @@ export function initComposer(chatId, members) {
     // posting the already-consumed staged path (the "attach errors
     // forever after the first file" bug)
     draft.body = "";
+    saveDraft(chatId);   // sent → drop the saved draft on this device
     draft.atts.length = 0;
     draft.reply = null;
     body.value = "";
