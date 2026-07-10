@@ -82,9 +82,6 @@ async function renderSettings() {
     const mine = Object.values(ms.users)
       .filter((u) => u.kind === "agent" && (u.owners || []).includes(ms.user));
     html = `${back}<h1>My agents</h1>
-      <datalist id="ag-rate-presets">
-        ${[10, 20, 30, 50, 100, 200, 500].map((n) => `<option value="${n}"></option>`).join("")}
-      </datalist>
       ${mine.map((a) => {
         const st = a.settings || {};
         return `
@@ -95,6 +92,7 @@ async function renderSettings() {
               <button class="ci-cam ag-cam" data-agent="${esc(a.username)}"
                 aria-label="Change ${esc(a.display)} photo">${ICONS.camera}</button>
               <div class="menu ci-photo-menu ag-photo-menu" data-agent="${esc(a.username)}" hidden>
+                ${a.avatar ? `<button data-act="view">${ICONS.eye} View photo</button>` : ""}
                 <button data-act="camera">${ICONS.camera} ${a.avatar ? "Retake photo" : "Take photo"}</button>
                 <button data-act="upload">${ICONS.media} Upload photo</button>
                 ${a.avatar ? `<button class="danger-item" data-act="remove">${ICONS.trash} Remove photo</button>` : ""}
@@ -109,10 +107,9 @@ async function renderSettings() {
               value="${esc(st.reasoning || "")}" placeholder="agent default"></dd>
             <dt>Default reply rule</dt><dd><span class="csel-slot ag-default"
               data-agent="${esc(a.username)}" data-value="${esc(st.default_rule || "tagged")}"></span></dd>
-            <dt>Replies per hour</dt><dd><input type="number" min="1" max="1000" step="1"
-              class="ag-rate" data-agent="${esc(a.username)}" list="ag-rate-presets"
-              value="${st.max_replies_per_hour != null ? esc(st.max_replies_per_hour) : ""}"
-              placeholder="30 (default)"></dd>
+            <dt>Replies per hour</dt><dd><span class="csel-slot ag-rate"
+              data-agent="${esc(a.username)}"
+              data-value="${st.max_replies_per_hour != null ? esc(st.max_replies_per_hour) : ""}"></span></dd>
             <dt>Owners</dt><dd>${(a.owners || []).map((o) => esc("@" + o)).join(", ")}</dd>
           </dl>
           <p class="hint">Per-chat rules live in each chat's info page. Replies
@@ -196,22 +193,34 @@ async function renderSettings() {
     value: localStorage.getItem("pollMs") || "2500",
     onChange: (v) => localStorage.setItem("pollMs", v),
   }));
-  // reply-rule dropdowns (My agents) use the SAME custom select as Performance
-  // (task 13) — the old native <select> brought its own scrollbar + arrow.
-  // mountCsels fills each .csel-slot from its data-value and writes back to it.
-  mountCsels($(".settings-body"),
-    Object.entries(RULE_LABELS).map(([v, label]) => ({ v, label })));
+  // My-agents dropdowns use the SAME custom select as Performance (task 13):
+  // reply-rule (was a native <select>) and replies-per-hour (was a number input
+  // whose spinner + datalist arrow read as a doubled dropdown). mountCsels fills
+  // each .csel-slot from its data-value and writes the choice back to it.
+  const ruleOpts = Object.entries(RULE_LABELS).map(([v, label]) => ({ v, label }));
+  const rateOpts = [
+    { v: "", label: "Default (30 / hour)" },
+    ...[10, 20, 30, 50, 100, 200, 500].map((n) => ({ v: String(n), label: `${n} / hour` })),
+  ];
+  mountCsels($(".settings-body"), (slot) => {
+    if (!slot.classList.contains("ag-rate")) return ruleOpts;
+    // surface a previously-set non-preset value so it labels correctly
+    const cur = slot.dataset.value;
+    return cur && !rateOpts.some((o) => o.v === cur)
+      ? [rateOpts[0], { v: cur, label: `${cur} / hour` }, ...rateOpts.slice(1)]
+      : rateOpts;
+  });
   document.querySelectorAll(".ag-save").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const agent = btn.dataset.agent;
-      const rateRaw = document.querySelector(`.ag-rate[data-agent="${agent}"]`).value.trim();
+      const rateRaw = document.querySelector(`.ag-rate[data-agent="${agent}"]`).dataset.value;
       const rateN = parseInt(rateRaw, 10);
       const patch = {
         model: document.querySelector(`.ag-model[data-agent="${agent}"]`).value.trim() || null,
         reasoning: document.querySelector(`.ag-reason[data-agent="${agent}"]`).value.trim() || null,
         default_rule: document.querySelector(`.ag-default[data-agent="${agent}"]`).dataset.value,
         // blank clears back to the default; otherwise clamp to a sane band
-        max_replies_per_hour: rateRaw === "" || isNaN(rateN)
+        max_replies_per_hour: !rateRaw || isNaN(rateN)
           ? null : Math.max(1, Math.min(1000, rateN)),
       };
       const r = await api("/api/mesh/agent", { username: agent, patch });
@@ -242,7 +251,12 @@ async function renderSettings() {
     menu.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
       menu.hidden = true;
       const onBlob = (blob) => uploadAgentAvatar(agent, blob);
-      if (b.dataset.act === "camera") V.photoCamera(onBlob);
+      if (b.dataset.act === "view") {
+        const av = cam.closest(".ag-avatar-wrap").querySelector(".ag-avatar");
+        const img = av?.querySelector(".avatar-img");
+        if (img) openPhotoViewer(img.src, meshDn(agent), av);
+      }
+      else if (b.dataset.act === "camera") V.photoCamera(onBlob);
       else if (b.dataset.act === "upload") V.photoPickFile(onBlob);
       else if (b.dataset.act === "remove") clearAgentAvatar(agent);
     }));
@@ -379,19 +393,15 @@ function mountCamera(stream, onBlob) {
   box.querySelector("#cam-shot").addEventListener("click", () => {
     const vw = video.videoWidth, vh = video.videoHeight;
     if (!vw || !vh) { toast("The camera is still starting — try again", true); return; }
-    // Capture EXACTLY what the round viewfinder showed, so the framing doesn't
-    // jump when the crop adjuster opens (task 9). The video is object-fit:cover
-    // in the 300px stage, so a centred min(vw,vh) square fills it, and the 260px
-    // crop circle shows the centred 260/300 of that square — grab that same
-    // square. (Was: the whole frame, which the adjuster re-fit at a different
-    // scale, so the shot visibly "moved" from the preview.)
-    const side = Math.min(vw, vh) * 260 / 300;   // 260 = crop dia, 300 = stage
-    const sx0 = (vw - side) / 2, sy0 = (vh - side) / 2;
+    // Capture the FULL frame (mirrored to match the preview). The viewfinder
+    // shows the whole photo uncropped — no crop circle — so what you see is
+    // exactly what's captured; the user then pans/zooms into the circle in the
+    // adjuster step, and nothing moves between the two (2026-07-11).
     const cap = document.createElement("canvas");
-    cap.width = cap.height = Math.round(side);
+    cap.width = vw; cap.height = vh;
     const cctx = cap.getContext("2d");
-    cctx.translate(cap.width, 0); cctx.scale(-1, 1);   // mirror to match the preview
-    cctx.drawImage(video, sx0, sy0, side, side, 0, 0, cap.width, cap.height);
+    cctx.translate(vw, 0); cctx.scale(-1, 1);   // mirror to match the preview
+    cctx.drawImage(video, 0, 0, vw, vh);
     stop(); obs.disconnect();
     closeModal();
     mountAvatarAdjuster(cap, onBlob);   // a canvas is a valid source
