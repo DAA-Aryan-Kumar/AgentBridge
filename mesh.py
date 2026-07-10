@@ -310,6 +310,19 @@ class Mesh:
             self.cx.write_json(self._user_key(username), u)
         return True
 
+    def set_agent_avatar(self, agent_username, by_human, jpeg_bytes):
+        """Owner-set an agent's profile photo. Agents can't sign into the GUI,
+        so a responsible human sets it for them; storage is identical to a
+        human's (avatars/<username>.jpg + record marker)."""
+        if not self.owns(by_human, agent_username):
+            raise MeshError("Only a responsible member can change this agent's photo")
+        return self.set_avatar(agent_username, jpeg_bytes)
+
+    def clear_agent_avatar(self, agent_username, by_human):
+        if not self.owns(by_human, agent_username):
+            raise MeshError("Only a responsible member can change this agent's photo")
+        return self.clear_avatar(agent_username)
+
     def owns(self, human, agent_username):
         a = self.get_user(agent_username)
         return bool(a and a.get("kind") == "agent"

@@ -1274,6 +1274,16 @@ def api_mesh_clear_group_avatar(data):
     return {"ok": True}
 
 
+def api_mesh_clear_agent_avatar(data):
+    """Remove an agent's photo (owner-only, enforced in mesh)."""
+    m = get_mesh()
+    user = session_user(m)
+    if not user:
+        return {"error": "Sign in first"}
+    m.clear_agent_avatar(data.get("agent") or "", user)
+    return {"ok": True}
+
+
 def api_shutdown():
     """Let a newer launch replace a running instance (single-instance UX:
     without this, a relaunch silently lands on a random port while the stale
@@ -1346,6 +1356,7 @@ POST_ROUTES = {
     "/api/mesh/mark_unread": api_mesh_mark_unread,
     "/api/mesh/clear_avatar": api_mesh_clear_avatar,
     "/api/mesh/clear_group_avatar": api_mesh_clear_group_avatar,
+    "/api/mesh/clear_agent_avatar": api_mesh_clear_agent_avatar,
 }
 
 
@@ -1392,6 +1403,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._set_avatar()
         if self.path.startswith("/api/mesh/set_group_avatar"):
             return self._set_group_avatar()
+        if self.path.startswith("/api/mesh/set_agent_avatar"):
+            return self._set_agent_avatar()
         route = POST_ROUTES.get(self.path)
         if not route:
             return self._json({"error": "not found"}, 404)
@@ -1580,6 +1593,42 @@ class Handler(BaseHTTPRequestHandler):
             remaining -= len(chunk)
         try:
             marker = m.set_group_avatar(chat, user, bytes(body))
+        except meshlib.MeshError as e:
+            return self._json({"error": str(e)}, 400)
+        return self._json({"ok": True, "avatar": marker})
+
+    def _set_agent_avatar(self):
+        """Owner-set an agent's profile photo (owner-only, enforced in mesh).
+        Raw JPEG body, same transport as _set_group_avatar; the agent username
+        rides the query (?agent=…)."""
+        m = get_mesh()
+        user = session_user(m) if m else None
+        if not user:
+            return self._json({"error": "Sign in first"}, 403)
+        agent = ""
+        _, _, query = self.path.partition("?")
+        for pair in query.split("&"):
+            k, _, v = pair.partition("=")
+            if k == "agent":
+                agent = unquote(v)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = 0
+        if length <= 0:
+            return self._json({"error": "Empty upload"}, 400)
+        if length > self.MAX_AVATAR:
+            return self._json({"error": "Image is too large"}, 400)
+        body = bytearray()
+        remaining = length
+        while remaining:
+            chunk = self.rfile.read(min(65536, remaining))
+            if not chunk:
+                break
+            body += chunk
+            remaining -= len(chunk)
+        try:
+            marker = m.set_agent_avatar(agent, user, bytes(body))
         except meshlib.MeshError as e:
             return self._json({"error": str(e)}, 400)
         return self._json({"ok": True, "avatar": marker})

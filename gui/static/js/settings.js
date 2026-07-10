@@ -88,7 +88,19 @@ async function renderSettings() {
         const st = a.settings || {};
         return `
         <div class="card" style="max-width:640px">
-          <h2>${esc(a.display)} <span class="hint" style="text-transform:none">@${esc(a.username)}</span></h2>
+          <div class="ag-head">
+            <div class="ag-avatar-wrap">
+              <span class="ag-avatar">${meshAvatarInner(a.username)}</span>
+              <button class="ci-cam ag-cam" data-agent="${esc(a.username)}"
+                aria-label="Change ${esc(a.display)} photo">${ICONS.camera}</button>
+              <div class="menu ci-photo-menu ag-photo-menu" data-agent="${esc(a.username)}" hidden>
+                <button data-act="camera">${ICONS.camera} Take photo</button>
+                <button data-act="upload">${ICONS.media} Upload photo</button>
+                ${a.avatar ? `<button class="danger-item" data-act="remove">${ICONS.trash} Remove photo</button>` : ""}
+              </div>
+            </div>
+            <h2 style="margin:0">${esc(a.display)} <span class="hint" style="text-transform:none">@${esc(a.username)}</span></h2>
+          </div>
           <dl class="kv" style="grid-template-columns:minmax(110px,160px) 1fr">
             <dt>Model</dt><dd><input type="text" class="ag-model" data-agent="${esc(a.username)}"
               value="${esc(st.model || "")}" placeholder="agent default"></dd>
@@ -202,6 +214,34 @@ async function renderSettings() {
       if (r.error) toast(r.error, true);
       else toast(`Saved @${agent}`);
     });
+  });
+  // owner: set/clear each agent's photo — Take / Upload / Remove via the shared
+  // V.photoCamera / V.photoPickFile capture flows (same as Group Info)
+  document.querySelectorAll(".ag-cam").forEach((cam) => {
+    const menu = cam.closest(".ag-avatar-wrap").querySelector(".ag-photo-menu");
+    const agent = cam.dataset.agent;
+    cam.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const opening = menu.hidden;
+      document.querySelectorAll(".ag-photo-menu").forEach((m) => { if (m !== menu) m.hidden = true; });
+      menu.hidden = !opening;
+      if (opening) {   // dismiss on the next outside click
+        const closer = (ev) => {
+          if (!menu.contains(ev.target) && !cam.contains(ev.target)) {
+            menu.hidden = true;
+            document.removeEventListener("mousedown", closer);
+          }
+        };
+        setTimeout(() => document.addEventListener("mousedown", closer), 0);
+      }
+    });
+    menu.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+      menu.hidden = true;
+      const onBlob = (blob) => uploadAgentAvatar(agent, blob);
+      if (b.dataset.act === "camera") V.photoCamera(onBlob);
+      else if (b.dataset.act === "upload") V.photoPickFile(onBlob);
+      else if (b.dataset.act === "remove") clearAgentAvatar(agent);
+    }));
   });
   const newAgent = $("#new-agent-btn");
   if (newAgent) newAgent.addEventListener("click", async () => {
@@ -456,6 +496,36 @@ async function removeAvatar() {
   const u = Mesh.state?.users?.[Mesh.state.user];
   if (u) delete u.avatar;
   toast("Profile photo removed", { check: true });
+  renderSettings();
+  renderSidebar();
+}
+
+// Owner-set an agent's photo (agents can't sign in, so their responsible human
+// sets it). Same transport as the group photo; the agent rides the query.
+async function uploadAgentAvatar(agent, blob) {
+  if (!blob) { toast("Couldn't process that image", true); return; }
+  toast("Setting agent photo", { spinner: true });
+  try {
+    const r = await fetch(`/api/mesh/set_agent_avatar?agent=${encodeURIComponent(agent)}`,
+                          { method: "POST", body: blob });
+    const j = await r.json();
+    if (j.error) { toast(j.error, { error: true, swap: true }); return; }
+    const u = Mesh.state?.users?.[agent];   // show it now, don't wait for the poll
+    if (u) u.avatar = j.avatar;
+    toast("Agent photo set", { check: true, swap: true });
+    renderSettings();
+    renderSidebar();
+  } catch (e) {
+    toast("Couldn't set the photo — try again", { error: true, swap: true });
+  }
+}
+
+async function clearAgentAvatar(agent) {
+  const r = await api("/api/mesh/clear_agent_avatar", { agent });
+  if (r.error) { toast(r.error, true); return; }
+  const u = Mesh.state?.users?.[agent];
+  if (u) delete u.avatar;
+  toast("Agent photo removed", { check: true });
   renderSettings();
   renderSidebar();
 }
