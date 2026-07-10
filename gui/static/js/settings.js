@@ -1,7 +1,7 @@
 /* Settings pages — profile, account, chats (theme), my agents, connection.
    The section nav lives in the sidebar. */
 
-import { $, esc, toast, setTheme } from "./util.js";
+import { $, esc, toast, setTheme, enterToSend, setEnterToSend } from "./util.js";
 import { ICONS } from "./icons.js";
 import { api } from "./api.js";
 import { csel, mountCsels } from "./csel.js";
@@ -77,6 +77,18 @@ async function renderSettings() {
         </div>
         <p class="hint" style="margin-bottom:0">Full theming and wallpapers come
         with the theming pass.</p>
+      </div>
+      <div class="card" style="max-width:560px">
+        <h2>Messaging</h2>
+        <div class="row">
+          <label class="switch">
+            <input type="checkbox" id="enter-send" ${enterToSend() ? "checked" : ""}>
+            <span class="slider"></span>
+          </label>
+          <span><b>Enter to send</b> — press Enter to send; Shift+Enter for a new line</span>
+        </div>
+        <p class="hint" style="margin-bottom:0">Turn this off to send with
+        Ctrl+Enter and use Enter for new lines. This device only.</p>
       </div>`;
   } else if (section === "agents") {
     const mine = Object.values(ms.users)
@@ -172,6 +184,8 @@ async function renderSettings() {
   if (theme) theme.addEventListener("change", (e) => {
     setTheme(e.target.checked ? "dark" : "light");
   });
+  const enterSend = $("#enter-send");
+  if (enterSend) enterSend.addEventListener("change", (e) => setEnterToSend(e.target.checked));
   const logout = $("#st-logout");
   if (logout) logout.addEventListener("click", async () => {
     await api("/api/mesh/logout", {});

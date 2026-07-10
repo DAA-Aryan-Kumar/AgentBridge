@@ -262,3 +262,9 @@ export function setTheme(t) {
   document.documentElement.dataset.theme = t;
   localStorage.setItem("theme", t);
 }
+
+// per-device composer preference: pressing Enter sends the message (and
+// Shift+Enter inserts a newline). Default ON. Stored like the theme — a device
+// setting, not synced (a phone and a desktop can differ). "0" = off.
+export function enterToSend() { return localStorage.getItem("enterToSend") !== "0"; }
+export function setEnterToSend(on) { localStorage.setItem("enterToSend", on ? "1" : "0"); }

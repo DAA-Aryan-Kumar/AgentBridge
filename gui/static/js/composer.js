@@ -2,7 +2,7 @@
    valid @tags, caret-following tag autofill, attachments, send.
    chat.js renders the composer HTML; initComposer wires it up. */
 
-import { $, esc, fmtSize, toast } from "./util.js";
+import { $, esc, fmtSize, toast, enterToSend } from "./util.js";
 import { ICONS, extIcon } from "./icons.js";
 import { api } from "./api.js";
 import { stripMd } from "./markdown.js";
@@ -229,8 +229,17 @@ export function initComposer(chatId, members) {
     V.renderMeshChat(true);
   };
   $("#mesh-send-btn").addEventListener("click", doSend);
+  // Enter-to-send (default on, per device). ON: Enter sends, Shift+Enter is a
+  // newline. OFF: Enter is a newline and Ctrl/Cmd+Enter sends (the legacy key).
+  // The @tag popup owns Enter while it's open (handled in the keydown above).
   body.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && e.ctrlKey && !tagCtx) doSend();
+    if (e.key !== "Enter" || tagCtx) return;
+    const withMod = e.ctrlKey || e.metaKey;
+    if (enterToSend()) {
+      if (!e.shiftKey) { e.preventDefault(); doSend(); }
+    } else if (withMod) {
+      e.preventDefault(); doSend();
+    }
   });
   // attach: browser file input (works everywhere, including mobile) —
   // files upload to a local staging area, then ride the next post
