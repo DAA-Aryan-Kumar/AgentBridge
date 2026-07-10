@@ -101,7 +101,7 @@ async function renderChatDetails() {
         <div class="ci-avatar">${meshChatAvatarInner(meta)}</div>
         ${(!isDm && isOwner) ? `<button class="ci-cam" id="ci-photo" aria-label="Change group photo">${ICONS.camera}</button>
         <div class="menu ci-photo-menu" id="ci-photo-menu" hidden>
-          <button data-act="camera">${ICONS.camera} Take photo</button>
+          <button data-act="camera">${ICONS.camera} ${meta.avatar ? "Retake photo" : "Take photo"}</button>
           <button data-act="upload">${ICONS.media} Upload photo</button>
           ${meta.avatar ? `<button class="danger-item" data-act="remove">${ICONS.trash} Remove photo</button>` : ""}
         </div>` : ""}

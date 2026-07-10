@@ -38,7 +38,7 @@ async function renderSettings() {
           <button class="pf-edit" id="pf-edit">${ICONS.camera} Edit</button>
           <div class="menu pf-menu" id="pf-menu" hidden>
             ${hasPhoto ? `<button data-act="view">${ICONS.eye} View photo</button>` : ""}
-            <button data-act="camera">${ICONS.camera} Take photo</button>
+            <button data-act="camera">${ICONS.camera} ${hasPhoto ? "Retake photo" : "Take photo"}</button>
             <button data-act="upload">${ICONS.media} Upload photo</button>
             ${hasPhoto ? `<button class="danger-item" data-act="remove">${ICONS.trash} Remove photo</button>` : ""}
           </div>
@@ -95,7 +95,7 @@ async function renderSettings() {
               <button class="ci-cam ag-cam" data-agent="${esc(a.username)}"
                 aria-label="Change ${esc(a.display)} photo">${ICONS.camera}</button>
               <div class="menu ci-photo-menu ag-photo-menu" data-agent="${esc(a.username)}" hidden>
-                <button data-act="camera">${ICONS.camera} Take photo</button>
+                <button data-act="camera">${ICONS.camera} ${a.avatar ? "Retake photo" : "Take photo"}</button>
                 <button data-act="upload">${ICONS.media} Upload photo</button>
                 ${a.avatar ? `<button class="danger-item" data-act="remove">${ICONS.trash} Remove photo</button>` : ""}
               </div>
@@ -376,11 +376,19 @@ function mountCamera(stream, onBlob) {
   box.querySelector("#cam-shot").addEventListener("click", () => {
     const vw = video.videoWidth, vh = video.videoHeight;
     if (!vw || !vh) { toast("The camera is still starting — try again", true); return; }
+    // Capture EXACTLY what the round viewfinder showed, so the framing doesn't
+    // jump when the crop adjuster opens (task 9). The video is object-fit:cover
+    // in the 300px stage, so a centred min(vw,vh) square fills it, and the 260px
+    // crop circle shows the centred 260/300 of that square — grab that same
+    // square. (Was: the whole frame, which the adjuster re-fit at a different
+    // scale, so the shot visibly "moved" from the preview.)
+    const side = Math.min(vw, vh) * 260 / 300;   // 260 = crop dia, 300 = stage
+    const sx0 = (vw - side) / 2, sy0 = (vh - side) / 2;
     const cap = document.createElement("canvas");
-    cap.width = vw; cap.height = vh;
+    cap.width = cap.height = Math.round(side);
     const cctx = cap.getContext("2d");
-    cctx.translate(vw, 0); cctx.scale(-1, 1);   // mirror to match the preview
-    cctx.drawImage(video, 0, 0, vw, vh);
+    cctx.translate(cap.width, 0); cctx.scale(-1, 1);   // mirror to match the preview
+    cctx.drawImage(video, sx0, sy0, side, side, 0, 0, cap.width, cap.height);
     stop(); obs.disconnect();
     closeModal();
     mountAvatarAdjuster(cap, onBlob);   // a canvas is a valid source
@@ -463,6 +471,10 @@ function mountAvatarAdjuster(img, onBlob) {
     const sx = (cropL - ox) / scale, sy = (cropT - oy) / scale, sz = D / scale;
     out.getContext("2d").drawImage(img, sx, sy, sz, sz, 0, 0, 512, 512);
     out.toBlob((blob) => onBlob(blob), "image/jpeg", 0.85);
+    // close the cropper right away — the upload runs in the background. Done
+    // here (not in each onBlob) so EVERY path closes: the group/agent uploaders
+    // didn't, so their ✓ committed the photo but left the popup open (task 10).
+    closeModal();
   });
 }
 
@@ -483,7 +495,7 @@ V.photoCamera = (onBlob) => openCamera(onBlob);
 
 async function uploadAvatar(blob) {
   if (!blob) { toast("Couldn't process that image", true); return; }
-  closeModal();
+  // the crop adjuster closes itself on ✓ now (task 10) — no closeModal here
   toast("Setting profile image", { spinner: true });
   try {
     const r = await fetch("/api/mesh/set_avatar", { method: "POST", body: blob });
