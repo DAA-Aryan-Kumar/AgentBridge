@@ -15,8 +15,10 @@ export function mdInline(t) {
   t = t.replace(/(^|[\s(])\*([^*\s][^*]*?)\*(?=[\s).,;:!?]|$)/g, "$1<i>$2</i>");
   t = t.replace(/(https?:\/\/[^\s<]+[^\s<.,)])/g,
     '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  // @all is the everyone-mention (tags every member) — always highlighted,
+  // like a real member (round 11)
   t = t.replace(/(^|[\s(&gt;])@([a-z][a-z0-9_]{1,31})/g, (m, pre, u) =>
-    (!taggable || taggable.has(u))
+    (!taggable || taggable.has(u) || u === "all")
       ? `${pre}<span class="mention">@${u}</span>` : `${pre}@${u}`);
   return t;
 }

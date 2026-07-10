@@ -676,6 +676,26 @@ def api_mesh_chat(params):
             "starred": m.starred_ids(chat_id, user)}
 
 
+def api_mesh_message_info(params):
+    """Message info dialog (round 11): read/delivered receipts for my own
+    messages, or sent-time + agent task history for someone else's. MeshError
+    (not a member / message not found) propagates to the GET error handler."""
+    m = get_mesh()
+    if m is None or not m.exists():
+        return {"error": "The mesh is not initialized yet"}
+    user = session_user(m)
+    if not user:
+        return {"error": "Sign in first"}
+    chat_id = params.get("id", "")
+    meta = m.get_chat(chat_id)
+    if not meta:
+        return {"error": "No such chat"}
+    denied = _not_member(meta, user)
+    if denied:
+        return denied
+    return m.message_info(chat_id, user, params.get("msg", ""))
+
+
 def api_mesh_post(data):
     m = get_mesh()
     user = session_user(m)
@@ -1243,6 +1263,7 @@ GET_ROUTES = {
     "/api/remote_guide": lambda params: api_remote_guide(),
     "/api/mesh/state": lambda params: api_mesh_state(),
     "/api/mesh/chat": api_mesh_chat,
+    "/api/mesh/message_info": api_mesh_message_info,
     "/api/mesh/livefeed": api_mesh_livefeed,
     "/api/mesh/chat_info": api_mesh_chat_info,
     "/api/mesh/starred": api_mesh_starred,

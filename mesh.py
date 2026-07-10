@@ -270,6 +270,22 @@ class Mesh:
             if patch["default_rule"] not in REPLY_RULES:
                 raise MeshError(f"Reply rule must be one of {REPLY_RULES}")
             settings["default_rule"] = patch["default_rule"]
+        # per-agent reply cap (GUI Settings → My agents). Stored on the mesh
+        # record so any of the agent's machines picks it up; the worker's
+        # rate_ok prefers this over its local worker_<agent>.json (round 11).
+        # None/"" clears it back to the worker/default cap.
+        if "max_replies_per_hour" in patch:
+            v = patch["max_replies_per_hour"]
+            if v in (None, ""):
+                settings.pop("max_replies_per_hour", None)
+            else:
+                try:
+                    v = int(v)
+                except (TypeError, ValueError):
+                    raise MeshError("Replies per hour must be a whole number")
+                if not (1 <= v <= 1000):
+                    raise MeshError("Replies per hour must be between 1 and 1000")
+                settings["max_replies_per_hour"] = v
         for chat_id, rule in (patch.get("rules") or {}).items():
             if rule not in REPLY_RULES:
                 raise MeshError(f"Reply rule must be one of {REPLY_RULES}")
@@ -1070,8 +1086,11 @@ class Mesh:
 
     def parse_tags(self, body):
         users = self.users()
+        # @all is the everyone-mention (tags every member): kept as a literal
+        # tag even though it is not a username. should_reply treats "all" in a
+        # message's tags as a mention of every agent member (round 11).
         return [t for t in dict.fromkeys(TAG_RE.findall(body or ""))
-                if t in users]
+                if t in users or t == "all"]
 
     def post(self, chat_id, sender, body, attachments=None, reply_to=None,
              forward_of=None):
@@ -1240,6 +1259,67 @@ class Mesh:
                 "read_by": read_by, "total": len(others),
             }
         return out
+
+    def message_info(self, chat_id, viewer, msg_id):
+        """Detail view for one message (Message info dialog, round 11).
+        For the viewer's OWN message: per-member read receipts derived from the
+        read cursors (same source as receipts_for) — read members carry the time
+        their cursor last advanced, the rest are 'pending' (delivered time isn't
+        tracked yet, so the UI renders Delivered as a wired stub). For someone
+        ELSE's message: the sent time, plus — when an agent wrote it — the list
+        of task steps it ran (worker-recorded sidecar); a human author has none.
+        """
+        meta = self.get_chat(chat_id)
+        if not meta:
+            raise MeshError("No such chat")
+        if viewer not in (meta.get("members") or []):
+            raise MeshError("You are not a member of this chat")
+        msg = next((m for m in self.messages_for(chat_id, viewer, tail=0)
+                    if m.get("id") == msg_id), None)
+        if not msg or msg.get("deleted"):
+            raise MeshError("Message not found")
+        kind = meta.get("kind")
+        mine = msg.get("from") == viewer
+        info = {"id": msg_id, "from": msg.get("from"), "ts": msg.get("ts"),
+                "body": msg.get("body") or "", "kind": msg.get("kind"),
+                "mine": mine, "dm": kind in ("dm", "self")}
+        if mine:
+            mns = msg.get("ns")
+            read, pending = [], []
+            for u in (meta.get("members") or []):
+                if u == viewer:
+                    continue
+                rns, rts = self.read_cursor(chat_id, u)
+                if rns is not None and mns is not None:
+                    seen = rns >= int(mns)          # skew-safe ns compare
+                else:
+                    seen = rts >= (msg.get("ts") or "")   # legacy fallback
+                (read if seen else pending).append(
+                    {"user": u, "ts": rts if seen else None})
+            info["read"], info["pending"] = read, pending
+        elif msg.get("kind") == "agent":
+            info["tasks"] = self.message_tasks(chat_id, msg_id)
+        return info
+
+    def message_tasks(self, chat_id, msg_id):
+        """The task/activity steps an agent ran to produce one reply, recorded
+        by its worker in a per-message sidecar. Empty for humans and for agent
+        replies posted before this landed."""
+        doc = self.cx.read_json(f"chats/{chat_id}/tasks/{msg_id}.json") or {}
+        return doc.get("tasks") or []
+
+    def record_tasks(self, chat_id, msg_id, tasks):
+        """Persist an agent's task steps for one reply (called by the worker
+        right after it posts). Best-effort, capped; ns/ts kept as given."""
+        clean = []
+        for t in (tasks or [])[:200]:
+            text = str((t or {}).get("text") or "").strip()[:200]
+            if text:
+                clean.append({"text": text,
+                              "ts": str((t or {}).get("ts") or "")[:32]})
+        if clean:
+            self.cx.write_json(f"chats/{chat_id}/tasks/{msg_id}.json",
+                               {"tasks": clean})
 
     # ------------------------------------------------------------- seed
 

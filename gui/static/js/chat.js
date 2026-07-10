@@ -1,7 +1,7 @@
 /* The chats page: auth gate, empty state, and the open-chat transcript
    with its header menu. The composer lives in composer.js. */
 
-import { $, esc, fmtSize, timeOnly, dayLabel, toast, clampLong,
+import { $, esc, fmtSize, timeOnly, fmtTime, dayLabel, toast, clampLong,
          paneCoversChat, closeMenus } from "./util.js";
 import { ICONS, BIRD, extIcon } from "./icons.js";
 import { isImg, fileUrl } from "./files.js";
@@ -641,6 +641,7 @@ function openMsgMenu(rect, msg, chatId, ctx) {
       !msg.mine && !ctx.isDm
         ? `<button data-act="message">${ICONS.msgUser} Message ${esc(meshDn(msg.from))}</button>` : "",
       `<button data-act="copy">${ICONS.copy} Copy</button>`,
+      `<button data-act="info">${ICONS.info} Message info</button>`,
       msg.mine ? `<button data-act="edit">${ICONS.pencil} Edit</button>` : "",
       `<button data-act="forward">${ICONS.forward} Forward</button>`,
       `<button data-act="pin">${ICONS.pin} ${isPinned ? "Unpin" : "Pin"}</button>`,
@@ -725,8 +726,68 @@ function openMsgMenu(rect, msg, chatId, ctx) {
       enterSelect(chatId, { mode: "delete", preselect: [msg.id] });
     } else if (act === "edit") {
       editDialog(chatId, msg);
+    } else if (act === "info") {
+      messageInfoDialog(chatId, msg);
     }
   });
+}
+
+// Message info (WhatsApp/Telegram). For my OWN messages: per-member read
+// receipts — a DM collapses to Read / Delivered rows, a group lists "Read by"
+// and "Delivered to". For OTHERS' messages: the sent time, plus (for an agent)
+// the list of tasks it ran to produce the reply. Delivered is a wired-but-empty
+// stub (needs the presence heartbeat); a human author shows no task history.
+async function messageInfoDialog(chatId, msg) {
+  const r = await api(`/api/mesh/message_info?id=${encodeURIComponent(chatId)}`
+                      + `&msg=${encodeURIComponent(msg.id || "")}`);
+  if (r.error) { toast(r.error, true); return; }
+  const memRow = (m) => `
+    <div class="mi-mem">
+      <span class="mem-avatar">${esc((meshDn(m.user)[0] || "?").toUpperCase())}</span>
+      <span class="mi-mem-name">${esc(meshDn(m.user))}</span>
+      <span class="mi-time">${m.ts ? esc(fmtTime(m.ts)) : "—"}</span>
+    </div>`;
+  let body = "";
+  if (r.mine) {
+    if (r.dm) {
+      const readT = r.read && r.read[0] && r.read[0].ts ? fmtTime(r.read[0].ts) : "—";
+      body = `
+        <div class="mi-row"><span class="mi-ic read">${ICONS.ticks}</span>
+          <span class="mi-label">Read</span><span class="mi-time">${esc(readT)}</span></div>
+        <div class="mi-row"><span class="mi-ic">${ICONS.ticks}</span>
+          <span class="mi-label">Delivered</span><span class="mi-time">—</span></div>`;
+    } else {
+      const read = r.read || [], pending = r.pending || [];
+      body = `
+        <div class="mi-sec read"><span class="mi-sec-ic">${ICONS.ticks}</span>Read by ${read.length}</div>
+        ${read.length ? read.map(memRow).join("")
+          : '<div class="mi-empty">No one has read this yet</div>'}
+        <div class="mi-sec"><span class="mi-sec-ic">${ICONS.ticks}</span>Delivered to</div>
+        ${pending.length ? pending.map(memRow).join("")
+          : '<div class="mi-empty">Everyone in this chat has read it</div>'}`;
+    }
+  } else {
+    body = `<div class="mi-row"><span class="mi-label">Sent</span>
+      <span class="mi-time">${esc(fmtTime(r.ts))}</span></div>`;
+    if (r.kind === "agent") {
+      const tasks = r.tasks || [];
+      body += `<div class="mi-sec"><span class="mi-sec-ic">${ICONS.bot}</span>Tasks run</div>`;
+      body += tasks.length
+        ? tasks.map((t) => `<div class="mi-task">
+            <span class="mi-task-text">${esc(t.text)}</span>
+            <span class="mi-time">${esc(timeOnly(t.ts))}</span></div>`).join("")
+        : '<div class="mi-empty">No task details recorded for this message.</div>';
+    }
+  }
+  const preview = stripMd(r.body || msg.body || "").replace(/\s+/g, " ").trim();
+  const box = openModal(`
+    <div class="cf-title">Message info</div>
+    ${preview ? `<div class="mi-preview"><div class="bubble">${esc(preview.slice(0, 400))}</div></div>` : ""}
+    <div class="mi-scroll">${body}</div>
+    <div class="cf-actions"><button class="cf-cancel" id="mi-close">Close</button></div>`);
+  box.classList.add("confirm");
+  box.parentElement.classList.add("confirm-scrim");
+  box.querySelector("#mi-close").addEventListener("click", closeModal);
 }
 
 // pinned banner (WhatsApp multi-pin): shows one pin at a time, segment

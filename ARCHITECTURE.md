@@ -217,7 +217,11 @@ mesh/
   with no literal `@name` in the body. Tagging parsing itself has no special
   mechanism at all — any user, human or agent, addresses someone by literally
   writing `@username` in their message body; `parse_tags()` just regex-matches
-  against known usernames.
+  against known usernames. **`@all`** (v0.24.19) is the one reserved
+  non-username tag — `parse_tags` keeps it, and `should_reply`'s `tagged` rule
+  fires for every agent when `"all"` is in a message's tags (the everyone-
+  mention). The composer offers it as "Everyone" at the top of the picker in any
+  group (2+ other members).
 - **Forwarded messages carry `fwd` and have `tags: []` unconditionally** —
   forwarding never re-triggers anyone, by design (WhatsApp semantics).
 - **`receipt` (v0.24.18) is server-added, not stored**: `api_mesh_messages`
@@ -247,6 +251,14 @@ once and returns, for each of the viewer's OWN messages, `{state, read_by,
 total}`. A group message is "read" only when EVERY other member has read it.
 There is **no new write path** — the cursors were already being written; receipts
 just read them back.
+
+`message_info(chat_id, viewer, msg_id)` (v0.24.19) backs the **Message info**
+dialog off the same cursors: for the viewer's OWN message it splits the other
+members into `read` (cursor past the message, carrying that member's `read_ts`)
+and `pending` (rendered under "Delivered to" with "—", since delivery isn't
+tracked until a presence heartbeat exists); for someone ELSE's message it
+returns the sent time and, when an agent wrote it, the task steps the worker
+recorded (below). Humans carry no task history.
 
 One file holds the read cursor and the private per-user overlays for that user
 in that chat — `mark_read()` always **merges**, never overwrites, because an
@@ -372,12 +384,14 @@ Full public surface, grouped as they appear in the file:
 | `pin_chat` / `delete_chat_for` / `mark_unread(chat_id, username)` | sidebar chat overlays (v0.24.16): pin-to-top, delete-chat = per-user hide (reappears on a newer message; undo via `deleted=false`), and force-unread; all private per-user, applied by `chats_for` |
 | `edit_message(chat_id, username, msg_id, new_body)` | author-only in-place edit; chat-level `edits.json` overlay, `messages_for` shows the latest + an `edited` marker (redaction still wins) |
 | `redact_messages(chat_id, username, ids)` | delete-for-everyone (sender-only, validates the whole batch, purges star/pin copies); irreversible |
-| `parse_tags(body)` | regex `@name` extraction, filtered to real usernames |
+| `parse_tags(body)` | regex `@name` extraction, filtered to real usernames + the reserved `@all` everyone-mention (v0.24.19) |
 | `post(chat_id, sender, body, attachments, reply_to, forward_of)` | the single message-creation path; enforces membership + not-archived, stages attachments into `files/` with collision-safe renaming, stamps `ns`/`id`/`tags` |
 | `forward_message(src_chat, msg_id, targets, by)` | copies body + re-ships attachments into each target via `post()`, `forward_of=` sets `fwd` attribution and blanks tags |
 | `mark_read`, `unread_count` | cursor read/write (merge semantics, §2); `mark_read` also stamps `read_ns` (v0.24.18) |
 | `read_cursor(chat_id, user)` → `(read_ns, read_ts)` | one member's read high-water mark (v0.24.18) |
 | `receipts_for(chat_id, viewer, msgs)` | read receipts for the viewer's OWN messages: `{id: {state, read_by, total}}` from the other members' cursors; empty for self-chats/non-members. `msgs` is reused from `messages_for` so it costs one cursor read per other member, no extra message read (v0.24.18) |
+| `message_info(chat_id, viewer, msg_id)` | Message info dialog data (v0.24.19): mine → `read`/`pending` member lists off the cursors; others → sent time + (agent) `tasks` |
+| `message_tasks` / `record_tasks(chat_id, msg_id, tasks)` | read/write the per-reply agent task log at `chats/<id>/tasks/<msg_id>.json` (v0.24.19); the worker calls `record_tasks` right after it posts |
 | `seed_defaults()` | first-run convenience: creates `aryan`/`claude`/`coco` if absent |
 
 Every mutating method that can be called by an untrusted/user-facing edge
@@ -398,6 +412,12 @@ speaks `stream-json`, on whatever machine hosts it. Config lives at
  "disallowed_tools": ["Bash", "..."], "max_replies_per_hour": 30,
  "timeout": 3300, "sql_read_only": true}   // sql_read_only: cortex-only, default true, v0.20.1+
 ```
+
+`max_replies_per_hour` here is a fallback: from v0.24.19 the owner can set it per
+agent in the GUI (Settings → My agents), which stores it on the agent's mesh
+record (`settings.max_replies_per_hour`); `rate_ok` reads the mesh value first
+(fresh each cycle, so no restart needed to change the number), then this config
+key, then the default of 30.
 
 **Command construction** (`Worker.build_cmd`): a per-CLI-family template in
 `CMD_TEMPLATES` is `.format()`-filled with `{prompt}`, `{reply_file}`,
@@ -426,9 +446,10 @@ writes auto-denied).
    yet (size mismatch against the recorded `bytes`) — a message can outrun its
    file body through the sync client.
 4. Determine the trigger message via `should_reply(rule, msg, agent, users)`
-   — `"all"` triggers on anything, `"tagged"` on an explicit `@tag` *or* a
-   `reply_to` pointing at this agent, `"humans"` only on human senders. An
-   agent never triggers on its own messages.
+   — `"all"` triggers on anything, `"tagged"` on an explicit `@tag` (including
+   the `@all` everyone-mention, v0.24.19) *or* a `reply_to` pointing at this
+   agent, `"humans"` only on human senders. An agent never triggers on its own
+   messages.
    - **Edit re-trigger (`_edit_trigger`, v0.24.11 — the Hybrid):** an in-place
      edit keeps the same `ns`, so the cursor never re-sees it. This step also
      fires ONE reply when a *human* edits an already-seen message INTO a
@@ -441,8 +462,9 @@ writes auto-denied).
 5. If no trigger, or the newest message in the chat is already this agent's
    own (loop-guard against agent-vs-agent ping-pong — new messages only), retire
    any lingering "running" status feed and stop.
-6. Rate cap (`max_replies_per_hour`, default 30) — a runaway-conversation
-   brake, checked per chat.
+6. Rate cap (`max_replies_per_hour`) — a runaway-conversation brake, checked
+   per chat. `rate_ok` prefers the owner's GUI-set value on the mesh record,
+   then the worker config, then the default of 30 (v0.24.19).
 7. Stage inbound attachments into `workdir/inbox_files/` (headless CLI agents
    can only read inside their workdir) and render `chat_context.md` — the
    agent's entire view of the conversation (last 30 messages, pins on top,
@@ -461,11 +483,16 @@ writes auto-denied).
 10. Post the reply as a **threaded reply to the trigger message**
     (`reply_to={id, from, body}`) — every agent answer therefore visibly
     quotes what it's responding to, and per §2 that quote itself counts as a
-    tag for `"tagged"`-rule agents reading it later.
+    tag for `"tagged"`-rule agents reading it later. Immediately after, the
+    run's accumulated task steps are persisted via `record_tasks` (v0.24.19),
+    keyed by the posted message id, for the Message info dialog — best-effort,
+    never breaks the send.
 
 **`FeedWriter` / `retire_feed`** (§2's `status/<agent>_run.json`): a run
 always starts by writing `state="running"`, and `finish()` writes `state="done"`
-(or `"error"`) immediately before the reply is posted. `retire_feed()`
+(or `"error"`) immediately before the reply is posted. It also accumulates a
+timestamped `tasks` log (one entry per summarized stream event) that
+`process_chat` hands to `record_tasks` after posting (v0.24.19). `retire_feed()`
 force-flips a lingering `"running"` feed to `"done"` — called at worker
 startup (a process that died mid-run leaves an orphaned feed showing "X is
 writing…" forever) and in a few early-return paths in `process_chat` and
@@ -816,9 +843,12 @@ worker re-triggering on a human's edit-into-mention — the Hybrid, §2/§4.2),
 group tooltip "Read by n/N"; derived from the per-member read cursors with no
 new write path, v0.24.18 — §2 receipt), the **sidebar chat menu** (hover
 chevron + right-click: pin/unpin, mark-unread, delete-as-hide, archive, clear,
-exit; v0.24.16), in-chat search, media/docs/links browser (month-grouped),
-mesh-wide stand-down switch, per-agent rate cap, config-driven `--sql-read-only`
-opt-out (§6.6).
+exit; v0.24.16), **Message info** (per-message read/delivered receipts for mine,
+sent-time + agent task history for others; v0.24.19 — §2), **`@all`** (the
+everyone-mention; v0.24.19), in-chat search, media/docs/links browser
+(month-grouped), mesh-wide stand-down switch, per-agent rate cap (owner-settable
+in Settings → My agents, v0.24.19), config-driven `--sql-read-only` opt-out
+(§6.6).
 
 **In flight / stubbed** (present in their menus, backend-ready or partially
 so, but not wired to a finished flow):
@@ -826,6 +856,8 @@ so, but not wired to a finished flow):
   read receipts ship as Sent + Read only. Delivered needs a per-user presence
   heartbeat, which is bundled with the online/last-seen parity feature; the
   signal is also fuzzy over OneDrive (a client can poll before its folder syncs).
+  In the Message info dialog it's wired but empty: not-yet-read members list
+  under "Delivered to" with a "—" time until presence lands.
 - **Mute notifications** is a stub (the row menu shows an "arriving" toast).
 
   (**Message delete**, **clear chat**, **edit**, and **read receipts** — once

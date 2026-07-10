@@ -6,7 +6,7 @@ conventions that aren't obvious from the code alone.
 
 ## Current state
 
-- **Version:** `gui/__init__.py` `__version__` is the source of truth (v0.24.18
+- **Version:** `gui/__init__.py` `__version__` is the source of truth (v0.24.19
   at handoff), bumped once per shipped round.
 - **Everything is committed and pushed.** A clone is a complete copy of the
   source.
@@ -36,14 +36,32 @@ conventions that aren't obvious from the code alone.
   pin-to-top), mark-unread, delete-as-hide, archive, clear, exit-group (v0.24.16);
   **read receipts** — WhatsApp/Telegram Sent/Read ticks (single grey = sent,
   double accent = read, group tooltip "Read by n/N"), derived from the per-member
-  read cursors with no new write path (v0.24.18, §2 of ARCHITECTURE.md).
+  read cursors with no new write path (v0.24.18, §2 of ARCHITECTURE.md); a
+  **Message info** dialog on every non-deleted message — mine shows per-member
+  Read/Delivered (DM = two rows, group = "Read by" + "Delivered to" lists),
+  others' shows the sent time plus, for an agent, the task steps it ran to
+  produce the reply (v0.24.19); **@all** — the everyone-mention that tags every
+  member (leads the composer picker in a group; triggers every agent under the
+  "tagged" rule); the **per-agent reply cap** is now user-settable in Settings →
+  My agents (v0.24.19).
 - **In flight / still stubbed:** **Delivered** (the grey double-tick middle
   state) is deliberately *not* built — read receipts ship as Sent + Read only;
   Delivered needs a per-user presence heartbeat and rides with the online/
-  last-seen parity feature. **Mute notifications** in the row menu is a stub (an
-  "arriving" toast). `edit-marks-unread` (bumping *other* users' unread count on
-  an edit) stays DEFERRED to the worker/context overhaul — it needs a cross-user
-  write; note that editing does NOT reset the read ticks (WhatsApp/Telegram).
+  last-seen parity feature. In the new Message info dialog it's a wired-but-empty
+  stub: pending members list under "Delivered to" with "—" until presence lands.
+  **Mute notifications** in the row menu is a stub (an "arriving" toast).
+  `edit-marks-unread` (bumping *other* users' unread count on an edit) stays
+  DEFERRED to the worker/context overhaul — it needs a cross-user write; note
+  that editing does NOT reset the read ticks (WhatsApp/Telegram).
+- **v0.24.19 needs the DUAL RESTART to fully land.** It touched `server.py`,
+  `mesh.py` AND `agent_worker.py`, so restart the app *and* every agent worker.
+  The GUI-only bits (Message info dialog, name/description-edit spinner, muted
+  sidebar hover, one-line chat name, @all in the composer/highlight, the rate
+  field in Settings) work on an app restart alone. The worker restart is what
+  makes @all actually *trigger* agents, makes a new rate cap take effect, and
+  makes agents record their **task steps** — so Message info on agent replies
+  posted *before* the restart shows "No task details recorded" (expected); new
+  replies populate the list.
 
 ## What lives outside this repo
 
@@ -115,17 +133,54 @@ any code:
 
 ## Next work queue
 
-1. **Two big overhauls are scoped and ready — the user picks the order** (the
-   memory backlog is ambiguous between them, so don't assume): a **permissions +
-   flags overhaul** (who may pin, per-agent CLI/tool scoping — esp. sql-read-only
-   vs a sandbox-DDL role) and the **agent-worker / context-management overhaul**
-   (memory `agentbridge-worker-context`: a human-like unread QUEUE for graceful
+**Order decided 2026-07-08 (user's call):** **settings overhaul next, then the
+setup/account overhaul.** The permissions + flags work folds into the settings
+overhaul (it's a settings surface: who may pin, per-agent CLI/tool scoping —
+esp. sql-read-only vs a sandbox-DDL role — **plus the new messaging-permission
+model below**). The agent-worker/context-management overhaul is deferred to
+after setup/account.
+
+1. **Settings overhaul** (incorporates permissions + flags) — NEXT:
+   - Who may pin; per-agent CLI/tool scoping (sql-read-only vs sandbox-DDL).
+   - **New messaging-permission model (added 2026-07-08):** per-agent toggles
+     for whether that agent is allowed to message **(a) a human** and **(b) an
+     agent**, set by the agent's owner. Symmetric on the human side: a human
+     can choose whether to accept messages from **agents only, humans only, or
+     both**. The agent must have visibility into the recipient's current
+     permission setting (so it can decide not to message someone who's opted
+     out, rather than being silently blocked after the fact). This gates the
+     new "agents creating chats" capability below — an agent should only be
+     able to open a chat with a target that currently allows it.
+   - **Agent-initiated chat creation (new backlog item, added 2026-07-08):**
+     today only humans can call `create_chat`/`create_dm` — `gui/server.py`'s
+     `api_mesh_create_chat`/`api_mesh_create_dm` require a human GUI session
+     (`session_user`), and `agent_worker.py` never calls either function (only
+     read/reply: `messages_for`, `post`, `mark_read`, `reply_rule`,
+     `chats_for`). Scope: let an agent proactively open a brand-new chat
+     (DM or group) instead of only replying into existing ones, gated by the
+     messaging-permission model above. **Verified 2026-07-08 (code read, no
+     change needed):** `mesh._missing_owners` (mesh.py:314) already pulls in
+     the right owners automatically no matter who initiates or what subset of
+     members was specified — human→agent pulls in that agent's one owner;
+     agent→agent pulls in **both** agents' owners (it loops every member and
+     independently checks each agent's owner set against who's already
+     present, so a two-agent pair with different owners ends up with both
+     owners added, e.g. `create_dm`'s `extra` list gets both and both get an
+     "joined as X's responsible member" event, mesh.py:401-406). This existing
+     mechanism should be reused as-is when agent-initiated creation ships —
+     no owner-pull-in logic needs to be rebuilt for it.
+2. Then the **setup/account overhaul** (machine-based agent ownership; also
+   fully retire `legacy/bridge.py` — still load-bearing as the config/util
+   layer — and the app-packaging pass: quit-on-window-close + the worker PID
+   singleton).
+3. **Agent-worker / context-management overhaul** (memory
+   `agentbridge-worker-context`): a human-like unread QUEUE for graceful
    catch-up after downtime, PARALLEL requests from multiple humans, the agent
    choosing reply-vs-tag, uniform capability exposure — pins/stars/replies to
    agents, and the two known worker bugs: duplicate-reply [no per-message
    answered-guard, only ns-cursor + rate-limit] and the need for a worker PID
-   singleton). `edit-marks-unread` (cross-user unread bump) folds into the worker
-   one. (**Read receipts** shipped v0.24.18 — Sent/Read ticks off the per-member
+   singleton. `edit-marks-unread` (cross-user unread bump) folds into this one.
+   (**Read receipts** shipped v0.24.18 — Sent/Read ticks off the per-member
    cursors; Delivered deferred to a presence heartbeat. **Round 9** shipped: 9A
    layout v0.24.13 [dynamic preview + clamped transcript-priority panes]; 9B
    v0.24.16 [sidebar chat menu — three per-user overlays `pinned`/`deleted`/
@@ -133,14 +188,17 @@ any code:
    v0.24.17. **8D graceful stand-down** v0.24.12 [`atomic_write_json` retries on
    `PermissionError`, graceful pause error, spinner toast]. The single-instance
    "forking" fix — `serve()` hands off proactively — v0.24.15.)
-2. Then, in order: a **settings overhaul**, then the **setup/account overhaul**
-   (machine-based agent ownership; also fully retire `legacy/bridge.py` — still
-   load-bearing as the config/util layer — and the app-packaging pass:
-   quit-on-window-close + the worker PID singleton).
-3. **WhatsApp-parity gap features** (after the overhauls above): block a user,
+4. **WhatsApp-parity gap features** (after the overhauls above): block a user,
    emoji reactions, history-on-join policy, multi-admin roles, group invite
    links, profile photo.
-4. **True privacy**: deliberate encryption vs. per-user backends, then
+5. **Agent swarms / clones** (user requested 2026-07-08): ability to create
+   multiple independent instances of the same agent, each with its own model
+   choice (e.g. claude-opus for expensive tasks, claude-haiku for quick
+   replies, running in parallel). Scope: ownership model, worker routing,
+   context separation per instance, load balancing. Related to account model
+   work but probably a distinct feature round after agent-worker/context
+   overhaul lands.
+6. **True privacy**: deliberate encryption vs. per-user backends, then
    implement so no one — human or agent — can read a chat they're not in, even
    on disk (today's membership-based visibility, v0.24.0, is app-level only).
 

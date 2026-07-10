@@ -86,9 +86,15 @@ async function renderSettings() {
               ${Object.entries(RULE_LABELS).map(([r, label]) =>
                 `<option value="${r}" ${(st.default_rule || "tagged") === r ? "selected" : ""}>${label}</option>`).join("")}
             </select></dd>
+            <dt>Replies per hour</dt><dd><input type="number" min="1" max="1000" step="1"
+              class="ag-rate" data-agent="${esc(a.username)}"
+              value="${st.max_replies_per_hour != null ? esc(st.max_replies_per_hour) : ""}"
+              placeholder="30 (default)"></dd>
             <dt>Owners</dt><dd>${(a.owners || []).map((o) => esc("@" + o)).join(", ")}</dd>
           </dl>
-          <p class="hint">Per-chat rules live in each chat's info page.</p>
+          <p class="hint">Per-chat rules live in each chat's info page. Replies
+          per hour caps how often this agent answers in a single chat (leave
+          blank for the default 30).</p>
           <div class="row"><button class="primary ag-save" data-agent="${esc(a.username)}">Save</button></div>
         </div>`;
       }).join("") || ""}
@@ -170,10 +176,15 @@ async function renderSettings() {
   document.querySelectorAll(".ag-save").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const agent = btn.dataset.agent;
+      const rateRaw = document.querySelector(`.ag-rate[data-agent="${agent}"]`).value.trim();
+      const rateN = parseInt(rateRaw, 10);
       const patch = {
         model: document.querySelector(`.ag-model[data-agent="${agent}"]`).value.trim() || null,
         reasoning: document.querySelector(`.ag-reason[data-agent="${agent}"]`).value.trim() || null,
         default_rule: document.querySelector(`.ag-default[data-agent="${agent}"]`).value,
+        // blank clears back to the default; otherwise clamp to a sane band
+        max_replies_per_hour: rateRaw === "" || isNaN(rateN)
+          ? null : Math.max(1, Math.min(1000, rateN)),
       };
       const r = await api("/api/mesh/agent", { username: agent, patch });
       if (r.error) toast(r.error, true);

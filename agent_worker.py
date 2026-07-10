@@ -229,6 +229,9 @@ class FeedWriter:
         self.activity = "Starting up…"
         self.draft = ""
         self.recent = []
+        # full timestamped task log for THIS run — persisted per reply so the
+        # Message info dialog can show what the agent did (round 11)
+        self.tasks = []
         self.started = self._now()
         self._last_write = 0.0
         try:
@@ -254,6 +257,7 @@ class FeedWriter:
             if line:
                 self.activity = line
                 self.recent = (self.recent + [line])[-8:]
+                self.tasks.append({"text": line, "ts": self._now()})
             self.write(state="running")
         except Exception:
             pass
@@ -394,8 +398,10 @@ def should_reply(rule, msg, agent, users):
         return True
     if rule == "tagged":
         # replying to one of this agent's messages counts as tagging it —
-        # replies are the tag, no explicit @name needed (2026-07-05)
-        return (agent in (msg.get("tags") or [])
+        # replies are the tag, no explicit @name needed (2026-07-05). @all
+        # (the everyone-mention) tags every member, agents included (round 11).
+        tags = msg.get("tags") or []
+        return (agent in tags or "all" in tags
                 or (msg.get("reply_to") or {}).get("from") == agent)
     if rule == "humans":
         return (users.get(msg.get("from"), {}).get("kind")) == "human"
@@ -484,7 +490,17 @@ class Worker:
         atomic_write_json(self.state_path, self.state)
 
     def rate_ok(self, chat_id):
-        cap = int(self.cfg.get("max_replies_per_hour", 30))
+        # the GUI-set per-agent cap (mesh record, Settings → My agents) wins
+        # over the local worker config, which falls back to 30 (round 11).
+        # Read fresh each call so a settings change applies without a restart.
+        settings = (self.mesh.get_user(self.agent) or {}).get("settings") or {}
+        cap = settings.get("max_replies_per_hour")
+        if cap is None:
+            cap = self.cfg.get("max_replies_per_hour", 30)
+        try:
+            cap = int(cap)
+        except (TypeError, ValueError):
+            cap = 30
         now = time.time()
         recent = [t for t in self.state["replies"].get(chat_id, [])
                   if now - t < 3600]
@@ -742,11 +758,17 @@ class Worker:
             feed.finish("done", "Reply posted")
         outfiles = [p for p in self.outbox.iterdir() if p.is_file()] \
             if self.outbox.is_dir() else []
-        self.mesh.post(chat_id, self.agent, reply,
+        posted = self.mesh.post(chat_id, self.agent, reply,
                        attachments=[str(p) for p in outfiles],
                        reply_to={"id": trigger_msg.get("id"),
                                  "from": trigger_msg.get("from"),
                                  "body": trigger_msg.get("body") or ""})
+        # record the task steps behind this reply for the Message info dialog
+        # (round 11) — best-effort, must never break the send
+        try:
+            self.mesh.record_tasks(chat_id, posted.get("id"), feed.tasks)
+        except Exception as e:
+            say(f"[worker] {chat_id}: task log skipped ({type(e).__name__})")
         sent = self.outbox / "sent"
         sent.mkdir(exist_ok=True)
         for p in outfiles:

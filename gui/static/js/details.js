@@ -30,8 +30,10 @@ async function renderChatDetails() {
   const ms = Mesh.state;
   const chatId = Mesh.chatId;
   // an open inline edit (name/description) survives polls — it only closes
-  // when saved or when the pane goes away
-  if (document.querySelector("#ci-name-input, #ci-desc-input")) return;
+  // when saved or when the pane goes away. `.ci-saving` is the brief
+  // committing state (spinner in place of the ✓): hold the pane there too so a
+  // poll doesn't flash the pre-write name back in (round 11).
+  if (document.querySelector("#ci-name-input, #ci-desc-input, .ci-saving")) return;
   // chat_info is the LIGHT payload (meta + files + links) — the pane used
   // to pull 1000 full messages on every open and poll
   const data = await api(`/api/mesh/chat_info?id=${encodeURIComponent(chatId)}`);
@@ -218,15 +220,26 @@ async function renderChatDetails() {
     inp.setSelectionRange(inp.value.length, inp.value.length);
     const save = async () => {
       const name = inp.value.trim();
-      // the open input blocks pane re-renders — remove it BEFORE
-      // redrawing, or the ✓ leaves the edit stuck open forever
-      inp.remove();
-      if (name && name !== meta.name.trim()) {   // unchanged = no-op
-        const r = await api("/api/mesh/rename", { chat_id: chatId, name });
-        if (r.error) { toast(r.error, true); }
-        Mesh.structKey = "";
+      if (!name || name === meta.name.trim()) {   // unchanged / empty: just close
+        inp.remove();
+        Mesh.detailsKey = "";
+        V.renderChats(true);
+        return;
       }
+      // keep the NEW name in place and swap the ✓ for a spinner while the
+      // write commits (the shared folder can lag) — the row never flickers to
+      // empty, and the `.ci-saving` guard freezes polls until we redraw.
+      $("#ci-name-row").innerHTML = `
+        <span class="ci-name">${esc(name)}</span>
+        <span class="ci-ok ci-saving" style="width:34px;height:34px;display:grid;place-items:center">
+          <span class="spin-sm"></span></span>`;
+      const r = await api("/api/mesh/rename", { chat_id: chatId, name });
+      if (r.error) toast(r.error, true);
+      Mesh.structKey = "";
       Mesh.detailsKey = "";
+      // drop the committing marker BEFORE re-rendering, or the `.ci-saving`
+      // guard keeps bailing and the spinner sticks in the pane forever
+      document.querySelector("#ci-name-row .ci-saving")?.remove();
       V.renderChats(true);
     };
     $("#ci-name-save").addEventListener("click", save);
@@ -245,13 +258,26 @@ async function renderChatDetails() {
     inp.setSelectionRange(inp.value.length, inp.value.length);
     const save = async () => {
       const description = inp.value.trim();
-      inp.remove();   // see rename: unblock the pane before redrawing
-      if (description !== (meta.description || "").trim()) {
-        const r = await api("/api/mesh/set_description",
-          { chat_id: chatId, description });
-        if (r.error) toast(r.error, true);
+      if (description === (meta.description || "").trim()) {   // unchanged: close
+        inp.remove();
+        Mesh.detailsKey = "";
+        renderChatDetails();
+        return;
       }
+      // keep the new text in place + spinner while the write commits (round 11)
+      $("#ci-desc-wrap").innerHTML = `
+        <div class="ci-desc-row">
+          <div class="ci-desc-text">${description ? esc(description)
+            : '<span class="ci-desc-add">Add group description</span>'}</div>
+          <span class="ci-ok ci-saving" style="width:34px;height:34px;display:grid;place-items:center">
+            <span class="spin-sm"></span></span>
+        </div>`;
+      const r = await api("/api/mesh/set_description",
+        { chat_id: chatId, description });
+      if (r.error) toast(r.error, true);
       Mesh.detailsKey = "";
+      // see rename: clear the committing marker so the guard lets us repaint
+      document.querySelector("#ci-desc-wrap .ci-saving")?.remove();
       renderChatDetails();
     };
     $("#ci-desc-save").addEventListener("click", save);

@@ -73,7 +73,7 @@ export function initComposer(chatId, members) {
   const updateHl = () => {
     let t = esc(body.value);
     t = t.replace(/(^|[\s(])@([a-z][a-z0-9_]{1,31})/gi, (m, pre, u) =>
-      members && members.has(u.toLowerCase())
+      members && (members.has(u.toLowerCase()) || u.toLowerCase() === "all")
         ? `${pre}<span class="hl-tag">@${u}</span>` : m);
     hl.innerHTML = t + "&#8203;";  // phantom char mirrors the textarea's trailing line
     hl.scrollTop = body.scrollTop;
@@ -131,9 +131,11 @@ export function initComposer(chatId, members) {
     }
   });
 
-  // @tag autofill: chat members, keyboard + mouse
-  const taggable = [...members].filter((u) => u !== ms.user)
-    .map((u) => ({ u, d: meshDn(u) }));
+  // @tag autofill: chat members, keyboard + mouse. @all (Everyone) leads the
+  // list in a group (2+ others) — it tags every member at once (round 11).
+  const others = [...members].filter((u) => u !== ms.user);
+  const taggable = others.map((u) => ({ u, d: meshDn(u) }));
+  if (others.length >= 2) taggable.unshift({ u: "all", d: "Everyone" });
   const pop = $("#tag-pop");
   let tagCtx = null;
   const closePop = () => { tagCtx = null; pop.hidden = true; };
