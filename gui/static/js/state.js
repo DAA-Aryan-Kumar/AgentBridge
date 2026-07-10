@@ -2,7 +2,7 @@
    reads and writes these objects, never module-local globals, so a render
    can move between modules without orphaning state. */
 
-import { $, dn, avatarInner } from "./util.js";
+import { $, dn, avatarInner, avatarUrl } from "./util.js";
 
 export const App = {
   state: null,          // last /api/state payload
@@ -58,11 +58,18 @@ export function meshDn(username) {
 export function meshAvatar(username) {
   return Mesh.state?.users?.[username]?.avatar || null;
 }
-// inner markup for a USER avatar container (photo when set, else the initial).
-// Used everywhere a person's avatar appears; groups keep initials until the
-// group-image round.
+// inner markup for a USER avatar container (photo when set, else the initial)
 export function meshAvatarInner(username) {
-  return avatarInner(meshDn(username), username, meshAvatar(username));
+  const a = meshAvatar(username);
+  return avatarInner(meshDn(username), a ? avatarUrl(username, a) : null);
+}
+// inner markup for a CHAT avatar: a DM/self shows the other member's photo; a
+// group shows its own group photo (else the name initial). One helper for the
+// sidebar row, the chat header and the chat-info pane.
+export function meshChatAvatarInner(chat) {
+  if (!chat) return "#";
+  if (isDmLike(chat)) return meshAvatarInner(dmOther(chat, Mesh.state?.user));
+  return avatarInner(chat.name, chat.avatar ? avatarUrl(chat.id, chat.avatar, "chat") : null);
 }
 
 // DMs display as the OTHER member, groups as their name

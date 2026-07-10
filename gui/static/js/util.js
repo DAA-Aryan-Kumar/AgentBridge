@@ -23,17 +23,15 @@ export function dn(role) {
 // stays as the container's centered text and the <img> overlays it; on load
 // error (e.g. another machine has the record but not yet the synced jpg) the
 // image removes itself and the initial shows through.
-export function avatarUrl(username, avatar) {
+export function avatarUrl(id, avatar, param = "user") {
   const v = avatar && avatar.sha256 ? avatar.sha256.slice(0, 16) : "";
-  return `/api/mesh/avatar?user=${encodeURIComponent(username)}&v=${v}`;
+  return `/api/mesh/avatar?${param}=${encodeURIComponent(id)}&v=${v}`;
 }
-export function avatarInner(name, username, avatar) {
+export function avatarInner(name, imgUrl) {
   const initial = esc((String(name || "").trim()[0] || "?").toUpperCase());
-  if (avatar && username) {
-    return initial + `<img class="avatar-img" alt="" src="${
-      esc(avatarUrl(username, avatar))}" onerror="this.remove()">`;
-  }
-  return initial;
+  return imgUrl
+    ? initial + `<img class="avatar-img" alt="" src="${esc(imgUrl)}" onerror="this.remove()">`
+    : initial;
 }
 
 export function fmtTime(tsUtc) {

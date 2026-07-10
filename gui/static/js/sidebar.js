@@ -4,7 +4,7 @@
 import { $, esc, fmtTime, toast } from "./util.js";
 import { ICONS } from "./icons.js";
 import { api } from "./api.js";
-import { App, Mesh, Settings, meshDn, chatDisplay, meshAvatarInner, isDmLike, dmOther } from "./state.js";
+import { App, Mesh, Settings, meshDn, chatDisplay, meshAvatarInner, meshChatAvatarInner } from "./state.js";
 import { pickerRow, pickerSection } from "./picker.js";
 import { V } from "./views.js";
 
@@ -221,11 +221,9 @@ function renderChatListSidebar() {
       + (hasCount ? `<span class="unread-badge">${c.unread}</span>`
         : dot ? `<span class="unread-badge dot"></span>` : "");
   };
-  // DM/self rows show the other member's profile photo; group rows keep the
-  // initial until the group-image round.
-  const chatAvaInner = (c) => isDmLike(c)
-    ? meshAvatarInner(dmOther(c, ms.user))
-    : esc((chatDisplay(c, ms.user)[0] || "#").toUpperCase());
+  // DM/self rows show the other member's photo; group rows show the group
+  // photo (else the name initial) — one shared helper.
+  const chatAvaInner = (c) => meshChatAvatarInner(c);
   const rowSig = (c) => JSON.stringify([c.id === Mesh.chatId, !!c.archived,
     nameHtml(c), lastHtml(c), timeText(c), tagsHtml(c), chatAvaInner(c)]);
 

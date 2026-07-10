@@ -595,6 +595,7 @@ def api_mesh_state():
             chats.append({
                 "id": meta["id"], "name": meta["name"],
                 "kind": meta.get("kind", "group"),   # DMs display per-viewer
+                "avatar": meta.get("avatar"),        # group-photo marker (§round C)
                 "owner": meta.get("owner"), "members": meta.get("members"),
                 "archived": bool(meta.get("archived")),
                 "created_by": meta.get("created_by"),
@@ -1260,6 +1261,16 @@ def api_mesh_clear_avatar(data):
     return {"ok": True}
 
 
+def api_mesh_clear_group_avatar(data):
+    """Remove a group's photo (owner-only, enforced in mesh)."""
+    m = get_mesh()
+    user = session_user(m)
+    if not user:
+        return {"error": "Sign in first"}
+    m.clear_group_avatar(data.get("chat_id") or "", user)
+    return {"ok": True}
+
+
 def api_shutdown():
     """Let a newer launch replace a running instance (single-instance UX:
     without this, a relaunch silently lands on a random port while the stale
@@ -1331,6 +1342,7 @@ POST_ROUTES = {
     "/api/mesh/hide_chat": api_mesh_hide_chat,
     "/api/mesh/mark_unread": api_mesh_mark_unread,
     "/api/mesh/clear_avatar": api_mesh_clear_avatar,
+    "/api/mesh/clear_group_avatar": api_mesh_clear_group_avatar,
 }
 
 
@@ -1375,6 +1387,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._upload()
         if self.path.startswith("/api/mesh/set_avatar"):
             return self._set_avatar()
+        if self.path.startswith("/api/mesh/set_group_avatar"):
+            return self._set_group_avatar()
         route = POST_ROUTES.get(self.path)
         if not route:
             return self._json({"error": "not found"}, 404)
@@ -1420,19 +1434,25 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _avatar(self, params):
-        """Serve a member's profile photo inline (avatars/<user>.jpg).
-        Session-gated but NOT chat-scoped — a profile photo is contact-wide,
-        like a display name (you already see every member in new-chat). The
-        ?v=<sha> cache-buster lets us cache hard and refetch only on change."""
+        """Serve a member's profile photo (?user=) or a group's photo (?chat=)
+        inline. Session-gated but NOT membership-scoped — an avatar is
+        contact-/roster-wide, like a display name; the ?v=<sha> cache-buster
+        lets us cache hard and refetch only on change."""
         m = get_mesh()
         if m is None or not m.exists() or not session_user(m):
             return self._json({"error": "Sign in first"}, 403)
-        user = params.get("user", "")
-        if not meshlib.USERNAME_RE.match(user):   # closes path traversal
-            return self._json({"error": "Bad user"}, 400)
-        rec = m.get_user(user)
-        av = (rec or {}).get("avatar")
-        target = m._avatar_path(user) if av else None
+        chat = params.get("chat", "")
+        if chat:
+            if not re.match(r"^[a-z0-9][a-z0-9-]{1,63}$", chat):   # no traversal
+                return self._json({"error": "Bad chat"}, 400)
+            av = (m.get_chat(chat) or {}).get("avatar")
+            target = m._group_avatar_path(chat) if av else None
+        else:
+            user = params.get("user", "")
+            if not meshlib.USERNAME_RE.match(user):   # closes path traversal
+                return self._json({"error": "Bad user"}, 400)
+            av = (m.get_user(user) or {}).get("avatar")
+            target = m._avatar_path(user) if av else None
         if not target or not target.is_file():
             return self._json({"error": "No avatar"}, 404)
         etag = '"' + (av.get("sha256") or "")[:32] + '"'
@@ -1522,6 +1542,41 @@ class Handler(BaseHTTPRequestHandler):
             remaining -= len(chunk)
         try:
             marker = m.set_avatar(user, bytes(body))
+        except meshlib.MeshError as e:
+            return self._json({"error": str(e)}, 400)
+        return self._json({"ok": True, "avatar": marker})
+
+    def _set_group_avatar(self):
+        """Store a group's photo (owner-only). Raw JPEG body, same transport as
+        _set_avatar; the chat id rides the query (?chat=…)."""
+        m = get_mesh()
+        user = session_user(m) if m else None
+        if not user:
+            return self._json({"error": "Sign in first"}, 403)
+        chat = ""
+        _, _, query = self.path.partition("?")
+        for pair in query.split("&"):
+            k, _, v = pair.partition("=")
+            if k == "chat":
+                chat = unquote(v)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = 0
+        if length <= 0:
+            return self._json({"error": "Empty upload"}, 400)
+        if length > self.MAX_AVATAR:
+            return self._json({"error": "Image is too large"}, 400)
+        body = bytearray()
+        remaining = length
+        while remaining:
+            chunk = self.rfile.read(min(65536, remaining))
+            if not chunk:
+                break
+            body += chunk
+            remaining -= len(chunk)
+        try:
+            marker = m.set_group_avatar(chat, user, bytes(body))
         except meshlib.MeshError as e:
             return self._json({"error": str(e)}, 400)
         return self._json({"ok": True, "avatar": marker})

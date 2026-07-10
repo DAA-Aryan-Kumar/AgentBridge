@@ -242,14 +242,14 @@ async function renderSettings() {
     });
     menu.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
       menu.hidden = true;
-      if (b.dataset.act === "camera") openCamera();
+      if (b.dataset.act === "camera") openCamera(uploadAvatar);
       else if (b.dataset.act === "upload") file.click();
       else if (b.dataset.act === "remove") removeAvatar();
     }));
     file.addEventListener("change", () => {
       const f = file.files && file.files[0];
       file.value = "";   // allow re-picking the same file
-      if (f) openAvatarAdjust(f);
+      if (f) openAvatarAdjust(f, uploadAvatar);
     });
   }
 }
@@ -257,10 +257,10 @@ V.renderSettings = renderSettings;
 
 // ---- profile photo: upload → adjust (crop/zoom in a circle) → downsize -------
 
-function openAvatarAdjust(file) {
+function openAvatarAdjust(file, onBlob) {
   const url = URL.createObjectURL(file);
   const img = new Image();
-  img.onload = () => { URL.revokeObjectURL(url); mountAvatarAdjuster(img); };
+  img.onload = () => { URL.revokeObjectURL(url); mountAvatarAdjuster(img, onBlob); };
   img.onerror = () => { URL.revokeObjectURL(url); toast("Couldn't read that image", true); };
   img.src = url;
 }
@@ -268,7 +268,7 @@ function openAvatarAdjust(file) {
 // ---- profile photo: take a photo with the device camera (Round B) -----------
 // getUserMedia needs a secure context — fine on 127.0.0.1; a LAN-over-http phone
 // won't get camera access until the app serves HTTPS (a later feature).
-async function openCamera() {
+async function openCamera(onBlob) {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     toast("The camera isn't available here", true);
     return;
@@ -292,14 +292,14 @@ async function openCamera() {
       true);
     return;
   }
-  mountCamera(stream);
+  mountCamera(stream, onBlob);
 }
 
 // Live viewfinder in the same illuminated-circle stage; the shutter grabs the
 // current frame (mirrored, to match the selfie preview) and hands it to the
 // SAME crop/zoom adjuster the upload path uses. The camera stream is stopped on
 // every close path so the webcam light never lingers.
-function mountCamera(stream) {
+function mountCamera(stream, onBlob) {
   const box = openModal(`
     <div class="ava-adjust cam-shoot">
       <div class="ava-adjust-head">
@@ -334,7 +334,7 @@ function mountCamera(stream) {
     cctx.drawImage(video, 0, 0, vw, vh);
     stop(); obs.disconnect();
     closeModal();
-    mountAvatarAdjuster(cap);   // a canvas is a valid source for the adjuster
+    mountAvatarAdjuster(cap, onBlob);   // a canvas is a valid source
   });
 }
 
@@ -343,7 +343,7 @@ function mountCamera(stream) {
 // is clamped so the circle is always fully covered; on confirm the circle's
 // bounding square is drawn into a 512×512 export canvas and exported as JPEG —
 // downsized entirely client-side (the backend keeps no image library).
-function mountAvatarAdjuster(img) {
+function mountAvatarAdjuster(img, onBlob) {
   const S = 300, D = 260, c = S / 2, cropL = c - D / 2, cropT = c - D / 2;
   const box = openModal(`
     <div class="ava-adjust">
@@ -413,9 +413,24 @@ function mountAvatarAdjuster(img) {
     out.width = out.height = 512;
     const sx = (cropL - ox) / scale, sy = (cropT - oy) / scale, sz = D / scale;
     out.getContext("2d").drawImage(img, sx, sy, sz, sz, 0, 0, 512, 512);
-    out.toBlob((blob) => uploadAvatar(blob), "image/jpeg", 0.85);
+    out.toBlob((blob) => onBlob(blob), "image/jpeg", 0.85);
   });
 }
+
+// Reusable capture flows for other views (group photo lives in details.js).
+// Each hands the finished 512px JPEG blob to onBlob; the crop/zoom adjuster
+// and camera viewfinder are shared, so they behave identically everywhere.
+V.photoPickFile = (onBlob) => {
+  const inp = document.createElement("input");
+  inp.type = "file";
+  inp.accept = "image/*";
+  inp.addEventListener("change", () => {
+    const f = inp.files && inp.files[0];
+    if (f) openAvatarAdjust(f, onBlob);
+  });
+  inp.click();
+};
+V.photoCamera = (onBlob) => openCamera(onBlob);
 
 async function uploadAvatar(blob) {
   if (!blob) { toast("Couldn't process that image", true); return; }

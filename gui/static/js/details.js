@@ -7,7 +7,7 @@ import { api, bindOpenFile } from "./api.js";
 import { md } from "./markdown.js";
 import { mountCsels } from "./csel.js";
 import { confirmModal } from "./modal.js";
-import { App, Mesh, RULE_LABELS, meshDn, dmOther, chatDisplay, isDmLike, meshAvatarInner } from "./state.js";
+import { App, Mesh, RULE_LABELS, meshDn, dmOther, chatDisplay, isDmLike, meshAvatarInner, meshChatAvatarInner } from "./state.js";
 import { mediaThumb } from "./files.js";
 import { V } from "./views.js";
 
@@ -94,7 +94,15 @@ async function renderChatDetails() {
       <span class="pane-title">${isDm ? "Chat info" : "Group info"}</span>
     </div>
     <div class="ci-identity">
-      <div class="ci-avatar">${isDm ? meshAvatarInner(dmOther(meta, ms.user)) : esc((title[0] || "#").toUpperCase())}</div>
+      <div class="ci-avatar-wrap">
+        <div class="ci-avatar">${meshChatAvatarInner(meta)}</div>
+        ${(!isDm && isOwner) ? `<button class="ci-cam" id="ci-photo" aria-label="Change group photo">${ICONS.camera}</button>
+        <div class="menu ci-photo-menu" id="ci-photo-menu" hidden>
+          <button data-act="camera">${ICONS.camera} Take photo</button>
+          <button data-act="upload">${ICONS.media} Upload photo</button>
+          ${meta.avatar ? `<button class="danger-item" data-act="remove">${ICONS.trash} Remove photo</button>` : ""}
+        </div>` : ""}
+      </div>
       <div class="ci-name-row" id="ci-name-row">
         <span class="ci-name">${esc(title)}
           ${meta.archived ? '<span class="kind-tag">archived</span>' : ""}</span>
@@ -207,6 +215,34 @@ async function renderChatDetails() {
   // browser) — bound ONCE; the old separate .media-tile-btn/.cd-file
   // binds stacked two listeners and opened every file twice
   bindOpenFile($("#details-pane"), chatId, ".cd-file");
+  // owner: change the group photo — Take photo / Upload photo / Remove, using
+  // the shared capture flows registered by settings.js on V
+  const ciPhoto = $("#ci-photo");
+  if (ciPhoto) {
+    const pmenu = $("#ci-photo-menu");
+    ciPhoto.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const opening = pmenu.hidden;
+      pmenu.hidden = !opening;
+      if (opening) {   // dismiss on the next outside click
+        const closer = (ev) => {
+          if (!pmenu.contains(ev.target) && !ciPhoto.contains(ev.target)) {
+            pmenu.hidden = true;
+            document.removeEventListener("mousedown", closer);
+          }
+        };
+        setTimeout(() => document.addEventListener("mousedown", closer), 0);
+      }
+    });
+    pmenu.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+      pmenu.hidden = true;
+      const onBlob = (blob) => uploadGroupAvatar(chatId, blob);
+      if (b.dataset.act === "camera") V.photoCamera(onBlob);
+      else if (b.dataset.act === "upload") V.photoPickFile(onBlob);
+      else if (b.dataset.act === "remove") clearGroupAvatar(chatId);
+    }));
+  }
+
   // in-place edits (WhatsApp pattern): the pencil swaps just that row for
   // an input + ✓; it stays open until saved or the pane goes away
   const rename = $("#ci-rename");
@@ -334,6 +370,41 @@ async function renderChatDetails() {
   });
 }
 V.renderChatDetails = renderChatDetails;
+
+// group photo (owner-only) — POST the finished 512px JPEG blob, then repaint
+// the pane; the header (if the chat is open) and the sidebar row pick up the
+// new marker via Mesh.state + a forced structKey.
+async function uploadGroupAvatar(chatId, blob) {
+  if (!blob) { toast("Couldn't process that image", true); return; }
+  toast("Setting group photo", { spinner: true });
+  try {
+    const r = await fetch(`/api/mesh/set_group_avatar?chat=${encodeURIComponent(chatId)}`,
+                          { method: "POST", body: blob });
+    const j = await r.json();
+    if (j.error) { toast(j.error, { error: true, swap: true }); return; }
+    const c = (Mesh.state?.chats || []).find((k) => k.id === chatId);
+    if (c) c.avatar = j.avatar;   // reflect now, don't wait for the poll
+    toast("Group photo set", { check: true, swap: true });
+    afterGroupAvatar(chatId);
+  } catch (e) {
+    toast("Couldn't set the photo — try again", { error: true, swap: true });
+  }
+}
+
+async function clearGroupAvatar(chatId) {
+  const r = await api("/api/mesh/clear_group_avatar", { chat_id: chatId });
+  if (r.error) { toast(r.error, true); return; }
+  const c = (Mesh.state?.chats || []).find((k) => k.id === chatId);
+  if (c) delete c.avatar;
+  toast("Group photo removed", { check: true });
+  afterGroupAvatar(chatId);
+}
+
+function afterGroupAvatar(chatId) {
+  Mesh.detailsKey = "";
+  renderChatDetails();   // pane re-fetches meta (carries the new marker)
+  if (Mesh.chatId === chatId) { Mesh.structKey = ""; V.renderMeshChat(true); }
+}
 
 // Leaving a group = removing yourself. Shared by the chat-info danger row and
 // the header ⋮ menu (chat.js), so both confirm and behave identically. The

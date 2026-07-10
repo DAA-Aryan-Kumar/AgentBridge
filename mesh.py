@@ -642,6 +642,53 @@ class Mesh:
         self.cx.write_json(f"chats/{chat_id}/meta.json", meta)
         return meta
 
+    # group photo — the chat-level parallel of a member's profile photo
+    # (mesh.set_avatar). Owner-only, like rename/description. Bytes live at
+    # chats/<id>/avatar.jpg (travels + is delete_tree'd with the chat); a
+    # {sha256, updated} marker on meta.json rides every meta read (state list,
+    # chat, chat_info), the sha doubling as the /api/mesh/avatar cache-buster.
+    def _group_avatar_path(self, chat_id):
+        root = self.cx.local_path(f"chats/{chat_id}")
+        return (root / "avatar.jpg") if root is not None else None
+
+    def set_group_avatar(self, chat_id, by, jpeg_bytes):
+        meta = self.get_chat(chat_id)
+        if not meta:
+            raise MeshError("No such chat")
+        if meta.get("kind") != "group":
+            raise MeshError("Only groups have a photo")
+        if meta.get("owner") != by:
+            raise MeshError("Only the group's owner can change the photo")
+        if not jpeg_bytes:
+            raise MeshError("The image was empty")
+        dest = self._group_avatar_path(chat_id)
+        if dest is None:
+            raise MeshError("This storage backend can't hold images yet")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_name(dest.name + ".tmp")
+        tmp.write_bytes(jpeg_bytes)
+        tmp.replace(dest)   # atomic — a reader never sees a half-written file
+        meta["avatar"] = {"sha256": hashlib.sha256(jpeg_bytes).hexdigest(),
+                          "updated": utcnow()}
+        self.cx.write_json(f"chats/{chat_id}/meta.json", meta)
+        return meta["avatar"]
+
+    def clear_group_avatar(self, chat_id, by):
+        meta = self.get_chat(chat_id)
+        if not meta:
+            raise MeshError("No such chat")
+        if meta.get("owner") != by:
+            raise MeshError("Only the group's owner can change the photo")
+        dest = self._group_avatar_path(chat_id)
+        if dest is not None:
+            try:
+                dest.unlink()
+            except FileNotFoundError:
+                pass
+        if meta.pop("avatar", None) is not None:
+            self.cx.write_json(f"chats/{chat_id}/meta.json", meta)
+        return True
+
     # ---------------------------------------------------------------- pins
 
     PIN_HOURS = (24, 24 * 7, 24 * 30)

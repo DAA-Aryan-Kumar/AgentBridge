@@ -7,7 +7,7 @@ import { ICONS, BIRD, extIcon } from "./icons.js";
 import { isImg, fileUrl } from "./files.js";
 import { api, bindOpenFile } from "./api.js";
 import { md, stripMd, setTaggable } from "./markdown.js";
-import { App, Mesh, meshDn, chatDisplay, renderChrome, isDmLike, dmOther, meshAvatarInner } from "./state.js";
+import { App, Mesh, meshDn, chatDisplay, renderChrome, isDmLike, dmOther, meshAvatarInner, meshChatAvatarInner } from "./state.js";
 import { renderSidebar } from "./sidebar.js";
 import { initComposer, renderMeshPending, renderReplyArea, startReply } from "./composer.js";
 import { openModal, closeModal } from "./modal.js";
@@ -93,7 +93,8 @@ V.renderChats = renderChats;
 // repaint one name (round 12).
 function chatStructKey(chatId, m) {
   return chatId + "|" + !!m.archived + "|" + (m.name || "")
-    + "|" + (m.members || []).join(",");
+    + "|" + (m.members || []).join(",")
+    + "|" + (m.avatar ? m.avatar.sha256 : "");   // group photo → repaint header
 }
 
 // the no-active-chat home surface — WhatsApp-style centered pane (the chat
@@ -394,11 +395,8 @@ async function renderMeshChat(force) {
     ? (meta.members || []).find((u) => u !== ms.user) : null;
   const headAgentTag = dmPeer && ms.users?.[dmPeer]?.kind === "agent"
     ? ' <span class="kind-tag">agent</span>' : "";
-  // DM/self header shows the peer's photo; a group keeps the initial (until
-  // the group-image round)
-  const headAva = isDmLike(meta)
-    ? meshAvatarInner(dmOther(meta, ms.user))
-    : esc((title[0] || "#").toUpperCase());
+  // DM/self header shows the peer's photo; a group shows the group photo
+  const headAva = meshChatAvatarInner(meta);
   $("#content").innerHTML = `
     <div class="chat-top" id="chat-top">
       <button class="chat-back" id="chat-back">${ICONS.back}</button>
@@ -1301,7 +1299,7 @@ function patchChatName(chatId, name) {
       if (tag) { hn.appendChild(document.createTextNode(" ")); hn.appendChild(tag); }
     }
     const av = $("#chat-top .chat-avatar");
-    if (av) av.textContent = (name[0] || "#").toUpperCase();
+    if (av) av.innerHTML = meshChatAvatarInner(c || { name, kind: "group" });
     if (c) Mesh.structKey = chatStructKey(chatId, c);   // poll won't rebuild
   }
   renderSidebar();   // granular: only the renamed row's text updates in place
