@@ -681,7 +681,12 @@ class Mesh:
         meta = self.get_chat(chat_id)
         if not meta:
             raise MeshError("No such chat")
-        if meta.get("kind") != "group":
+        # reject only genuine DM/self chats — legacy groups created before the
+        # `kind` field exists have no kind, and the chat list already treats a
+        # missing kind as "group" (meta.get("kind","group")). A strict
+        # `!= "group"` here wrongly blocked the owner of an older group from
+        # setting a photo ("Only groups have a photo" despite being owner).
+        if meta.get("kind") in ("dm", "self"):
             raise MeshError("Only groups have a photo")
         if meta.get("owner") != by:
             raise MeshError("Only the group's owner can change the photo")
@@ -696,6 +701,7 @@ class Mesh:
         tmp.replace(dest)   # atomic — a reader never sees a half-written file
         meta["avatar"] = {"sha256": hashlib.sha256(jpeg_bytes).hexdigest(),
                           "updated": utcnow()}
+        meta.setdefault("kind", "group")   # heal a legacy group missing its kind
         meta.pop("color", None)   # the photo covers it; no need to keep a tint
         self.cx.write_json(f"chats/{chat_id}/meta.json", meta)
         return meta["avatar"]
