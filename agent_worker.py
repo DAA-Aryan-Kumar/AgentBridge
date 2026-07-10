@@ -48,7 +48,7 @@ REPO = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO))
 from mesh import Mesh, read_json, atomic_write_json, utcnow  # noqa: E402
 
-__version__ = "0.20.1"  # worker code version (printed by the AVD update script)
+__version__ = "0.21.0"  # worker code version (printed by the AVD update script)
 
 HOME = Path.home() / ".agentbridge"
 
@@ -836,11 +836,126 @@ class Worker:
                 return
 
 
+# --- resilience: one worker per agent, kept alive ------------------------
+# Both pieces are agent-AGNOSTIC on purpose. There is exactly ONE worker for
+# every agent (claude, coco, codex, ollama, …); the only per-agent thing is
+# worker_<agent>.json. Never fork this into a per-agent module — that is the
+# duplication we are retiring (legacy/handler_coco.py).
+
+EXIT_ALREADY_RUNNING = 3   # a worker for this agent already holds the lock
+
+
+class SingleInstance:
+    """Per-agent run lock. Holds an exclusive OS lock on a lockfile for the
+    whole process lifetime, so a second worker for the SAME agent on this
+    machine fails fast instead of double-replying (the known duplicate-reply
+    hazard when two workers watch one mesh). The OS releases the lock the
+    instant the process dies — a crashed worker frees its slot with no stale
+    PID to clean up. Cross-platform: msvcrt on Windows, fcntl elsewhere."""
+
+    def __init__(self, path):
+        self.path = Path(path)
+        self._fh = None
+
+    def acquire(self):
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            fh = open(self.path, "a+")
+        except OSError:
+            return True  # can't lock (odd FS) — don't block the worker
+        try:
+            fh.seek(0)
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            fh.close()
+            return False
+        try:                       # record our PID for humans (lock is held)
+            fh.seek(0)
+            fh.truncate()
+            fh.write(str(os.getpid()))
+            fh.flush()
+        except OSError:
+            pass
+        self._fh = fh
+        return True
+
+    def release(self):
+        if not self._fh:
+            return
+        try:
+            if os.name == "nt":
+                import msvcrt
+                self._fh.seek(0)
+                msvcrt.locking(self._fh.fileno(), msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+        try:
+            self._fh.close()
+        except OSError:
+            pass
+        self._fh = None
+
+
+def supervise(agent, argv):
+    """Keep an agent's worker alive: relaunch it if it crashes, with capped
+    backoff. Stdlib mirror of AgentBridge.pyw's stay-up model for the GUI.
+    A clean exit (Ctrl+C or --once → rc 0) stops; a crash (non-zero rc) is
+    restarted; ALREADY_RUNNING means another supervisor owns this agent, so
+    we stand aside. Passes every flag except --supervise through to the child,
+    which is the one that holds the single-instance lock."""
+    child = [sys.executable, str(REPO / "agent_worker.py")] + \
+            [a for a in argv if a != "--supervise"]
+    say(f"[supervisor] @{agent}: keeping the worker up — Ctrl+C to stop")
+    backoff = 2
+    while True:
+        started = time.time()
+        try:
+            rc = subprocess.call(child)
+        except KeyboardInterrupt:
+            return
+        if rc == 0:
+            return  # intentional stop (Ctrl+C reached the child, or --once)
+        if rc == EXIT_ALREADY_RUNNING:
+            say(f"[supervisor] @{agent}: another worker already running "
+                f"— standing aside.")
+            return
+        ran = time.time() - started
+        backoff = 2 if ran > 60 else min(backoff * 2, 60)  # reset if it lived
+        say(f"[supervisor] @{agent}: worker exited (rc={rc}) after "
+            f"{ran:.0f}s — restarting in {backoff}s")
+        try:
+            time.sleep(backoff)
+        except KeyboardInterrupt:
+            return
+
+
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    argv = sys.argv[1:]
+    args = [a for a in argv if not a.startswith("--")]
     if not args:
-        raise SystemExit("usage: python agent_worker.py <agent> [--once] [--dry-run]")
-    Worker(args[0]).run(once="--once" in sys.argv, dry_run="--dry-run" in sys.argv)
+        raise SystemExit("usage: python agent_worker.py <agent> "
+                         "[--once] [--dry-run] [--supervise]")
+    agent = args[0]
+    if "--supervise" in argv:
+        supervise(agent, argv)
+        return
+    dry_run = "--dry-run" in argv
+    # the singleton lock guards against two live workers double-replying; a
+    # --dry-run diagnostic never posts, so it may run alongside a real worker.
+    lock = SingleInstance(HOME / f"worker_{agent}.lock") if not dry_run else None
+    if lock and not lock.acquire():
+        say(f"[worker] @{agent} is already running on this machine — exiting.")
+        raise SystemExit(EXIT_ALREADY_RUNNING)
+    try:
+        Worker(agent).run(once="--once" in argv, dry_run=dry_run)
+    finally:
+        if lock:
+            lock.release()
 
 
 if __name__ == "__main__":

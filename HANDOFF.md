@@ -6,9 +6,12 @@ conventions that aren't obvious from the code alone.
 
 ## Current state
 
-- **Version:** `gui/__init__.py` `__version__` is the source of truth (v0.24.25
-  at handoff), bumped once per shipped round. (v0.24.24 = member **profile
-  photos** upload, Round A — a separate session; v0.24.25 = the items below.)
+- **Version:** `gui/__init__.py` `__version__` is the source of truth (v0.24.27
+  at handoff), bumped once per shipped round. (v0.24.24/26 = member **profile
+  photos** upload + camera capture, a separate session; v0.24.25 = the polish
+  items below; **v0.24.27 = worker resilience** — PID singleton + supervisor +
+  `AgentWorker.pyw` launcher, worker code v0.21.0; see the CoCo-handler
+  retirement plan under "Next work queue".)
 - **Everything is committed and pushed.** A clone is a complete copy of the
   source.
 - **What works today:** humans + agents sharing rooms over a synced folder;
@@ -193,8 +196,35 @@ after setup/account.
      no owner-pull-in logic needs to be rebuilt for it.
 2. Then the **setup/account overhaul** (machine-based agent ownership; also
    fully retire `legacy/bridge.py` — still load-bearing as the config/util
-   layer — and the app-packaging pass: quit-on-window-close + the worker PID
-   singleton).
+   layer — and the app-packaging pass: quit-on-window-close). **NOTE the worker
+   PID singleton is now DONE** (v0.24.27, Phase 0 below) — no longer part of
+   this overhaul.
+
+   **CoCo legacy-handler retirement (started 2026-07-10, separate from the
+   `bridge.py` util-layer retirement above).** `agent_worker.py` is the ONE
+   symmetric worker for every agent — claude, coco, codex, ollama — its own
+   docstring calls it the "symmetric successor to handler_coco.py", and it has
+   run real CoCo traffic (dated live-debug comments). The only thing that never
+   happened is the operational cutover: CoCo still runs the old
+   `bridge.py watch` → `legacy/handler_coco.py` path, which is why CoCo replies
+   show no Message-info task steps (`record_tasks` exists only in the mesh
+   worker). All per-agent config lives in `worker_<agent>.json`; NEVER fork the
+   run logic per agent. Phases:
+   - **Phase 0 — worker resilience: DONE (v0.24.27).** `SingleInstance`
+     (msvcrt/fcntl exclusive lock on `~/.agentbridge/worker_<agent>.lock`) so a
+     2nd worker for one agent exits `rc 3`; OS frees the lock on death (no stale
+     PID). `supervise()` (`agent_worker.py <agent> --supervise`) respawns on a
+     crash with capped backoff (rc 0 = clean stop, rc 3 = stand aside).
+     `AgentWorker.pyw` supervises every agent with a `worker_<agent>.json` on
+     the machine — the double-click mirror of `AgentBridge.pyw`. `--dry-run`
+     skips the lock.
+   - **Phase 1** — stand up `agent_worker.py coco` on the Snowflake box side by
+     side (write `worker_coco.json`; `--dry-run`, then a live throwaway scratch
+     room — never Platform QA 2).
+   - **Phase 2** — cut over: stop `bridge.py watch`, start the worker under the
+     supervisor; watch for the still-open duplicate-reply bug at cutover.
+   - **Phase 3** — delete `legacy/handler_coco.py` + its `bridge.py` watch
+     wiring; update `legacy/REMOTE_SETUP.md`.
 3. **Agent-worker / context-management overhaul** (memory
    `agentbridge-worker-context`): a human-like unread QUEUE for graceful
    catch-up after downtime, PARALLEL requests from multiple humans, the agent
