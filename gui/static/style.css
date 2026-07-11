@@ -356,6 +356,19 @@ h1 {
 .kv dt { color: var(--text-dim); }
 .kv dd { margin: 0; word-break: break-all; }
 
+/* task 1 (2026-07-11): settings read cleaner WITHOUT the boxed cards — the
+   boxes + their mismatched 560/640 widths were the "inconsistent" feeling.
+   Inside .settings-body a .card flattens into a labelled group that spans the
+   body width, separated by a hairline (home-window / details-pane cards keep
+   their boxes — they're not in .settings-body). */
+.settings-body .card {
+  background: none; border: none; box-shadow: none; border-radius: 0;
+  padding: 18px 0; margin: 0; max-width: none;
+  border-bottom: 1px solid var(--border);
+}
+.settings-body .card:first-of-type { padding-top: 2px; }
+.settings-body .card:last-child { border-bottom: none; }
+
 .recent-list { list-style: none; margin: 0; padding: 0; }
 .recent-item {
   display: flex; gap: 10px; align-items: baseline;

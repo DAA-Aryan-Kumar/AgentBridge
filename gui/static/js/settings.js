@@ -32,7 +32,7 @@ async function renderSettings() {
   if (section === "profile") {
     const hasPhoto = !!meshAvatar(ms.user);
     html = `${back}<h1>Profile</h1>
-      <div class="card" style="max-width:560px">
+      <div class="card">
         <div class="pf-photo-wrap">
           <div class="pf-photo">${meshAvatarInner(ms.user)}</div>
           <button class="pf-edit" id="pf-edit">${ICONS.camera} Edit</button>
@@ -53,7 +53,7 @@ async function renderSettings() {
       <input type="file" id="pf-file" accept="image/*" hidden>`;
   } else if (section === "account") {
     html = `${back}<h1>Account</h1>
-      <div class="card" style="max-width:560px">
+      <div class="card">
         <h2>Signed in as</h2>
         <dl class="kv">
           <dt>Name</dt><dd><b>${esc(meshDn(ms.user))}</b></dd>
@@ -66,7 +66,7 @@ async function renderSettings() {
       </div>`;
   } else if (section === "chats") {
     html = `${back}<h1>Chats</h1>
-      <div class="card" style="max-width:560px">
+      <div class="card">
         <h2>Appearance</h2>
         <div class="row">
           <label class="switch">
@@ -78,7 +78,7 @@ async function renderSettings() {
         <p class="hint" style="margin-bottom:0">Full theming and wallpapers come
         with the theming pass.</p>
       </div>
-      <div class="card" style="max-width:560px">
+      <div class="card">
         <h2>Messaging</h2>
         <div class="row">
           <label class="switch">
@@ -97,7 +97,7 @@ async function renderSettings() {
       ${mine.map((a) => {
         const st = a.settings || {};
         return `
-        <div class="card" style="max-width:640px">
+        <div class="card">
           <div class="ag-head">
             <div class="ag-avatar-wrap">
               <span class="ag-avatar">${meshAvatarInner(a.username)}</span>
@@ -130,7 +130,7 @@ async function renderSettings() {
           <div class="row"><button class="primary ag-save" data-agent="${esc(a.username)}">Save</button></div>
         </div>`;
       }).join("") || ""}
-      <div class="card" style="max-width:640px">
+      <div class="card">
         <h2>Add an agent</h2>
         <div class="row">
           <input type="text" id="new-agent-user" placeholder="username (e.g. coco2)">
@@ -140,7 +140,7 @@ async function renderSettings() {
         <p class="hint" style="margin-bottom:0">You become its responsible member;
         its machine runs <code>agent_worker.py</code>.</p>
       </div>
-      <div class="card" style="max-width:640px">
+      <div class="card">
         <h2>Emergency stand-down</h2>
         <div class="row">
           <label class="switch">
@@ -156,7 +156,7 @@ async function renderSettings() {
       </div>`;
   } else if (section === "connection") {
     html = `${back}<h1>Connection</h1>
-      <div class="card" style="max-width:640px">
+      <div class="card">
         <dl class="kv">
           <dt>Shared folder</dt><dd class="mono">${esc(s.shared_dir)}
             <a href="#" id="open-shared2">open</a></dd>
@@ -168,7 +168,7 @@ async function renderSettings() {
           <button onclick="openTarget('home')">Open config folder</button>
         </div>
       </div>
-      <div class="card" style="max-width:640px">
+      <div class="card">
         <h2>Performance</h2>
         <dl class="kv" style="grid-template-columns:minmax(110px,160px) 1fr">
           <dt>Check for news</dt><dd><span id="poll-slot"></span></dd>
