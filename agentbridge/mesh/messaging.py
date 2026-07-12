@@ -38,6 +38,7 @@ class MessagingService:
         machine: str,
         *,
         notify_outbox=lambda: None,
+        privacy=None,  # PrivacyService, wired by the Mesh facade (avoids a cycle)
     ) -> None:
         self.tx = tx
         self.store = store
@@ -45,6 +46,7 @@ class MessagingService:
         self.user = user
         self.machine = machine
         self._notify_outbox = notify_outbox
+        self.privacy = privacy
 
     # ------------------------------------------------------------- membership
     def snapshot(self, chat_id: str) -> ChatSnapshot:
@@ -73,6 +75,12 @@ class MessagingService:
         snap = self._require_member(chat_id)
         if not authz.can_send(snap, self.user):
             raise PermissionDenied("sending messages is restricted in this chat")
+        # R6 blocking: a block kills the EXISTING DM too (WhatsApp), while
+        # common groups stay unaffected. The reason never reveals the block.
+        if snap.kind is ChatKind.DM and self.privacy is not None:
+            other = next((m for m in snap.members if m != self.user), None)
+            if other and self.privacy.blocked_between(self.user, other):
+                raise PermissionDenied(f"@{other} is not available")
         if not (body or "").strip() and not files:
             raise ValidationError("empty message")
         record = BodyRecord(

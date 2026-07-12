@@ -17,6 +17,7 @@ from ..transport.folder import FolderTransport
 from .directory import Directory
 from .membership import MembershipService
 from .messaging import MessagingService
+from .privacy import PrivacyService
 from .sealer import PlainSealer, Sealer
 from .sync import SyncEngine
 
@@ -52,12 +53,15 @@ class Mesh:
 
         self.sealer = sealer or PlainSealer()
         self.directory = Directory(self.tx)
+        self.privacy = PrivacyService(self.tx, self.directory, user)
         self.messaging = MessagingService(
             self.tx, self.store, self.sealer, user, machine,
             notify_outbox=lambda: self.outbox.notify(),
+            privacy=self.privacy,
         )
         self.membership = MembershipService(
-            self.tx, self.store, self.directory, self.messaging
+            self.tx, self.store, self.directory, self.messaging,
+            privacy=self.privacy,
         )
         self.outbox = OutboxWorker(self.store, self.messaging.outbox_handlers())
         self.sync = SyncEngine(
@@ -90,11 +94,13 @@ class Mesh:
 
     # ------------------------------------------------------- delegation API
     # (kept flat so connectors read naturally: mesh.post(...),
-    #  mesh.create_dm(...) — messaging first, then membership)
+    #  mesh.create_dm(...), mesh.block(...) — messaging, membership, privacy)
     def __getattr__(self, name: str):
-        if name in ("messaging", "membership"):  # mid-__init__ — never recurse
+        if name in ("messaging", "membership", "privacy"):  # mid-__init__ guard
             raise AttributeError(name)
-        try:
-            return getattr(self.messaging, name)
-        except AttributeError:
-            return getattr(self.membership, name)
+        for svc in (self.messaging, self.membership, self.privacy):
+            try:
+                return getattr(svc, name)
+            except AttributeError:
+                continue
+        raise AttributeError(name)

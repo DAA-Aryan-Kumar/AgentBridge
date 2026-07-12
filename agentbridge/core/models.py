@@ -18,8 +18,8 @@ from typing import Any
 __all__ = [
     "UserKind", "ChatKind", "MsgKind", "Audience", "Role", "PermLevel",
     "ReceiptState", "WrappedKey", "AccountKeys", "Privacy", "Status",
-    "AgentInfo", "Account", "PresenceRecord", "Member", "ChatPermissions",
-    "ChatSnapshot", "Envelope", "BodyRecord", "Message",
+    "AgentInfo", "AgentRules", "Account", "PresenceRecord", "Member",
+    "ChatPermissions", "ChatSnapshot", "Envelope", "BodyRecord", "Message",
 ]
 
 
@@ -164,6 +164,24 @@ class AgentInfo:
 
 
 @dataclass
+class AgentRules:
+    """Owner-set OUTBOUND rules for an agent — the one asymmetric piece of the
+    R6 model: who may the agent message / add to groups. (The agent's own
+    ``privacy`` block covers the symmetric inbound side.)"""
+
+    messaging: Audience = Audience.EVERYONE
+    add_to_group: Audience = Audience.EVERYONE
+
+    def __post_init__(self) -> None:
+        for name in ("messaging", "add_to_group"):
+            setattr(self, name, _coerce(Audience, getattr(self, name), Audience.NOBODY))
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any] | None) -> "AgentRules":
+        return cls(**_known(cls, d or {}))
+
+
+@dataclass
 class Account:
     """One record in ``users/<name>.json`` — the user file IS the account."""
 
@@ -179,7 +197,7 @@ class Account:
     blocked: list[str] = field(default_factory=list)
     status: Status = field(default_factory=Status)
     agent: AgentInfo | None = None
-    agent_rules: dict[str, Any] | None = None  # owner-set, R6
+    agent_rules: AgentRules | None = None  # owner-set outbound rules (agents)
 
     def __post_init__(self) -> None:
         self.kind = _coerce(UserKind, self.kind, UserKind.AGENT)  # closed = fewer rights
@@ -201,7 +219,15 @@ class Account:
         base["privacy"] = Privacy.from_dict(d.get("privacy"))
         base["status"] = Status.from_dict(d.get("status"))
         base["agent"] = AgentInfo.from_dict(d.get("agent"))
+        base["agent_rules"] = (
+            AgentRules.from_dict(d["agent_rules"]) if isinstance(d.get("agent_rules"), dict)
+            else None
+        )
         return cls(**base)
+
+    def rules(self) -> AgentRules:
+        """Outbound rules with the everyone-default applied."""
+        return self.agent_rules or AgentRules()
 
 
 @dataclass

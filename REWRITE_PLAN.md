@@ -145,17 +145,20 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       R6/R13). Marquee tests: meta clobber heals bit-for-bit; forged
       member_added/admin_granted ignored; fold deterministic across log
       distributions. 22 new tests (90 total).
-- [ ] **R6 — Privacy & permission layer** (dedicated module, per Aryan's
-      suggestion). Privacy matrix, symmetric for members and agents: last
-      seen, online, profile photo (everyone/nobody), about, status — each with
-      audiences everyone / members-only (D13) / agents-only(+their owner
-      members) / nobody; read receipts on/off + view-read-receipts on/off;
-      **blocked members**; messaging gate + add-to-group gate (everyone /
-      members / agents / nobody) — these two are PUBLIC so an agent can check
-      before messaging (never silently blocked); owner-set rules for their
-      agents (who the agent may message / add to groups: everyone / members /
-      agents / nobody — the one asymmetric piece); enforcement audited on
-      EVERY mutating endpoint (the v0.24.1 lesson).
+- [x] **R6 — Privacy & permission layer. DONE 2026-07-12** —
+      `agentbridge/mesh/privacy.py` (PrivacyService) + `AgentRules` model +
+      enforcement wired into create_dm (messaging gate), create_chat/
+      add_members (add gate incl. **pulled owners** — if the owner can't be
+      added, chatting the agent fails cleanly), post-in-DM (block check).
+      Semantics locked: profile `agents` audience admits agent-OWNING humans
+      (relay rationale); the two GATES are strict (`agents` = agents only, no
+      ride-along) and PUBLIC (`public_gates()` — agents check before
+      messaging, reasons are showable); blocks kill DMs both directions
+      without leaking, groups unaffected (WhatsApp); photo = everyone/nobody;
+      agent settings owner-only; receipts need BOTH toggles
+      (`may_see_receipts_of`, consumed by R8). Delivers backlog: messaging-
+      permission model (HANDOFF #1) + block-a-user (#4). 16 new tests
+      (106 total).
 - [ ] **R7 — Accounts v2.** User-file-is-account; machine-login ownership
       (1 human → N agents; agent identity = name + machine + owning human);
       **username change + password change** (password change re-wraps the

@@ -24,6 +24,7 @@ from . import authz, events
 from .directory import Directory
 from .messaging import MessagingService
 from .paths import P
+from .privacy import PrivacyService
 
 __all__ = ["MembershipService"]
 
@@ -35,13 +36,27 @@ def _slug(name: str) -> str:
 
 class MembershipService:
     def __init__(
-        self, tx: Transport, store: Store, directory: Directory, messaging: MessagingService
+        self,
+        tx: Transport,
+        store: Store,
+        directory: Directory,
+        messaging: MessagingService,
+        privacy: PrivacyService | None = None,
     ) -> None:
         self.tx = tx
         self.store = store
         self.directory = directory
         self.messaging = messaging
+        self.privacy = privacy
         self.user = messaging.user
+
+    def _gate_add(self, target: str) -> None:
+        """R6 add-to-group gate (public setting; the reason is showable)."""
+        if self.privacy is None or target == self.user:
+            return
+        ok, why = self.privacy.can_add_to_group(self.user, target)
+        if not ok:
+            raise PermissionDenied(why)
 
     # ------------------------------------------------------------- creation
     def create_chat(
@@ -52,6 +67,7 @@ class MembershipService:
         kind: ChatKind = ChatKind.GROUP,
         permissions: dict | None = None,
         auto_dm: bool = False,
+        _message_gated: frozenset[str] = frozenset(),
     ) -> ChatSnapshot:
         me = self.user
         roster = list(dict.fromkeys([me, *(members or [])]))
@@ -63,6 +79,15 @@ class MembershipService:
 
         pulled = self.directory.missing_owners(roster)
         roster += [o for o in pulled if o not in roster]
+
+        # R6: creating a group WITH people IS adding them — gate every target
+        # (pulled owners included: if the owner can't be added, the agent
+        # can't be chatted — the invariant wins). A DM peer arriving from
+        # create_dm was message-gated there instead.
+        if kind is ChatKind.GROUP:
+            for m in roster:
+                if m not in _message_gated:
+                    self._gate_add(m)
 
         # first admin: the creator if human, else the creator-agent's owner
         if self.directory.kind(me) is UserKind.HUMAN:
@@ -106,6 +131,12 @@ class MembershipService:
         if not self.directory.exists(other):
             raise ValidationError(f"unknown user @{other}")
 
+        # R6 messaging gate — the PUBLIC one an agent can check beforehand
+        if self.privacy is not None:
+            ok, why = self.privacy.can_message(me, other)
+            if not ok:
+                raise PermissionDenied(why)
+
         pulled = self.directory.missing_owners([me, other])
         if not pulled:
             for snap in self._snapshots():
@@ -115,13 +146,17 @@ class MembershipService:
 
         # agent + non-owner: a two-person chat can't hold three — it is born
         # as a small GROUP with the owner in (v1 auto_dm semantics, verified
-        # symmetric in both directions)
+        # symmetric in both directions). The peer was message-gated above;
+        # the pulled owner still passes the add-to-group gate in create_chat.
         roster = [me, other, *pulled]
         for snap in self._snapshots():
             if snap.auto_dm and set(snap.members) == set(roster):
                 return snap
         name = ", ".join(self.directory.display(m) for m in roster)[:60]
-        return self.create_chat(name, members=[other], kind=ChatKind.GROUP, auto_dm=True)
+        return self.create_chat(
+            name, members=[other], kind=ChatKind.GROUP, auto_dm=True,
+            _message_gated=frozenset({other}),
+        )
 
     def create_self_chat(self) -> ChatSnapshot:
         """Message-yourself (WhatsApp note-to-self)."""
@@ -140,6 +175,8 @@ class MembershipService:
             if not self.directory.exists(n):
                 raise ValidationError(f"unknown user @{n}")
         pulled = self.directory.missing_owners(list(snap.members) + todo)
+        for n in [*todo, *pulled]:  # R6 gate — pulled owners included
+            self._gate_add(n)
         for n in todo:
             self.messaging.post_event(
                 chat_id, {"type": events.EV_MEMBER_ADDED, "who": n, "by": self.user}
