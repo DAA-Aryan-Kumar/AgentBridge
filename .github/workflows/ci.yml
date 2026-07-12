@@ -17,10 +17,11 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
-      # Core-only sync: CI stays fast; heavy extras are validated per-round
+      # Light sync: core + the mcp extra (pure-python, needed by the cli
+      # tests); the HEAVY extras (memory/retrieval) are validated per-round
       # on the dev box (spikes) and in the dedicated stress round (R24).
-      - name: Sync (core + dev)
-        run: uv sync --group dev
+      - name: Sync (core + dev + mcp)
+        run: uv sync --group dev --extra mcp
       - name: Lint
         run: uv run ruff check agentbridge tests
       - name: Tests

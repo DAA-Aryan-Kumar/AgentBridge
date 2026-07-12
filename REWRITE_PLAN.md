@@ -233,12 +233,19 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       `AgentRules.setup_assist`**, default off; unpermitted/unknown-agent
       requests auto-decline and leak nothing; reply is a PROPOSAL the
       requester reviews). Facade: `mesh.applink`. 12 new tests (163 total).
-- [ ] **R12 — mesh-cli v2 (MCP).** MCP server exposing the mesh as tools/
-      resources/notifications (per D9) + human CLI (auth = humans only;
-      account creation stays GUI-only); **capability parity audit**: agents
-      can do everything humans can via CLI **except account-related options**
-      (D19: profile/status/privacy/blocks/handle are owner-only via GUI — the
-      MCP surface never exposes them) and account creation.
+- [x] **R12 — mesh-cli v2 (MCP). DONE 2026-07-13** — `agentbridge/cli/`:
+      `server.py` = FastMCP surface (mcp~=1.28; SDK-v2 rename lands ~07-27,
+      re-check then): list/read/chat_info/who_is/my_unread + send (threaded
+      reply support) /edit/delete/react/pin/star/mark_read + create_dm/
+      create_group/add_members/leave + **`next_events` long-poll** draining
+      the R10 bus (transport-agnostic near-realtime). **D19 structural:
+      account tools + remove_member simply don't exist on this surface** —
+      test asserts their absence. `main.py` = human CLI (send/read/chats;
+      password-verified humans only; agents use `mcp` mode passwordless) +
+      `mcp` stdio entry. Verified: 9 MCP tests through REAL in-memory client
+      sessions (errors surface as tool errors; privacy respected in who_is;
+      D18 ride-along over MCP) + live human-CLI smoke (send/read/refusal).
+      CI grew `--extra mcp`. 172 tests total.
 
 ### Phase 2 — GUI cutover
 
