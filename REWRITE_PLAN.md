@@ -202,12 +202,20 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       E2EE tests + all 131 prior green (139 total). File-blob encryption →
       R13 (no upload path yet); migration tool → **R9.5** (touches live data,
       isolated review).
-- [ ] **R9.5 — v1→v2 migration tool.** Walk the live `mesh/` tree → v2
-      `mesh2` shape: accounts (PBKDF2→identity-key bootstrap, handle=name),
-      chats (owner→admin, owners[]→single owner), per-sender jsonl →
-      per-device envelopes sealed forward under epoch keys, overlays
-      field-for-field. Dry-run + verification pass; runbook. Prereq for R14
-      cutover; kept OUT of the live tree until then.
+- [x] **R9.5 — v1→v2 migration tool. DONE 2026-07-13** — `agentbridge/migrate.py`
+      (+`python -m agentbridge.migrate --src --dest [--dry-run]`). Source is
+      READ-ONLY, dest must be empty, `--dry-run` writes nothing. Maps: v1
+      PBKDF2 auth kept + verified in v2 (`accounts.verify_password` grew a
+      pbkdf2 path; upgrades to scrypt at password-change/login), owners[0]→
+      `agent.owner`+machine="migrated"+harness=v1 settings, per-sender jsonl→
+      `<sender>@migrated.jsonl` epoch-0 envelopes (ids/ns PRESERVED so
+      cursors+receipts survive), synthesized genesis info event (owner→admin;
+      ns=oldest-1, kept positive — the store filters ns>0), v1 info pills→inert
+      `legacy_note`, redactions/edits/pins/state overlays (star snapshots→id
+      lists), blobs byte-for-byte. Built-in verify: re-fold==meta + line count
+      v1+1. `docs/MIGRATION_RUNBOOK.md` = the R14 operational procedure +
+      rollback (source never mutated). 8 new tests (179 total). **PHASE 1
+      COMPLETE.**
 - [x] **R10 — Events & notifications. DONE 2026-07-13** — `eventbus.py`
       (bounded drop-oldest subscriptions: a slow consumer can never stall
       sync; store stays source of truth) + `notify.py` (Notifier: message

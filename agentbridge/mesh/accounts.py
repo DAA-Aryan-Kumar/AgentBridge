@@ -147,14 +147,25 @@ class AccountsService:
     def verify_password(self, name: str, password: str) -> bool:
         doc = self.tx.get_doc(P.user(name))
         auth = (doc or {}).get("auth") or {}
-        if auth.get("algo") != "scrypt":
-            return False
+        algo = auth.get("algo")
         try:
-            salt = base64.b64decode(auth["salt"])
-            expected = base64.b64decode(auth["hash"])
-        except (KeyError, ValueError):
+            if algo == "scrypt":
+                salt = base64.b64decode(auth["salt"])
+                expected = base64.b64decode(auth["hash"])
+                return secrets.compare_digest(_scrypt(password, salt), expected)
+            if algo == "pbkdf2":
+                # migrated v1 record (hex salt/hash, sha256, iteration count);
+                # the login flow upgrades it to scrypt after a success
+                import hashlib
+
+                derived = hashlib.pbkdf2_hmac(
+                    "sha256", password.encode("utf-8"),
+                    bytes.fromhex(auth["salt"]), int(auth["iterations"]),
+                )
+                return secrets.compare_digest(derived, bytes.fromhex(auth["hash"]))
+        except (KeyError, ValueError, TypeError):
             return False
-        return secrets.compare_digest(_scrypt(password, salt), expected)
+        return False
 
     def change_password(self, old: str, new: str) -> None:
         """Re-hash with a fresh salt AND re-wrap the identity bundle under
