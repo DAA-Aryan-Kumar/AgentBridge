@@ -42,12 +42,14 @@ class MembershipService:
         directory: Directory,
         messaging: MessagingService,
         privacy: PrivacyService | None = None,
+        keys=None,  # ChatKeyService — wired by the facade when E2EE is on
     ) -> None:
         self.tx = tx
         self.store = store
         self.directory = directory
         self.messaging = messaging
         self.privacy = privacy
+        self.keys = keys
         self.user = messaging.user
 
     def _gate_add(self, target: str) -> None:
@@ -202,7 +204,11 @@ class MembershipService:
                 {"type": events.EV_MEMBER_ADDED, "who": owner, "by": self.user,
                  "reason": "responsible_member", "agent": agent},
             )
-        return self.refold(chat_id)
+        healed = self.refold(chat_id)
+        if self.keys is not None:
+            newcomers = [n for n in [*todo, *pulled] if n in healed.members]
+            self.keys.on_members_added(chat_id, healed, newcomers)
+        return healed
 
     def remove_member(self, chat_id: str, who: str) -> ChatSnapshot:
         snap = self.messaging.snapshot(chat_id)
@@ -217,7 +223,10 @@ class MembershipService:
         self.messaging.post_event(
             chat_id, {"type": events.EV_MEMBER_REMOVED, "who": who, "by": self.user}
         )
-        return self.refold(chat_id)
+        healed = self.refold(chat_id)
+        if self.keys is not None:  # rotate away from the removed member now
+            self.keys.on_members_removed(chat_id, healed)
+        return healed
 
     def leave(self, chat_id: str) -> ChatSnapshot:
         self.messaging.post_event(chat_id, {"type": events.EV_MEMBER_LEFT})

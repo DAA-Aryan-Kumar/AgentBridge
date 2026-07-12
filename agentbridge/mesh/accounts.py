@@ -21,11 +21,13 @@ import secrets
 
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
+from .. import crypto
 from ..core.errors import PermissionDenied, ValidationError
 from ..core.models import Account, ChatKind, UserKind
 from ..core.timekit import utcnow_iso
 from ..transport.base import Transport
 from .directory import Directory
+from .keyring import KeyStore
 from .membership import MembershipService
 from .messaging import MessagingService
 from .paths import P
@@ -57,6 +59,7 @@ class AccountsService:
         membership: MembershipService,
         user: str,
         machine: str,
+        keystore: KeyStore | None = None,
     ) -> None:
         self.tx = tx
         self.directory = directory
@@ -64,13 +67,19 @@ class AccountsService:
         self.membership = membership
         self.user = user
         self.machine = machine
+        self.keystore = keystore or KeyStore()
 
     # ------------------------------------------------------------- creation
-    def create_human(self, name: str, password: str, *, display: str = "") -> Account:
+    def create_human(self, name: str, password: str, *, display: str = "") -> tuple[Account, str]:
+        """Returns (account, recovery_code). The recovery code is shown ONCE:
+        forgotten password + lost code = history unreadable (D5)."""
         self._require_free(name)
         if len(password or "") < 6:
             raise ValidationError("password must be at least 6 characters")
         salt = os.urandom(16)
+        bundle = crypto.generate_identity()
+        sign_pub, agree_pub = crypto.identity_pubs(bundle)
+        recovery_code = crypto.new_recovery_code()
         doc = {
             "name": name,
             "kind": UserKind.HUMAN.value,
@@ -79,9 +88,16 @@ class AccountsService:
             "active": True,
             "auth": {"algo": "scrypt", "salt": _b64(salt),
                      "hash": _b64(_scrypt(password, salt))},
+            "keys": {
+                "sign_pub": sign_pub,
+                "agree_pub": agree_pub,
+                "wrapped_priv": crypto.wrap_bundle(bundle, password),
+                "recovery": crypto.wrap_bundle(bundle, recovery_code),
+            },
         }
         self.tx.put_doc(P.user(name), doc)
-        return Account.from_dict(doc)
+        self.keystore.save(name, bundle)  # unlocked on the creating machine
+        return Account.from_dict(doc), recovery_code
 
     def create_agent(
         self,
@@ -98,6 +114,10 @@ class AccountsService:
             raise PermissionDenied("only a signed-in member can create agents")
         self._require_free(name)
         display = display or name.title()
+        # agents get identity keys too, but no password wrap: the private
+        # bundle lives ONLY on this machine's keystore (machine identity)
+        bundle = crypto.generate_identity()
+        sign_pub, agree_pub = crypto.identity_pubs(bundle)
         doc = {
             "name": name,
             "kind": UserKind.AGENT.value,
@@ -106,10 +126,12 @@ class AccountsService:
             "about": f"{acc.display or owner}'s {display} on {self.machine}",
             "created": utcnow_iso(),
             "active": True,
+            "keys": {"sign_pub": sign_pub, "agree_pub": agree_pub},
             "agent": {"owner": owner, "machine": self.machine,
                       "harness": harness or {}},
         }
         self.tx.put_doc(P.user(name), doc)
+        self.keystore.save(name, bundle)
         return Account.from_dict(doc)
 
     def _require_free(self, name: str) -> None:
@@ -135,18 +157,66 @@ class AccountsService:
         return secrets.compare_digest(_scrypt(password, salt), expected)
 
     def change_password(self, old: str, new: str) -> None:
-        """Re-hash with a fresh salt. R9 hooks in here to re-wrap the
-        password-wrapped account key (D5) in the same operation."""
+        """Re-hash with a fresh salt AND re-wrap the identity bundle under
+        the new password in the same operation (D5) — the recovery-code wrap
+        is untouched, so the code keeps working."""
         if not self.verify_password(self.user, old):
             raise PermissionDenied("current password is incorrect")
         if len(new or "") < 6:
             raise ValidationError("password must be at least 6 characters")
+        bundle = self.keystore.load(self.user)
+        if bundle is None:  # locked machine: unwrap with the old password
+            acc = self.directory.get(self.user)
+            wrapped = acc.keys.wrapped_priv if acc else None
+            if wrapped is not None:
+                bundle = crypto.unwrap_bundle(
+                    {"salt": wrapped.salt, "nonce": wrapped.nonce, "ct": wrapped.ct},
+                    old,
+                )
+                self.keystore.save(self.user, bundle)
         salt = os.urandom(16)
-        self.directory.patch(
-            self.user,
-            lambda doc: doc.update(auth={"algo": "scrypt", "salt": _b64(salt),
-                                         "hash": _b64(_scrypt(new, salt))}),
-        )
+
+        def apply(doc: dict) -> None:
+            doc["auth"] = {"algo": "scrypt", "salt": _b64(salt),
+                           "hash": _b64(_scrypt(new, salt))}
+            if bundle is not None:
+                doc.setdefault("keys", {})["wrapped_priv"] = crypto.wrap_bundle(bundle, new)
+
+        self.directory.patch(self.user, apply)
+
+    def unlock(self, password: str) -> bool:
+        """Sign-in on a device: unwrap the identity bundle with the password
+        and cache it in the local keystore. False = wrong password/no keys."""
+        acc = self.directory.get(self.user)
+        wrapped = acc.keys.wrapped_priv if acc else None
+        if wrapped is None:
+            return False
+        try:
+            bundle = crypto.unwrap_bundle(
+                {"salt": wrapped.salt, "nonce": wrapped.nonce, "ct": wrapped.ct},
+                password,
+            )
+        except crypto.CryptoFail:
+            return False
+        self.keystore.save(self.user, bundle)
+        return True
+
+    def unlock_with_recovery(self, code: str) -> bool:
+        """The D5 escape hatch: the recovery code unwraps the identity when
+        the password is gone. Follow with change_password to set a new one."""
+        acc = self.directory.get(self.user)
+        wrapped = acc.keys.recovery if acc else None
+        if wrapped is None:
+            return False
+        try:
+            bundle = crypto.unwrap_bundle(
+                {"salt": wrapped.salt, "nonce": wrapped.nonce, "ct": wrapped.ct},
+                (code or "").strip(),
+            )
+        except crypto.CryptoFail:
+            return False
+        self.keystore.save(self.user, bundle)
+        return True
 
     # -------------------------------------------------------------- profile
     def set_handle(self, handle: str, *, agent: str | None = None) -> Account:

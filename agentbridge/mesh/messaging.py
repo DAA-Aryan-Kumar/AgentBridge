@@ -94,9 +94,12 @@ class MessagingService:
             files=files or [],
             fwd=fwd,
         )
+        # id/ns are minted FIRST so the sealer can bind them (replay-proofing)
+        ns = next_ns()
+        env_id = new_id("m", ns)
         env = Envelope(
-            id=new_id("m"), ns=next_ns(), ts=utcnow_iso(), from_=self.user,
-            kind=MsgKind.MESSAGE, **self.sealer.seal(chat_id, record),
+            id=env_id, ns=ns, ts=utcnow_iso(), from_=self.user,
+            kind=MsgKind.MESSAGE, **self.sealer.seal(chat_id, env_id, ns, record),
         )
         self.commit_envelope(chat_id, env)
         return env
@@ -137,10 +140,12 @@ class MessagingService:
             raise ValidationError("info events cannot be edited")
         if self.tx.get_doc(P.redaction(chat_id, msg_id)) is not None:
             raise ValidationError("a deleted message cannot be edited")
+        edit_ns = next_ns()  # minted first: the seal binds (msg_id, edit_ns)
         sealed = self.sealer.seal(
-            chat_id, BodyRecord(body=new_body, tags=parse_tags(new_body))
+            chat_id, msg_id, edit_ns,
+            BodyRecord(body=new_body, tags=parse_tags(new_body)),
         )
-        ChatOverlays(self.tx, chat_id).put_edit(msg_id, sealed, by=self.user)
+        ChatOverlays(self.tx, chat_id).put_edit(msg_id, sealed, by=self.user, ns=edit_ns)
 
     def redact(self, chat_id: str, msg_ids: list[str]) -> None:
         """Delete-for-everyone: SENDER-only, tombstoned in place (v1 rule)."""

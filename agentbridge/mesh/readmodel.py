@@ -84,7 +84,12 @@ def build_messages(
 
             edit = edits.get(env.id)
             if edit and edit.get("by") == env.from_:  # author-only, enforced on read too
-                eb = sealer.unseal(chat_id, Envelope.from_dict({**edit, "id": env.id}))
+                # pseudo-envelope for the sealer: the edit was sealed binding
+                # (msg_id, edit_ns) with the AUTHOR as sender
+                eb = sealer.unseal(
+                    chat_id,
+                    Envelope.from_dict({**edit, "id": env.id, "from": env.from_}),
+                )
                 if eb is not None:
                     msg.body, msg.tags = eb.body, eb.tags
                     msg.edited = {"at": edit.get("at", ""), "ns": int(edit.get("ns", 0))}

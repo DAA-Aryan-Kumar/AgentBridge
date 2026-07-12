@@ -32,10 +32,10 @@ class ChatOverlays:
         self.chat_id = chat_id
 
     # ------------------------------------------------------------------ edits
-    def put_edit(self, msg_id: str, sealed: dict, by: str) -> None:
+    def put_edit(self, msg_id: str, sealed: dict, by: str, ns: int | None = None) -> None:
         self.tx.put_doc(
             P.edit(self.chat_id, msg_id),
-            {**sealed, "by": by, "at": utcnow_iso(), "ns": next_ns()},
+            {**sealed, "by": by, "at": utcnow_iso(), "ns": ns if ns is not None else next_ns()},
         )
 
     def edits(self) -> dict[str, dict]:

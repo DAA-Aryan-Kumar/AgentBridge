@@ -16,12 +16,13 @@ from ..transport.base import Transport
 from ..transport.folder import FolderTransport
 from .accounts import AccountsService
 from .directory import Directory
+from .keyring import ChatKeyService, KeyStore
 from .membership import MembershipService
 from .messaging import MessagingService
 from .presence import PresenceService
 from .privacy import PrivacyService
 from .receipts import ReceiptsService
-from .sealer import PlainSealer, Sealer
+from .sealer import E2EESealer, PlainSealer, Sealer
 from .sync import SyncEngine
 
 __all__ = ["Mesh"]
@@ -35,6 +36,7 @@ class Mesh:
         machine: str,
         *,
         sealer: Sealer | None = None,
+        encrypt: bool = False,
         store_path: Path | str | None = None,
         home: Path | None = None,
         sync_workers: int = 4,
@@ -46,16 +48,28 @@ class Mesh:
         )
         self.user = user
         self.machine = machine
+        self.home = home or DEFAULT_HOME
 
         if store_path is None:
             root_tag = hashlib.sha1(
                 getattr(self.tx, "root", self.tx.scheme).__str__().encode()
             ).hexdigest()[:12]
-            store_path = (home or DEFAULT_HOME) / "cache" / f"{user}@{machine}-{root_tag}.sqlite"
+            store_path = self.home / "cache" / f"{user}@{machine}-{root_tag}.sqlite"
         self.store = Store(store_path)
 
-        self.sealer = sealer or PlainSealer()
         self.directory = Directory(self.tx)
+        self.keystore = KeyStore(self.home)
+        self.keys = ChatKeyService(self.tx, self.directory, self.keystore, user)
+        # sealer resolution: explicit arg wins; else E2EE when asked, else plain
+        if sealer is not None:
+            self.sealer = sealer
+        elif encrypt:
+            self.sealer = E2EESealer(
+                self.tx, self.directory, self.keys, user,
+                keystore_bundle=lambda: self.keystore.load(self.user),
+            )
+        else:
+            self.sealer = PlainSealer()
         self.privacy = PrivacyService(self.tx, self.directory, user)
         self.messaging = MessagingService(
             self.tx, self.store, self.sealer, user, machine,
@@ -64,11 +78,11 @@ class Mesh:
         )
         self.membership = MembershipService(
             self.tx, self.store, self.directory, self.messaging,
-            privacy=self.privacy,
+            privacy=self.privacy, keys=self.keys,
         )
         self.accounts = AccountsService(
             self.tx, self.directory, self.messaging, self.membership,
-            user, machine,
+            user, machine, keystore=self.keystore,
         )
         self.presence = PresenceService(self.tx, self.privacy, user, machine)
         self.receipts = ReceiptsService(self.messaging, self.privacy, self.presence)

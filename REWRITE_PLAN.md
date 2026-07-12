@@ -189,13 +189,24 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       logical account-level status (available/busy/dnd/…), owner-gated for
       agents, matrix-visible so agents check before disturbing. Closes the
       v1 Delivered stub. 11 new tests (131 total).
-- [ ] **R9 — E2EE.** Identity keypairs; password-wrapped account key in the
-      folder + recovery code (D5); per-chat keys wrapped per member; rotation
-      on membership change; envelope encryption of message bodies, edits, and
-      files (routing metadata stays readable: sender, ns, chat id);
-      `docs/THREAT_MODEL.md`; **migration tool** mesh(v1) → mesh2 (encrypting
-      as it copies). Reference: Signal protocol docs / open clients for
-      patterns, not for wholesale import.
+- [x] **R9 — E2EE. DONE 2026-07-13** — `agentbridge/crypto/` (pure primitives,
+      R1-spike-proven) + `mesh/keyring.py` (KeyStore + ChatKeyService: ns-id
+      epochs, `ensure()` seal-time self-heal for rotation races, history-aware
+      add hook) + `E2EESealer` behind the R4 seam (AAD-bound ChaCha20Poly1305
+      + Ed25519 sig; id/ns minted first for replay-proofing; forged/plaintext
+      injection → blank, never a lie). Accounts grew identity keygen,
+      password+recovery double-wrap (D5), `unlock`/`unlock_with_recovery`,
+      password-change re-wrap. `docs/THREAT_MODEL.md` written. Bodies+edits
+      encrypted; **metadata stays readable by design** (documented). 8 new
+      E2EE tests + all 131 prior green (139 total). File-blob encryption →
+      R13 (no upload path yet); migration tool → **R9.5** (touches live data,
+      isolated review).
+- [ ] **R9.5 — v1→v2 migration tool.** Walk the live `mesh/` tree → v2
+      `mesh2` shape: accounts (PBKDF2→identity-key bootstrap, handle=name),
+      chats (owner→admin, owners[]→single owner), per-sender jsonl →
+      per-device envelopes sealed forward under epoch keys, overlays
+      field-for-field. Dry-run + verification pass; runbook. Prereq for R14
+      cutover; kept OUT of the live tree until then.
 - [ ] **R10 — Events & notifications.** Event bus over the transport watch;
       SSE push channel for the GUI (retires poll-only); web notifications
       (new message, added-to-group); **mute per chat becomes real** (mute =

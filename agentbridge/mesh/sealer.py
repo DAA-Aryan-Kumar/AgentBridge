@@ -1,10 +1,10 @@
 """Sealer — the crypto seam (D4). The messaging service never touches crypto
 directly: it hands a BodyRecord to a Sealer and gets envelope fields back.
 
-``PlainSealer`` is the pre-R9 implementation: the "ciphertext" is just the
-JSON of the body-record (epoch 0, no signature). R9 swaps in the real E2EE
-sealer (per-chat keys, ChaCha20Poly1305, Ed25519 signatures — prototyped in
-spikes/r1/smoke_crypto.py) WITHOUT changing the envelope shape or any caller.
+``PlainSealer``: format-v2 without encryption (epoch 0) — tests, and the
+migration era. ``E2EESealer`` (R9): per-chat epoch keys, ChaCha20Poly1305
+with AAD-bound routing metadata, Ed25519 signatures — same envelope shape,
+zero caller changes (the whole point of the seam).
 """
 
 from __future__ import annotations
@@ -12,15 +12,23 @@ from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
 
-from ..core.models import BodyRecord, Envelope
+from .. import crypto
+from ..core.models import BodyRecord, ChatSnapshot, Envelope
+from ..transport.base import Transport
+from .directory import Directory
+from .keyring import ChatKeyService
+from .paths import P
 
-__all__ = ["Sealer", "PlainSealer"]
+__all__ = ["Sealer", "PlainSealer", "E2EESealer"]
 
 
 class Sealer(ABC):
     @abstractmethod
-    def seal(self, chat_id: str, body: BodyRecord) -> dict:
-        """Return the envelope fields ``{epoch, nonce, ct, sig}``."""
+    def seal(self, chat_id: str, env_id: str, ns: int, body: BodyRecord) -> dict:
+        """Return the envelope fields ``{epoch, nonce, ct, sig}``. The caller
+        mints ``env_id``/``ns`` FIRST so they can be cryptographically bound
+        (replay-proofing: a member can't re-post someone's old ciphertext
+        under a fresh id)."""
 
     @abstractmethod
     def unseal(self, chat_id: str, env: Envelope) -> BodyRecord | None:
@@ -31,7 +39,7 @@ class PlainSealer(Sealer):
     """Format-v2 envelopes without encryption (epoch 0) — pre-R9 and also the
     honest representation for migrated-but-unencrypted test roots."""
 
-    def seal(self, chat_id: str, body: BodyRecord) -> dict:
+    def seal(self, chat_id: str, env_id: str, ns: int, body: BodyRecord) -> dict:
         return {
             "epoch": 0,
             "nonce": "",
@@ -44,6 +52,80 @@ class PlainSealer(Sealer):
             return None  # encrypted envelope, and I'm the plain sealer
         try:
             data = json.loads(env.ct) if env.ct else {}
+        except json.JSONDecodeError:
+            return None
+        return BodyRecord.from_dict(data if isinstance(data, dict) else {})
+
+
+def _aad(chat_id: str, env_id: str, ns: int, sender: str, epoch: int) -> bytes:
+    """Authenticated routing metadata — swap ANY of these fields on disk and
+    the envelope simply refuses to open (no mis-attribution, no replay)."""
+    return f"{chat_id}|{env_id}|{ns}|{sender}|{epoch}".encode()
+
+
+class E2EESealer(Sealer):
+    """The real thing (R9). Seal: ensure a correct epoch (rotating after any
+    membership drift — the race heal), encrypt with AAD-bound metadata, sign
+    with the sender's identity key. Unseal: verify signature, unwrap my epoch
+    copy, decrypt — ANY failure returns None (show nothing rather than lie).
+
+    Epoch-0 plaintext is accepted ONLY while a chat has no epochs at all
+    (pure pre-migration legacy); once a chat has real epochs, unsigned
+    plaintext is refused — otherwise anyone could inject "plaintext from
+    @aryan" into a sealed room.
+    """
+
+    def __init__(
+        self,
+        tx: Transport,
+        directory: Directory,
+        keys: ChatKeyService,
+        user: str,
+        keystore_bundle,  # callable () -> bytes | None (lazy: login may follow init)
+    ) -> None:
+        self.tx = tx
+        self.directory = directory
+        self.keys = keys
+        self.user = user
+        self._bundle = keystore_bundle
+        self._plain = PlainSealer()
+
+    def seal(self, chat_id: str, env_id: str, ns: int, body: BodyRecord) -> dict:
+        bundle = self._bundle()
+        if bundle is None:
+            raise crypto.CryptoFail("identity keys are locked — sign in first")
+        snap_doc = self.tx.get_doc(P.meta(chat_id))
+        if not isinstance(snap_doc, dict):
+            raise crypto.CryptoFail(f"unknown chat {chat_id}")
+        epoch, key = self.keys.ensure(chat_id, ChatSnapshot.from_dict(snap_doc))
+        aad = _aad(chat_id, env_id, ns, self.user, epoch)
+        nonce, ct = crypto.seal_bytes(
+            key, aad, json.dumps(body.to_dict(), ensure_ascii=False).encode()
+        )
+        sig = crypto.sign(bundle, aad + b"|" + nonce.encode() + b"|" + ct.encode())
+        return {"epoch": epoch, "nonce": nonce, "ct": ct, "sig": sig}
+
+    def unseal(self, chat_id: str, env: Envelope) -> BodyRecord | None:
+        if env.epoch == 0:
+            if self.keys.latest(chat_id) is None:
+                return self._plain.unseal(chat_id, env)  # pure legacy chat
+            return None  # plaintext injected into a sealed room: refused
+        sender = self.directory.get(env.from_)
+        if sender is None or not sender.keys.sign_pub:
+            return None
+        aad = _aad(chat_id, env.id, env.ns, env.from_, env.epoch)
+        signed = aad + b"|" + env.nonce.encode() + b"|" + env.ct.encode()
+        if not crypto.verify(sender.keys.sign_pub, env.sig, signed):
+            return None
+        key = self.keys.my_key(chat_id, env.epoch)
+        if key is None:
+            return None  # not my epoch (removed member / pre-join, no history)
+        try:
+            raw = crypto.unseal_bytes(key, aad, env.nonce, env.ct)
+        except crypto.CryptoFail:
+            return None
+        try:
+            data = json.loads(raw)
         except json.JSONDecodeError:
             return None
         return BodyRecord.from_dict(data if isinstance(data, dict) else {})

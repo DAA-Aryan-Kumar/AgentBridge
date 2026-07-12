@@ -129,9 +129,11 @@ Written only by the account itself (agents: by their owner/harness machine).
 ```
 
 The decrypted **body-record** carries what v1 kept in the clear:
-`{body, tags, reply_to, files, fwd}`. Tags must be inside the ciphertext
-(they reveal content); the harness re-parses them after decrypt. **OPEN(R9):**
-exact AAD layout and canonical signing bytes.
+`{body, tags, reply_to, files, fwd}`. Tags are inside the ciphertext (they
+reveal content); the harness re-parses them after decrypt. **SETTLED R9:**
+AAD = `chat_id|id|ns|from|epoch`; the Ed25519 signature covers
+`AAD + "|" + nonce + "|" + ct`. Edits are sealed the same way binding
+`(msg_id, edit_ns)` with the author as sender.
 
 ### Info events (plaintext, the source of truth for chat state)
 
@@ -192,12 +194,17 @@ toward its own unread — no cross-user write exists (that was v1's blocker).
 throttled heartbeat (~10–15s, write-on-change); readers merge all devices to
 ONE logical status (newest wins). Powers online/last-seen, Delivered, Mute.
 
-### Chat keys — `keys/<epoch>.json`  OPEN(R9)
-`{"epoch": 3, "by": "aryan", "reason_ns": …, "wrapped": {"aryan": {…}, "claude": {…}}}`
-One file per epoch = single-writer (the member who triggered the rotation).
-Senders encrypt under the highest epoch they hold; readers try the epoch named
-in the envelope. A removed member keeps old epochs (history) but never sees new
-ones (D4 semantics, proven in `spikes/r1/smoke_crypto.py`).
+### Chat keys — `keys/<epoch>.json`  (SETTLED R9)
+`{"epoch": <ns>, "by": "aryan", "created": "<iso>", "wrapped": {"aryan": {eph,nonce,ct}, …}}`
+**epoch id = ns ordinal** (concurrent rotations never collide on a filename);
+one file per epoch = single-writer (the member who rotated). Each member's
+chat key is wrapped via ephemeral-X25519 ECDH → HKDF → ChaCha20Poly1305.
+Senders seal under the epoch `keyring.ensure()` picks (it rotates first if the
+newest epoch's member set drifted from the snapshot — the race self-heal);
+readers try the epoch named in the envelope. A removed member keeps old epochs
+(history) but never gets a new one (D4). Normative code: `agentbridge/crypto/`
++ `agentbridge/mesh/keyring.py`; rationale in `docs/THREAT_MODEL.md`.
+**Blob files** stay `OPEN(R13)` — no upload path in v2 until the GUI connector.
 
 ## Local (per-machine, NOT synced) — `~/.agentbridge/`
 

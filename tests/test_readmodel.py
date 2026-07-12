@@ -10,7 +10,7 @@ SEALER = PlainSealer()
 def env(msg_id, ns, sender, body="", kind=MsgKind.MESSAGE, **body_kw):
     e = Envelope(id=msg_id, ns=ns, ts="t", from_=sender, kind=kind)
     if kind is MsgKind.MESSAGE:
-        sealed = SEALER.seal("c", BodyRecord(body=body, **body_kw))
+        sealed = SEALER.seal("c", msg_id, ns, BodyRecord(body=body, **body_kw))
         e.epoch, e.nonce, e.ct, e.sig = (
             sealed["epoch"], sealed["nonce"], sealed["ct"], sealed["sig"],
         )
@@ -36,7 +36,7 @@ def test_dedup_and_ns_order_with_ties():
 
 def test_edit_applies_author_only_and_redaction_wins():
     envs = [env("m1", 1, "ann", "original secret")]
-    edit = {**SEALER.seal("c", BodyRecord(body="edited", tags=[])),
+    edit = {**SEALER.seal("c", "m1", 9, BodyRecord(body="edited", tags=[])),
             "by": "ann", "at": "t2", "ns": 9}
     out = build_messages("c", "bob", envs, SEALER, edits={"m1": edit})
     assert out[0].body == "edited" and out[0].edited["ns"] == 9
@@ -98,7 +98,8 @@ def test_unread_info_including_edit_marks_unread():
         env("m2", 20, "ann", "new"),
         env("m3", 30, "me", "mine doesn't count"),
     ]
-    edit = {**SEALER.seal("c", BodyRecord(body="old v2")), "by": "ann", "at": "t", "ns": 25}
+    edit = {**SEALER.seal("c", "m1", 25, BodyRecord(body="old v2")),
+            "by": "ann", "at": "t", "ns": 25}
     msgs = build_messages("c", "me", envs, SEALER, edits={"m1": edit})
 
     info = unread_info(msgs, "me", {"read_ns": 15})
