@@ -60,12 +60,18 @@ def can_add_members(snap: ChatSnapshot, user: str, agent_owner: str | None = Non
     return _member_or_admin(snap, user, snap.permissions.add_members)
 
 
-def can_remove_member(snap: ChatSnapshot, user: str, *, is_agent: bool = False) -> bool:
+def can_remove_member(
+    snap: ChatSnapshot, user: str, *, is_agent: bool = False, owns_target: bool = False
+) -> bool:
     """Admins only — and agents NEVER remove members, even if some future
-    path handed one elevated rights (defense in depth)."""
+    path handed one elevated rights (defense in depth). ONE exception
+    (R7.1, D19): a member may always remove THEIR OWN agent from any room,
+    admin or not — the responsible member's oversight beats room roles."""
     if is_agent:
         return False
-    return snap.kind is ChatKind.GROUP and is_admin(snap, user)
+    if snap.kind is not ChatKind.GROUP:
+        return False
+    return owns_target or is_admin(snap, user)
 
 
 def can_grant_admin(snap: ChatSnapshot, user: str) -> bool:

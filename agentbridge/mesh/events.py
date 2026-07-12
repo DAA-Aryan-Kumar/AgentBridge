@@ -119,7 +119,9 @@ def _apply(snap: ChatSnapshot, env: dict, d: Resolver) -> None:
         if fixed_membership or who == author or who not in snap.members:
             return
         if not authz.can_remove_member(
-            snap, author, is_agent=d.kind(author) is UserKind.AGENT
+            snap, author,
+            is_agent=d.kind(author) is UserKind.AGENT,
+            owns_target=(d.kind(who) is UserKind.AGENT and d.owner_of(who) == author),
         ):
             return
         del snap.members[who]

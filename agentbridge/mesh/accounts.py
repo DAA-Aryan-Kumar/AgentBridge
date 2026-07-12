@@ -260,8 +260,10 @@ class AccountsService:
 
     # ------------------------------------------------------------- lifecycle
     def set_machine_agents_active(self, active: bool) -> list[str]:
-        """Sign-out/in on THIS machine: flip only this machine's agents.
-        Membership is untouched — a re-login restores service."""
+        """The EXPLICIT stand-down/resume switch for this machine's agents.
+        NOT wired to logout (D19, Aryan 2026-07-13): signing out leaves agents
+        running — they belong to the account, not the login session.
+        Membership is untouched either way."""
         changed = []
         for name in self._owned_agents():
             acc = self.directory.get(name)
@@ -269,6 +271,47 @@ class AccountsService:
                 self.directory.patch(name, lambda doc: doc.update(active=active))
                 changed.append(name)
         return changed
+
+    def claim_machine_agents(self) -> list[str]:
+        """Login-on-this-machine ownership transfer (D19): the signed-in
+        member becomes the responsible member for agents hosted HERE. The
+        invariant then self-enforces the fallout — in any room where the old
+        owner sat but the new one doesn't, the agent cascades out on the next
+        fold. Called by the sign-in flow (R13)."""
+        me = self.directory.get(self.user)
+        if me is None or me.kind is not UserKind.HUMAN:
+            raise PermissionDenied("only a signed-in member can claim agents")
+        claimed = []
+        for path in self.tx.list_docs("users"):
+            doc = self.tx.get_doc(path)
+            agent_info = (doc or {}).get("agent") or {}
+            if (
+                isinstance(doc, dict)
+                and agent_info.get("machine") == self.machine
+                and agent_info.get("owner") not in ("", self.user)
+            ):
+                name = doc["name"]
+                self.directory.patch(
+                    name, lambda d: d.setdefault("agent", {}).update(owner=self.user)
+                )
+                claimed.append(name)
+        return sorted(claimed)
+
+    def delete_agent(self, agent: str) -> None:
+        """Owner-initiated agent deletion (soft, like every deletion): remove
+        it from every room (the owner may ALWAYS remove their own agent —
+        admin or not, D19), deactivate the account, drop the local keys.
+        The name stays resolvable; transcripts grey it out."""
+        self._writable_target(agent)  # owner gate
+        for snap in self.membership.chats_for():  # agent rooms ⊆ owner rooms
+            if snap.kind is ChatKind.GROUP and agent in snap.members:
+                try:
+                    self.membership.remove_member(snap.id, agent)
+                except Exception:  # noqa: BLE001 — deletion must not wedge
+                    continue
+        self.directory.patch(agent, lambda doc: doc.update(
+            active=False, deactivated=utcnow_iso()))
+        self.keystore.forget(agent)
 
     def delete_account(self, password: str) -> None:
         """Soft deletion (product spec): messages stay under the name (GUI
@@ -300,6 +343,13 @@ class AccountsService:
 
     def _writable_target(self, agent: str | None) -> str:
         if agent is None:
+            # D19: an agent identity can NEVER self-manage its account —
+            # profile, status, privacy all belong to the responsible member
+            # (and only through the GUI; the CLI/MCP surface never offers them)
+            if self.directory.kind(self.user) is UserKind.AGENT:
+                raise PermissionDenied(
+                    "an agent's account settings are managed by its responsible member"
+                )
             return self.user
         if self.directory.kind(agent) is not UserKind.AGENT:
             raise ValidationError(f"@{agent} is not an agent")

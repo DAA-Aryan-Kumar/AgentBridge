@@ -218,7 +218,11 @@ class MembershipService:
             raise ValidationError(f"@{who} is not a member")
         if self.directory.kind(self.user) is UserKind.AGENT:
             raise PermissionDenied("agents can add members but never remove them")
-        if not authz.can_remove_member(snap, self.user):
+        owns_target = (
+            self.directory.kind(who) is UserKind.AGENT
+            and self.directory.owner_of(who) == self.user
+        )
+        if not authz.can_remove_member(snap, self.user, owns_target=owns_target):
             raise PermissionDenied("only an admin can remove members")
         self.messaging.post_event(
             chat_id, {"type": events.EV_MEMBER_REMOVED, "who": who, "by": self.user}

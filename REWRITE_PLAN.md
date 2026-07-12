@@ -69,6 +69,7 @@ cryptographically (E2EE), not just at app level.
 | D14 | **Emoji reactions are IN, low priority** (Aryan 2026-07-12): data layer rides R4 as one more per-user overlay; frontend surface whenever convenient, never blocking a round. | **APPROVED 2026-07-12** |
 | D15 | Embeddings behind our own interface with a **runtime probe chain**: fastembed → model2vec (pure numpy) → ollama → API. Cause: onnxruntime DLLs blocked on corporate-managed Windows (incl. the dev box). Details in `docs/DECISIONS.md`. | decided R1 |
 | D18 | **Agent oversight model (Aryan's correction 2026-07-12, REVERSES the original "no owner ride-along" line):** owners always ride along when their agent messages anyone; every chat born from messaging an agent (auto_dm, either direction) or created by an agent makes **all humans at genesis admins** (agents never); pull-ins into preexisting groups join as plain members; **agents may add members, never remove**; agent adds governed by two new group toggles — `agents_add_if_owner_admin` (default ON) and `agents_add_if_members_can` (default OFF). "Agents only" messaging audience gates who may KNOCK; the owner comes in regardless. Bottom line: nothing without oversight. | **APPROVED 2026-07-12** |
+| D19 | **Agent lifecycle rules (Aryan 2026-07-13):** owner deletion soft-deactivates all their agents (already R7); **logout does NOT touch agents** — they belong to the account, not the session (the explicit stand-down switch remains); **login claims this machine's agents** (`claim_machine_agents` — ownership transfers to the signed-in member; the invariant cascades the agent out of rooms the new owner isn't in); owners get `delete_agent` + a standing rule: **a member may always remove their own agent from any room, admin or not** (write + fold enforced); **agents never self-manage their account** (profile/status/privacy/blocks are owner-only, GUI-only — the CLI/MCP surface never exposes them); every human account option is owner-manageable for agents (avatar rides R13). | **APPROVED 2026-07-13** |
 | D16 | Graph memory default = **mem0 v2 built-in entity linking** (embedded in local qdrant, zero servers). Graphiti-grade KG = optional, server-backed, later (Kuzu archived; FalkorDB-Lite has no Windows wheels). | decided R1 |
 | D17 | **CPython 3.12** pinned via uv (`llama-index-embeddings-fastembed` needs <3.13; ML wheel lag on newer). `requires-python >=3.11`. | decided R1 |
 | D8 | Nothing model-specific is hardcoded. Adapters + JSON preconfigs for **claude, codex, grok, ollama, deepseek**; a model/CLI is data. API-based adapters later behind the same interface. | agreed (mission) |
@@ -220,8 +221,9 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
 - [ ] **R12 — mesh-cli v2 (MCP).** MCP server exposing the mesh as tools/
       resources/notifications (per D9) + human CLI (auth = humans only;
       account creation stays GUI-only); **capability parity audit**: agents
-      can do everything humans can via CLI except account creation — pin,
-      star, create group/DM (gated by R6), status, etc.
+      can do everything humans can via CLI **except account-related options**
+      (D19: profile/status/privacy/blocks/handle are owner-only via GUI — the
+      MCP surface never exposes them) and account creation.
 
 ### Phase 2 — GUI cutover
 
@@ -245,7 +247,10 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       after downtime ("how would a human catch up" — triage, batch, don't spam
       N replies); conversation manager: every message delivered to the agent
       arrives enriched (sender, their CURRENT status e.g. went-dnd, online/
-      last-seen, reply-to context, edits applied).
+      last-seen, reply-to context, edits applied). **Built-in agent TIMERS
+      (Aryan 2026-07-13):** an agent can schedule its own wake-up (e.g.
+      "target is dnd — retry at 15:00"), handled like the notification
+      machinery; both timers AND notifications are visible to the owner.
 - [ ] **R16 — Model registry & adapters.** Adapter interface (subprocess CLI
       today, API later — same contract per D8); JSON preconfigs: claude,
       codex, grok, ollama, deepseek; **model picker + reasoning effort**

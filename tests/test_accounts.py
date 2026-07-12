@@ -174,3 +174,95 @@ def test_deleted_account_dm_gate_on_create_too(world):
     aryan.accounts.delete_account("aryan-pass")
     with pytest.raises(PermissionDenied):
         fable.create_dm("aryan")
+
+
+# ------------------------------------------------- R7.1 agent lifecycle (D19)
+
+def test_owner_removes_own_agent_without_admin(world):
+    """The oversight rule: a member may always remove THEIR agent from any
+    room — admin or not; other non-admins still can't."""
+    meshes, mk = world
+    aryan, fable = meshes["aryan"], meshes["fable"]
+    aryan.accounts.create_agent("claude")
+    group = fable.create_chat("Fables room", members=["aryan", "claude"])
+    fable.outbox.flush_once()
+    aryan.sync.sync_once([group.id])
+    assert group.members["aryan"].role.value == "member"  # aryan NOT admin
+
+    sudhir = mk("sudhir")
+    try:
+        with pytest.raises(Exception):  # noqa: B017 — non-member/non-owner path
+            sudhir.remove_member(group.id, "claude")
+        healed = aryan.remove_member(group.id, "claude")  # owner: allowed
+        assert "claude" not in healed.members
+    finally:
+        sudhir.close()
+
+
+def test_delete_agent_full_lifecycle(world):
+    meshes, _ = world
+    aryan, fable = meshes["aryan"], meshes["fable"]
+    aryan.accounts.create_agent("claude")
+    room = aryan.create_chat("Working room", members=["fable", "claude"])
+
+    with pytest.raises(PermissionDenied):
+        fable.accounts.delete_agent("claude")   # not the responsible member
+
+    aryan.accounts.delete_agent("claude")
+    assert aryan.directory.get("claude").active is False
+    assert aryan.keystore.load("claude") is None            # local keys gone
+    healed = aryan.membership.refold(room.id)
+    assert "claude" not in healed.members                   # out of the room
+    assert aryan.directory.display("claude") == "Claude"    # name resolvable
+
+
+def test_forged_agent_removal_by_non_owner_ignored_in_fold(world):
+    meshes, _ = world
+    aryan = meshes["aryan"]
+    aryan.accounts.create_agent("claude")
+    room = aryan.create_chat("Hold", members=["fable", "claude"])
+    aryan.outbox.flush_once()
+    # fable is a plain member, not admin, not the owner — her removal event
+    # must not take effect in the fold
+    aryan.tx.append_log(room.id, "fable@else", {
+        "id": "x1", "ns": 10**18, "ts": "t", "from": "fable", "kind": "info",
+        "event": {"type": "member_removed", "who": "claude", "by": "fable"},
+    })
+    aryan.sync.sync_once([room.id])
+    healed = aryan.membership.refold(room.id)
+    assert "claude" in healed.members
+
+
+def test_agents_cannot_self_manage_account(world):
+    meshes, mk = world
+    meshes["aryan"].accounts.create_agent("claude")
+    claude = mk("claude")
+    try:
+        for call in (
+            lambda: claude.accounts.set_status("busy"),
+            lambda: claude.accounts.set_about("self-written"),
+            lambda: claude.accounts.set_display("Self Named"),
+            lambda: claude.accounts.set_handle("sneaky"),
+            lambda: claude.privacy.set_privacy({"messaging": "nobody"}),
+            lambda: claude.privacy.block("fable"),
+        ):
+            with pytest.raises(PermissionDenied):
+                call()
+    finally:
+        claude.close()
+
+
+def test_claim_machine_agents_transfers_ownership(world):
+    meshes, _ = world
+    aryan, fable = meshes["aryan"], meshes["fable"]
+    aryan.accounts.create_agent("claude")               # on mach1, owner aryan
+    room = aryan.create_chat("Only aryan here", members=["claude"])
+
+    claimed = fable.accounts.claim_machine_agents()     # fable signs in, mach1
+    assert claimed == ["claude"]
+    assert fable.directory.owner_of("claude") == "fable"
+
+    # invariant fallout: fable isn't in aryan's room -> claude cascades out
+    healed = aryan.membership.refold(room.id)
+    assert "claude" not in healed.members
+    assert set(healed.members) == {"aryan"}

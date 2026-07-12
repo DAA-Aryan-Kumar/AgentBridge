@@ -233,6 +233,11 @@ class PrivacyService:
 
     def _writable_target(self, agent: str | None) -> str:
         if agent is None:
+            # D19: agents never self-manage privacy/blocks — owner-only
+            if self.directory.kind(self.user) is UserKind.AGENT:
+                raise PermissionDenied(
+                    "an agent's privacy settings are managed by its responsible member"
+                )
             return self.user
         self._require_owned_agent(agent)
         return agent
