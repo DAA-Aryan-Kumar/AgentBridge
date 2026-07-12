@@ -354,6 +354,19 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
         E2EE, SSE-realtime app over the Mesh facade, shape-compatible with the
         shared frontend. NEXT: **R13.5** (fold genesis integrity — MUST land
         before R14), then **R14** (live migration + cutover).
+  - [x] **R13 hardening (the Windows-CI flake, 3 real fixes).** v0.24.67:
+        `read_json` retries transient locks (a reader hitting another
+        thread's `os.replace` spuriously read "no such chat"). v0.24.72:
+        64 striped in-process I/O locks shared by JSON read/write (Windows
+        `os.replace` fails while ANY same-process handle is open — CPython
+        opens without FILE_SHARE_DELETE). v0.24.73: **refold treats the meta
+        write as a CACHE write (tenet 3)** — a transiently blocked write
+        (CI's scanner holds fresh files past six backoffs) logs + defers
+        instead of failing the user action; the next mutation heals the
+        snapshot. Plus a fresh tmp name per retry attempt. Each fix carries a
+        regression test (incl. multi-writer/multi-reader stress). These are
+        LIVE-MESH-relevant fixes (OneDrive locks behave like the scanner),
+        found because the GUI tests run the full concurrent stack.
 - [ ] **R14 — Migration & live cutover.** Run the R9 migration on the real
       folder; dual-run validation window; GUI + local worker switch to v2;
       coordinated CoCo/AVD update (runbook like PHASE2_COCO_CUTOVER.md);
