@@ -54,6 +54,16 @@ class Directory:
                 return doc.get("name")
         return None
 
+    def names(self) -> list[str]:
+        """Every account name on the mesh (the GUI's people picker reads
+        this; per-viewer field filtering stays PrivacyService's job)."""
+        out = []
+        for path in self.tx.list_docs("users"):
+            leaf = path.rsplit("/", 1)[-1]
+            if leaf.endswith(".json"):
+                out.append(leaf[:-5])
+        return sorted(out)
+
     def handle_taken(self, handle: str) -> bool:
         """True if ``handle`` collides with ANY existing name or handle."""
         handle = (handle or "").lower()

@@ -257,11 +257,39 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
 
 ### Phase 2 — GUI cutover
 
-- [ ] **R13 — GUI connector rewrite.** `gui/server.py` rebuilt as a thin
-      connector over the mesh facade (HTTP API kept shape-compatible where
-      sane; unclean endpoints redesigned + `api.js` updated); SSE wiring in
-      the frontend; new settings surfaces: privacy matrix, status/about,
-      admins & group permissions (screenshot UI), model picker scaffold.
+- [ ] **R13 — GUI connector rewrite.** The NEW server lives at
+      `agentbridge/gui/` (the v1 `gui/server.py` keeps serving the live app
+      untouched until R14 — cutover is a launcher flip); ONE shared frontend
+      speaks both dialects via a caps probe until R14 retires v1.
+      Decomposed (rule 5):
+  - [x] **R13a — connector core. DONE 2026-07-13** — `agentbridge/gui/`
+        (context/routing/serialize/api_auth/api_chats/sse/app): stdlib
+        ThreadingHTTPServer on 127.0.0.1 serving `gui/static/` + JSON API
+        over the facade; session survives restarts via local
+        `gui_session.json` + keystore (no password re-entry); signup returns
+        the ONE-TIME recovery code; login runs `accounts.upgrade_login`
+        (NEW: pbkdf2→scrypt re-hash + identity-key provisioning for
+        migrated v1 accounts — the code is returned to show once); failed
+        login/signup never drops the current session; SSE
+        `/api/mesh/events` off the R10 bus (minimal frames — no body ever
+        rides the stream, client refetches via the read model); state/chat
+        payloads emit v1+v2 spellings (`admins` + `owners`-compat, `handle`,
+        per-user `archived`). Read-side helpers: `Directory.names()`,
+        `messaging.chat_overview()` (one-pass sidebar), `my_state()`.
+        pytest-timeout added (R3 CI-hang lesson). 8 HTTP-level tests over
+        real sockets incl. E2EE peer delivery + SSE + traversal guard
+        (187 total).
+  - [ ] **R13b — endpoint parity + sealed file blobs.** Every remaining v1
+        endpoint over the facade + upload staging + `Sealer.seal_blob`/
+        `open_blob` (file bytes under chat keys — closes OPEN(R13)) +
+        `/api/mesh/file` decrypt-serve + avatar audience enforcement.
+  - [ ] **R13c — frontend wiring.** Caps probe (v1 poll vs v2 SSE+poll
+        fallback), shape adapters; the OLD app must keep working after
+        every frontend edit (it shares the modules).
+  - [ ] **R13d — new settings surfaces (v2-gated).** Recovery-code modal,
+        password+handle change, status/about, privacy matrix, admins &
+        group permissions (screenshot UI), model picker scaffold,
+        Delivered tick.
 - [ ] **R14 — Migration & live cutover.** Run the R9 migration on the real
       folder; dual-run validation window; GUI + local worker switch to v2;
       coordinated CoCo/AVD update (runbook like PHASE2_COCO_CUTOVER.md);

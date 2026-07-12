@@ -234,6 +234,36 @@ class MessagingService:
             self.messages_for(chat_id), self.user, self._state(chat_id).get()
         )
 
+    def chat_overview(self, chat_id: str) -> dict:
+        """One-pass sidebar payload: last visible message + unread info + my
+        per-chat flags. Folds the chat once (vs unread()+tail separately)."""
+        msgs = self.messages_for(chat_id)
+        state = self._state(chat_id).get()
+        last = next(
+            (m for m in reversed(msgs) if m.kind is MsgKind.MESSAGE), None
+        )
+        return {
+            "last": last,
+            **unread_info(msgs, self.user, state),
+            "archived": bool(state.get("archived")),
+            "pinned": bool(state.get("pinned")),
+            "mute": state.get("mute", False),
+        }
+
+    def my_state(self, chat_id: str) -> dict:
+        """My sanitized per-chat state for the transcript view (starred ids +
+        read cursor + flags) — never the raw overlay document."""
+        self._require_member(chat_id)
+        state = self._state(chat_id).get()
+        return {
+            "starred": list(state.get("starred", [])),
+            "read_ns": int(state.get("read_ns", 0)),
+            "archived": bool(state.get("archived")),
+            "pinned": bool(state.get("pinned")),
+            "forced_unread": bool(state.get("forced_unread")),
+            "mute": state.get("mute", False),
+        }
+
     def pins(self, chat_id: str) -> dict[str, dict]:
         self._require_member(chat_id)
         return ChatOverlays(self.tx, chat_id).pins()

@@ -39,6 +39,9 @@ cloud = [
 [dependency-groups]
 dev = [
     "pytest>=8",
+    # threaded HTTP/SSE tests get a hard cap: a hang fails in seconds
+    # instead of stalling the whole run (the R3 CI-hang lesson)
+    "pytest-timeout>=2.3",
     "ruff>=0.8",
 ]
 

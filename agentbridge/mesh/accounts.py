@@ -167,6 +167,40 @@ class AccountsService:
             return False
         return False
 
+    def upgrade_login(self, name: str, password: str) -> str | None:
+        """Bring a migrated v1 account up to v2 on its first successful
+        sign-in (call ONLY after ``verify_password`` said yes): a pbkdf2 auth
+        record is re-hashed as scrypt, and identity keys are provisioned when
+        absent — in that case the ONE-TIME recovery code is returned so the
+        GUI can show it (D5). Returns None when nothing needed doing."""
+        doc = self.tx.get_doc(P.user(name))
+        if not isinstance(doc, dict):
+            return None
+        changed = False
+        code: str | None = None
+        auth = doc.get("auth") or {}
+        if auth.get("algo") == "pbkdf2":
+            salt = os.urandom(16)
+            doc["auth"] = {"algo": "scrypt", "salt": _b64(salt),
+                           "hash": _b64(_scrypt(password, salt))}
+            changed = True
+        keys = doc.get("keys") or {}
+        if not keys.get("sign_pub"):
+            bundle = crypto.generate_identity()
+            sign_pub, agree_pub = crypto.identity_pubs(bundle)
+            code = crypto.new_recovery_code()
+            doc["keys"] = {
+                "sign_pub": sign_pub,
+                "agree_pub": agree_pub,
+                "wrapped_priv": crypto.wrap_bundle(bundle, password),
+                "recovery": crypto.wrap_bundle(bundle, code),
+            }
+            self.keystore.save(name, bundle)
+            changed = True
+        if changed:
+            self.tx.put_doc(P.user(name), doc)
+        return code
+
     def change_password(self, old: str, new: str) -> None:
         """Re-hash with a fresh salt AND re-wrap the identity bundle under
         the new password in the same operation (D5) — the recovery-code wrap

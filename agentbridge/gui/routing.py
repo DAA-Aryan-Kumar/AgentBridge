@@ -1,0 +1,60 @@
+"""Request/response primitives shared by the endpoint modules."""
+
+from __future__ import annotations
+
+import functools
+import json
+from dataclasses import dataclass, field
+
+from ..core.errors import AgentBridgeError
+
+__all__ = ["Request", "Response", "authed", "dispatch"]
+
+
+@dataclass
+class Request:
+    method: str = "GET"
+    path: str = ""
+    params: dict = field(default_factory=dict)  # query string (GET)
+    data: dict = field(default_factory=dict)    # JSON body (POST)
+
+    def int_param(self, name: str, default: int, lo: int, hi: int) -> int:
+        try:
+            return max(lo, min(hi, int(self.params.get(name, default))))
+        except (TypeError, ValueError):
+            return default
+
+
+@dataclass
+class Response:
+    """Non-JSON replies (files, avatars). JSON handlers just return a dict."""
+
+    body: bytes = b""
+    status: int = 200
+    ctype: str = "application/octet-stream"
+    headers: dict = field(default_factory=dict)
+
+
+def authed(fn):
+    """Endpoints that need a signed-in session. The handler receives the
+    live Mesh as a third argument so it can't forget the check."""
+
+    @functools.wraps(fn)
+    def wrapper(app, req):
+        mesh = app.mesh
+        if mesh is None:
+            return {"error": "Sign in first"}
+        return fn(app, req, mesh)
+
+    return wrapper
+
+
+def dispatch(handler, app, req):
+    """Run one endpoint with the v1 error contract: domain errors come back
+    as ``{"error": ...}`` JSON (HTTP 200), never as an HTML error page."""
+    try:
+        return handler(app, req)
+    except AgentBridgeError as e:
+        return {"error": str(e)}
+    except json.JSONDecodeError:
+        return {"error": "malformed JSON body"}
