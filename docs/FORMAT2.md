@@ -26,6 +26,13 @@ Owner: R2 (this draft) → finalized progressively by R3 (transport/store), R5
 5. **Transport-agnostic.** This spec describes logical paths/records. The
    synced-folder driver maps them to files; the Supabase driver maps them to
    tables + storage. Nothing below assumes a filesystem.
+6. **Change watching is a HINT, polling is the truth** (v1 DirWatcher lesson:
+   OneDrive doesn't reliably notify for files synced DOWN from another
+   machine). Watchers wake the sync loop early; the loop's rescan — driven by
+   log sizes + stored byte offsets (`read_log(chat, log, offset)`) — is what
+   actually finds changes. Offsets only advance past COMPLETE lines, so a
+   half-synced trailing line is picked up whole on a later pass; a shrunken
+   file (sync conflict) resets its offset and heals via id-dedup in the cache.
 
 ## Root layout
 
@@ -39,7 +46,11 @@ mesh2/
   chats/<chat_id>/
     meta.json                      materialized snapshot (rebuildable cache)
     keys/<epoch>.json              wrapped chat keys, one file per epoch        OPEN(R9)
-    msgs/<sender>.jsonl            envelope records, append-only, single-writer
+    msgs/<sender>@<machine>.jsonl  envelope records, append-only, single-writer
+                                   (PER-DEVICE: a human on two machines writes
+                                   two logs — sync conflicts stay impossible;
+                                   readers fold all logs by ns and the envelope
+                                   still carries plain `from`)
     overlays/
       edits.json                   {msg_id: envelope}     (chat-level, author-guarded)
       redactions.json              {msg_id: {by, at}}     (chat-level, sender-only)

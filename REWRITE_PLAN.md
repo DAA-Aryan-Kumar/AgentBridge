@@ -107,12 +107,17 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
 
 ### Phase 1 — Mesh core (rounds run against scratch roots; live mesh untouched)
 
-- [ ] **R3 — Transport + store.** Transport base interface
-      (read/write/list/watch/local_path, per-connector upload cap carried
-      over); synced-folder driver with change-watch (DirWatcher + poll
-      fallback); SQLite store: message cache, per-chat ns-cursors, **durable
-      outbox queue** (send survives crash; retry with backoff; no message ever
-      lost on a failed send) — backlog "local caching" lands here.
+- [x] **R3 — Transport + store. DONE 2026-07-12** — `agentbridge/transport/`
+      (base interface + FolderTransport: retrying writes, incremental
+      `read_log` by byte offset that never consumes a half-synced line,
+      traversal guard, ported ReadDirectoryChangesW hint-watcher) +
+      `agentbridge/store/` (SQLite WAL cache, offsets/cursors/doc-cache,
+      **lease-based durable outbox** + OutboxWorker: transient failures retry
+      forever, only structural failures go dead, crash-mid-send self-heals via
+      lease expiry). 30 new tests incl. OneDrive-reality cases; live Windows
+      watcher test green. FORMAT2 updated: **per-device logs**
+      `msgs/<sender>@<machine>.jsonl` (multi-device humans can't fork a file)
+      + tenet 6 (watch=hint, poll=truth).
 - [ ] **R4 — Messaging service.** Post/fetch; edits, redactions/tombstones,
       forward, pins, stars as overlays (per-user overlays merge-never-
       overwrite); the single membership-filtered read choke-point (successor
