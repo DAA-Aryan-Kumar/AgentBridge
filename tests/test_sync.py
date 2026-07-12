@@ -7,7 +7,10 @@ from agentbridge.transport.folder import FolderTransport
 
 def seed(tx, chat_id, sender, n, start=1):
     for i in range(n):
-        tx.append_log(chat_id, f"{sender}@m", {"id": f"{chat_id}-m{start + i}", "ns": start + i})
+        # `from` must be the log owner — the sync ingestion sanity check
+        # (R13.5) drops records that claim another identity
+        tx.append_log(chat_id, f"{sender}@m",
+                      {"id": f"{chat_id}-m{start + i}", "ns": start + i, "from": sender})
 
 
 def test_parallel_catchup_across_chats(tmp_path):
@@ -86,3 +89,18 @@ def test_run_loop_stops_cleanly(tmp_path):
     t.join(5.0)
     assert not t.is_alive() and seen and seen[0] == 2
     store.close()
+
+
+def test_ingestion_drops_records_claiming_another_identity(tmp_path):
+    """R13.5: a per-device log is single-writer, so sync drops any record whose
+    `from` isn't the log's owner — a client can't smuggle records attributed
+    to someone else through its own log."""
+    tx = FolderTransport(tmp_path / "mesh2")
+    # eve's log carries one honest record and one spoofed as "ann"
+    tx.append_log("c1", "eve@m", {"id": "ok", "ns": 1, "from": "eve"})
+    tx.append_log("c1", "eve@m", {"id": "spoof", "ns": 2, "from": "ann"})
+    store = Store(tmp_path / "cache.sqlite")
+    eng = SyncEngine(tx, store)
+    eng.sync_chat("c1")
+    ids = {r.get("id") for r in store.messages("c1")}
+    assert ids == {"ok"}   # the spoofed record never entered the store

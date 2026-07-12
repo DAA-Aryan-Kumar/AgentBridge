@@ -20,6 +20,7 @@ from ..core.timekit import new_id, next_ns, utcnow_iso
 from ..store.db import Store
 from ..transport.base import Transport
 from . import authz
+from .events import signing_bytes
 from .overlays import ChatOverlays, UserState
 from .paths import P
 from .readmodel import build_messages, parse_tags, unread_info
@@ -41,6 +42,7 @@ class MessagingService:
         *,
         notify_outbox=lambda: None,
         privacy=None,  # PrivacyService, wired by the Mesh facade (avoids a cycle)
+        event_signer=lambda data: "",  # (bytes)->sig; facade wires the identity
     ) -> None:
         self.tx = tx
         self.store = store
@@ -49,6 +51,7 @@ class MessagingService:
         self.machine = machine
         self._notify_outbox = notify_outbox
         self.privacy = privacy
+        self._sign_event = event_signer
 
     # ------------------------------------------------------------- membership
     def snapshot(self, chat_id: str) -> ChatSnapshot:
@@ -107,16 +110,21 @@ class MessagingService:
         return env
 
     # ------------------------------------------------------------ info events
-    def build_event(self, event: dict) -> Envelope:
-        """An INFO envelope — plaintext, it IS the chat-state log (FORMAT2)."""
-        return Envelope(
+    def build_event(self, chat_id: str, event: dict) -> Envelope:
+        """An INFO envelope — plaintext, it IS the chat-state log (FORMAT2).
+        Signed with the author's identity key (R13.5) so the fold can reject
+        a forged event attributed to someone else; unsigned only when this
+        identity has no key yet (migrated/pre-upgrade)."""
+        env = Envelope(
             id=new_id("m"), ns=next_ns(), ts=utcnow_iso(), from_=self.user,
             kind=MsgKind.INFO, event=event,
         )
+        env.sig = self._sign_event(signing_bytes(chat_id, env.to_dict()))
+        return env
 
     def post_event(self, chat_id: str, event: dict) -> Envelope:
         self._require_member(chat_id)
-        env = self.build_event(event)
+        env = self.build_event(chat_id, event)
         self.commit_envelope(chat_id, env)
         return env
 

@@ -510,3 +510,48 @@ def test_refold_survives_transient_meta_write_failure(world, monkeypatch):
     on_disk = aryan.snapshot(snap.id)
     assert set(on_disk.admins()) == {"aryan", "fable"}
     assert on_disk.name == "Cache 2"
+
+
+# ----------------------------------------------------- R13.5 fold integrity
+
+def _forge(chat_id, ns, author, event, sig=""):
+    """A raw info-event record as it would land on the shared folder."""
+    rec = {"id": f"forge-{ns}", "ns": ns, "ts": "t", "from": author,
+           "kind": "info", "event": event}
+    if sig:
+        rec["sig"] = sig
+    return rec
+
+
+def test_genesis_binding_rejects_backdated_forged_created(world):
+    """A v2 chat id COMMITS to its genesis: a backdated `created` with a
+    different roster (e.g. making an outsider admin) re-hashes to a different
+    gid, so the fold ignores it and the true genesis stands."""
+    aryan = world["aryan"]
+    snap = aryan.create_chat("Fort", members=["fable"])
+    assert snap.id.rsplit("-g", 1)[-1]  # gid-bound id
+
+    forged = _forge(snap.id, 1, "sudhir", {  # ns=1 sorts BEFORE the real genesis
+        "type": events.EV_CREATED, "kind": "group", "name": "Fort",
+        "members": {"sudhir": "admin"}, "auto_dm": False,
+        "creator": "sudhir", "nonce": "deadbeef",
+    })
+    aryan.tx.append_log(snap.id, "sudhir@rogue", forged)
+    aryan.sync.sync_once([snap.id])
+    healed = aryan.membership.refold(snap.id)
+    assert set(healed.members) == {"aryan", "fable"}  # true genesis wins
+    assert "sudhir" not in healed.members
+
+
+def test_legacy_id_genesis_folds_unsigned(world):
+    """A migrated chat keeps its v1 id (no `-g<gid>`) and an UNSIGNED genesis;
+    the fold accepts it (legacy branch) so migration isn't broken."""
+    aryan = world["aryan"]
+    legacy_id = "old-room-7a3508"   # v1-shape id, not gid-bound
+    genesis = _forge(legacy_id, 5, "aryan", {
+        "type": events.EV_CREATED, "kind": "group", "name": "Old Room",
+        "members": {"aryan": "admin", "fable": "member"}, "auto_dm": False,
+    })  # unsigned, legacy id
+    snap = events.fold(legacy_id, [genesis], aryan.directory)
+    assert set(snap.members) == {"aryan", "fable"}
+    assert snap.members["aryan"].role is Role.ADMIN

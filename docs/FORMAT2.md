@@ -137,8 +137,15 @@ AAD = `chat_id|id|ns|from|epoch`; the Ed25519 signature covers
 
 ### Info events (plaintext, the source of truth for chat state)
 
-`kind:"info"` lines with a structured `event` field instead of `ct`:
-`{"event": {"type": "member_added", "who": "coco", "by": "aryan"}}` etc.
+`kind:"info"` lines with a structured `event` field instead of `ct`, plus an
+Ed25519 `sig` (R13.5) over `chat | id | ns | from | canonical(event)`:
+`{"event": {"type": "member_added", "who": "coco", "by": "aryan"}, "sig": …}`.
+The fold verifies `sig` against the author's published key (unsigned accepted
+only from a keyless/migrated author). A v2 chat id ends in `-g<16-hex>` that
+commits to its genesis event (sha256 over the created-event's identity fields
++ a random nonce); the fold rejects any `created` that doesn't re-hash to it,
+so no backdated/forged genesis can hijack an existing chat. Legacy (migrated)
+ids carry no `-g` suffix and their unsigned genesis is accepted as-is.
 Types (SETTLED R5 — `agentbridge/mesh/events.py` is normative): `created`
 (genesis: kind/name/members+roles/permissions/auto_dm/pulled), `member_added`
 (+`reason: "responsible_member"` for owner pull-ins), `member_removed`,

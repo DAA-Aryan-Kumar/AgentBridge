@@ -91,23 +91,43 @@ same legacy-only rule as plaintext envelopes). Profile photos and group
 photos are deliberately METADATA (plain at rest, like names): view access is
 matrix-/membership-gated at the connectors, not by crypto.
 
-## Known gap — fold genesis integrity (R13.5, must land before R14)
+## Fold genesis integrity — CLOSED R13.5
 
-Found by our own R13 tests: info events are plaintext and unsigned, and the
-fold's "first `created` wins" rule trusts `ns` ordering — so a writer can
-BACKDATE a forged genesis (ns earlier than the real one) and the fold
-re-derives the whole chat from the forged state ("genesis theft"); every
-later legitimate event then fails its authority check against the forged
-membership. Post-genesis forgery is already dead (authority checks in the
-fold, now exercised by non-backdated tests). The R13.5 hardening round adds:
-Ed25519 **signatures on info events** (an author with published keys can no
-longer be impersonated), **genesis-digest-bound chat ids** for v2-created
-chats (a chat id commits to its genesis event, so no alternative genesis can
-claim it), and **manifest-anchored epoch-0 acceptance** (plaintext envelopes
-and blobs accepted only for chats listed by the migrator, so a fabricated
-chat can't carry attributed plaintext). Residual after R13.5: a legitimate
-MEMBER of a *migrated* (non-digest-bound) chat backdating their own signed
-genesis — documented, revisited at the R24/R25 review rounds.
+Found by our own R13 tests: info events were plaintext and unsigned, and the
+fold's "first `created` wins" rule trusted `ns` ordering — so a writer could
+BACKDATE a forged genesis (ns earlier than the real one) and the fold would
+re-derive the whole chat from the forged state ("genesis theft"). R13.5
+closes this with an authenticity gate the fold runs BEFORE any event takes
+effect (`events._authentic`):
+
+- **Genesis-bound chat ids.** A v2 chat id ends in `-g<16-hex>`, where the
+  hex commits (sha256) to the genesis event's identity fields plus a random
+  nonce the creator picked. The fold accepts a `created` for such an id ONLY
+  if the event re-hashes to that gid — so no alternative (backdated, roster-
+  changed) genesis can match an existing id. Preimage resistance means a
+  forger can't craft content hashing to someone else's id.
+- **Signed info events.** Every info event is Ed25519-signed over
+  `chat | id | ns | from | canonical(event)`. If the author has a published
+  key, the fold REQUIRES a valid signature — impersonating a real admin
+  (forging `admin_granted from aryan`) fails, and the chat binding stops a
+  signed event being replayed into another room.
+- **Ingestion sanity.** A per-device log is single-writer, so sync drops any
+  record whose `from` ≠ the log's owner — a client can't smuggle records
+  attributed to someone else through its own log.
+
+The old spec also proposed a separate *manifest-anchored epoch-0* gate; it
+proved redundant and was folded into the gid/legacy split instead: a
+gid-bound (v2) chat requires signatures and a matching genesis; a
+non-gid-bound id is treated as legacy (migrated, unsigned genesis accepted).
+A fabricated chat can't produce a valid v2 genesis for a chosen id, and any
+chat it *does* create is its own — **visibility = membership** keeps it
+invisible to everyone else, and the E2EE sealer already refuses epoch-0
+plaintext in a room that has real key epochs.
+
+**Residual (documented, revisited R24/R25):** a legitimate MEMBER of a
+*migrated* chat (v1 id, not gid-bound) could backdate their own genesis for
+that chat. Migrated chats carry the pre-cutover trust model until they age
+out; new v2 chats are fully protected.
 
 ## Migration — R9.5
 

@@ -20,8 +20,11 @@ Standing rules enforced here:
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Protocol
 
+from .. import crypto
 from ..core.models import (
     ChatKind,
     ChatPermissions,
@@ -36,8 +39,42 @@ __all__ = [
     "EV_CREATED", "EV_MEMBER_ADDED", "EV_MEMBER_REMOVED", "EV_MEMBER_LEFT",
     "EV_ADMIN_GRANTED", "EV_ADMIN_REVOKED", "EV_RENAMED", "EV_DESCRIPTION",
     "EV_PERMISSIONS", "EV_AVATAR", "EV_DELETED", "EV_KEY_ROTATED",
-    "Resolver", "fold",
+    "Resolver", "fold", "signing_bytes", "genesis_gid", "GID_LEN",
 ]
+
+# ------------------------------------------------------------- R13.5 integrity
+# Genesis binding: a v2 chat id ends in "-<gid>" where gid commits to the
+# genesis event's content (+ a random nonce the creator chose). The fold
+# accepts a `created` for such an id ONLY if the event re-hashes to that gid,
+# so no one can forge an ALTERNATIVE (e.g. backdated) genesis for an existing
+# chat — the id itself pins the one true genesis. Legacy/migrated ids carry no
+# gid and are accepted as-is (documented residual in docs/THREAT_MODEL.md).
+GID_LEN = 16
+
+
+def genesis_gid(event: dict) -> str:
+    """The genesis commitment: sha256 over the created-event's identity-
+    bearing fields (everything but the volatile `pulled` hint and any `sig`)."""
+    core = {
+        k: event[k]
+        for k in ("type", "kind", "name", "description", "members",
+                  "permissions", "auto_dm", "creator", "nonce")
+        if k in event
+    }
+    blob = json.dumps(core, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode()).hexdigest()[:GID_LEN]
+
+
+def signing_bytes(chat_id: str, env: dict) -> bytes:
+    """Canonical bytes an info event's author signs (R13.5): chat | id | ns |
+    from | canonical(event). chat binds the signature to ONE room (no
+    cross-chat replay); signer and verifier MUST agree byte-for-byte."""
+    event = env.get("event") or {}
+    body = json.dumps(event, sort_keys=True, separators=(",", ":"))
+    return (
+        f"{chat_id}|{env.get('id', '')}|{env.get('ns', 0)}|"
+        f"{env.get('from', '')}|{body}"
+    ).encode()
 
 EV_CREATED = "created"
 EV_MEMBER_ADDED = "member_added"
@@ -58,6 +95,7 @@ class Resolver(Protocol):
 
     def kind(self, name: str) -> UserKind | None: ...
     def owner_of(self, name: str) -> str | None: ...
+    def sign_pub(self, name: str) -> str | None: ...  # R13.5 signature verify
 
 
 def fold(chat_id: str, envelopes: list[dict], directory: Resolver) -> ChatSnapshot:
@@ -74,6 +112,39 @@ def fold(chat_id: str, envelopes: list[dict], directory: Resolver) -> ChatSnapsh
     return snap
 
 
+def _authentic(chat_id: str, env: dict, etype: str, author: str, d: Resolver) -> bool:
+    """R13.5 authenticity gate, run BEFORE any event takes effect.
+
+    - genesis (`created`): a gid-bearing chat id accepts ONLY the created
+      event that re-hashes to that gid (no forged/backdated alternative can
+      match); legacy ids (no gid) are accepted as-is.
+    - every other event: if the author has a published signing key, it MUST
+      carry that author's valid signature; an unsigned or mis-signed event is
+      ignored. An author with no key (migrated/pre-upgrade) is accepted
+      unsigned — they could not have signed yet."""
+    if etype == EV_CREATED:
+        gid = _id_gid(chat_id)
+        if gid is None:
+            return True  # legacy / migrated id: no binding to check
+        return genesis_gid(env.get("event") or {}) == gid
+    pub = d.sign_pub(author)
+    if not pub:
+        return True  # keyless legacy actor — nothing to verify against
+    sig = env.get("sig") or ""
+    return bool(sig) and crypto.verify(pub, sig, signing_bytes(chat_id, env))
+
+
+def _id_gid(chat_id: str) -> str | None:
+    """The gid a v2 chat id commits to, or None for a legacy id. v2 ids end in
+    ``-g<16 hex>`` — the literal ``g`` marker means a migrated v1 id (which
+    never used this scheme) is never mistaken for gid-bound, so its genesis
+    is accepted as legacy rather than spuriously rejected."""
+    tail = chat_id.rsplit("-g", 1)[-1] if "-g" in chat_id else ""
+    if len(tail) == GID_LEN and all(c in "0123456789abcdef" for c in tail):
+        return tail
+    return None
+
+
 def _apply(snap: ChatSnapshot, env: dict, d: Resolver) -> None:
     ev = env["event"]
     etype = ev.get("type")
@@ -82,6 +153,9 @@ def _apply(snap: ChatSnapshot, env: dict, d: Resolver) -> None:
 
     if snap.deleted:
         return  # terminal: nothing folds after deletion (incl. a re-'created')
+
+    if not _authentic(snap.id, env, etype, author, d):
+        return  # forged genesis / unsigned-or-mis-signed event: never counts
 
     if etype == EV_CREATED:
         if snap.members:

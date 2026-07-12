@@ -81,6 +81,7 @@ class Mesh:
             self.tx, self.store, self.sealer, user, machine,
             notify_outbox=lambda: self.outbox.notify(),
             privacy=self.privacy,
+            event_signer=self._sign_event,
         )
         self.membership = MembershipService(
             self.tx, self.store, self.directory, self.messaging,
@@ -103,6 +104,15 @@ class Mesh:
             self.tx, self.store, is_member=self._is_member, workers=sync_workers,
             on_records=self._pump,
         )
+
+    def _sign_event(self, data: bytes) -> str:
+        """Sign an info event with this identity's key (R13.5). Empty when the
+        key is locked / absent (migrated pre-upgrade) — the fold then accepts
+        the event unsigned since it has no key to verify against."""
+        from .. import crypto
+
+        bundle = self.keystore.load(self.user)
+        return crypto.sign(bundle, data) if bundle else ""
 
     def _pump(self, chat_id: str, records: list[dict]) -> None:
         """Sync -> bus: publish exactly-once events; info events also refresh

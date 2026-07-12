@@ -36,6 +36,12 @@ class Directory:
             return acc.agent.owner or None
         return None
 
+    def sign_pub(self, name: str) -> str | None:
+        """The account's published Ed25519 verify key (R13.5 fold checks info-
+        event signatures against it); None for a keyless/legacy account."""
+        acc = self.get(name)
+        return (acc.keys.sign_pub or None) if acc else None
+
     def display(self, name: str) -> str:
         acc = self.get(name)
         return (acc.display or name) if acc else name

@@ -115,21 +115,31 @@ class MembershipService:
             return Role.ADMIN.value if m == me else Role.MEMBER.value
 
         member_roles = {m: genesis_role(m) for m in roster}
-        chat_id = f"{_slug(name)}-{secrets.token_hex(3)}"
         event = {
             "type": events.EV_CREATED,
             "kind": kind.value,
             "name": (name or "").strip(),
             "members": member_roles,
             "auto_dm": auto_dm,
+            "creator": me,
+            # a random nonce makes the genesis (and thus the chat id) unique
+            # even for an identical roster, and unguessable to a forger
+            "nonce": secrets.token_hex(8),
         }
-        if pulled:
-            # {owner: agent} — the UI renders "X joined as Y's responsible member"
-            event["pulled"] = pulled
         if permissions:
             event["permissions"] = permissions
+        # R13.5: the id COMMITS to the genesis (the `-g` marks a v2 gid-bound
+        # id) — the fold rejects any `created` for this id that doesn't
+        # re-hash to the same gid, so no forged/backdated genesis can hijack
+        # an existing chat.
+        chat_id = f"{_slug(name)}-g{events.genesis_gid(event)}"
+        if pulled:
+            # {owner: agent} — the UI renders "X joined as Y's responsible
+            # member". Added AFTER the gid (it's a volatile hint, not part of
+            # the commitment — genesis_gid deliberately excludes it).
+            event["pulled"] = pulled
 
-        env = self.messaging.build_event(event)
+        env = self.messaging.build_event(chat_id, event)
         # meta FIRST (fold of the genesis), so the member gate holds from here on
         snap = events.fold(chat_id, [env.to_dict()], self.directory)
         self.tx.put_doc(P.meta(chat_id), snap.to_dict())

@@ -300,7 +300,23 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
         ns died on the before-genesis rule, never reaching the authority
         checks — now post-genesis and genuinely exercising them), and that
         audit surfaced the **genesis-forgery gap → R13.5.**
-  - [ ] **R13.5 — fold genesis integrity (MUST land before R14).** Found by
+  - [x] **R13.5 — fold genesis integrity. DONE 2026-07-13.** The fold now
+        runs an authenticity gate (`events._authentic`) before any event
+        applies: (1) v2 chat ids end in `-g<16hex>` committing (sha256+nonce)
+        to their genesis — a backdated/roster-changed `created` re-hashes
+        differently and is rejected, so genesis theft is dead; (2) info
+        events are Ed25519-signed over `chat|id|ns|from|event` (signer wired
+        via the facade from the keystore; `Directory.sign_pub` feeds the
+        verifier) — impersonating a keyed author fails and the chat binding
+        blocks cross-room replay; (3) sync drops records whose `from` ≠ the
+        log owner. The proposed separate manifest-anchor gate was redundant
+        (subsumed by the gid/legacy split + membership isolation + the
+        sealer's existing epoch-0 refusal) — noted in THREAT_MODEL. Migrated
+        (legacy-id, unsigned) chats still fold. 7 new tests (218 total); the
+        gid-bound id verified live (`…-g0dbae7d942ec7d96`). Residual
+        (migrated-chat self-genesis) documented for R24/R25.
+        ORIGINAL SPEC below:
+  - [~] **R13.5 — fold genesis integrity (MUST land before R14).** Found by
         our own tests: a BACKDATED forged `created` event wins "first
         created wins" and steals the whole chat (fold re-derives from forged
         membership; real events then fail authority checks). Fix set:

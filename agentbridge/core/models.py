@@ -370,8 +370,13 @@ class Envelope:
         if self.event is None:
             d.pop("event")
         if self.kind is MsgKind.INFO:
-            for k in ("epoch", "nonce", "ct", "sig"):
+            # info events are plaintext (no epoch/nonce/ct) but ARE signed
+            # (R13.5) — keep a non-empty sig, drop it when the author had no
+            # identity key (migrated/pre-upgrade actor; the fold accepts those)
+            for k in ("epoch", "nonce", "ct"):
                 d.pop(k)
+            if not self.sig:
+                d.pop("sig")
         return d
 
     @classmethod

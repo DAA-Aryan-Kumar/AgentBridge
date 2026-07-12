@@ -46,6 +46,13 @@ class SyncEngine:
                 continue  # unchanged (size is the cheap change indicator)
             records, new_offset = self.tx.read_log(chat_id, log_name, offset)
             if records:
+                # R13.5 ingestion sanity: a per-device log is single-writer, so
+                # every record's `from` must be that log's owner. Drop any that
+                # claim another identity (a buggy/hostile client can't smuggle
+                # records attributed to someone else through its own log).
+                owner = log_name.split("@", 1)[0]
+                records = [r for r in records if r.get("from") == owner]
+            if records:
                 inserted = self.store.upsert_messages(chat_id, records)
                 new += len(inserted)
                 if inserted and self.on_records is not None:

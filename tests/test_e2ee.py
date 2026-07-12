@@ -245,3 +245,76 @@ def test_blob_seal_roundtrip_and_injection_rules(world):
 
     # a non-member can't open the blob at all (no wrapped epoch copy)
     assert meshes["sudhir"].sealer.open_blob(snap.id, "f-1.bin", sealed) is None
+
+
+# ----------------------------------------------- R13.5 signed info events
+
+def test_signature_blocks_impersonated_admin_grant(world):
+    """A member cannot self-promote by forging an admin_granted attributed to
+    a real admin: it lands (from==log-owner passes ingestion) but the fold
+    demands that admin's signature, which the forger cannot produce."""
+    meshes, _, _, root = world
+    aryan, fable = meshes["aryan"], meshes["fable"]
+    snap = aryan.create_chat("Keys", members=["fable", "sudhir"])
+    ripple(aryan, snap.id, fable)
+
+    forged = {"id": "forge-1", "ns": 10**18, "ts": "t", "from": "aryan",
+              "kind": "info",
+              "event": {"type": "admin_granted", "who": "fable", "by": "aryan"}}
+    # from==owner so ingestion passes; NO valid sig (fable can't sign as aryan)
+    aryan.tx.append_log(snap.id, "aryan@rogue", forged)
+    aryan.sync.sync_once([snap.id])
+    healed = aryan.membership.refold(snap.id)
+    assert healed.members["fable"].role.value == "member"  # forged grant ignored
+
+
+def test_tampered_signed_event_rejected(world):
+    """Aryan's genuine signed grant, cloned with the target flipped, keeps a
+    now-stale signature — the fold ignores it, the genuine one stands."""
+    meshes, _, _, root = world
+    aryan = meshes["aryan"]
+    snap = aryan.create_chat("Tamper", members=["fable", "sudhir"])
+    aryan.grant_admin(snap.id, "fable")   # a REAL signed admin_granted
+    ripple(aryan, snap.id)
+
+    genuine = next(r for r in aryan.store.messages(snap.id)
+                   if (r.get("event") or {}).get("type") == "admin_granted")
+    assert genuine.get("sig")   # it really is signed
+    tampered = {**genuine, "id": "tampered-1",
+                "event": {**genuine["event"], "who": "sudhir"}}
+    aryan.tx.append_log(snap.id, "aryan@rogue", tampered)
+    aryan.sync.sync_once([snap.id])
+    healed = aryan.membership.refold(snap.id)
+    assert healed.members["sudhir"].role.value == "member"  # tamper ignored
+    assert healed.members["fable"].role.value == "admin"    # genuine held
+
+
+def test_signed_event_cannot_replay_into_another_chat(world):
+    """A signature binds to ONE chat (chat id is in the signed bytes): aryan's
+    grant in chat A copied into chat B fails B's verification."""
+    meshes, _, _, root = world
+    aryan = meshes["aryan"]
+    a = aryan.create_chat("A", members=["fable", "sudhir"])
+    b = aryan.create_chat("B", members=["fable", "sudhir"])
+    aryan.grant_admin(a.id, "fable")
+    ripple(aryan, a.id)
+
+    grant = next(r for r in aryan.store.messages(a.id)
+                 if (r.get("event") or {}).get("type") == "admin_granted")
+    aryan.tx.append_log(b.id, "aryan@rogue", {**grant, "id": "replay-1"})
+    aryan.sync.sync_once([b.id])
+    healed = aryan.membership.refold(b.id)
+    assert healed.members["fable"].role.value == "member"  # replay rejected in B
+
+
+def test_genuine_signed_events_fold_normally(world):
+    """Sanity: with real keys, the ordinary signed path still works end to end
+    (a rename + a grant both land) — the integrity gate isn't over-tight."""
+    meshes, _, _, root = world
+    aryan = meshes["aryan"]
+    snap = aryan.create_chat("Normal", members=["fable"])
+    aryan.rename(snap.id, "Renamed")
+    aryan.grant_admin(snap.id, "fable")
+    healed = aryan.membership.refold(snap.id)
+    assert healed.name == "Renamed"
+    assert healed.members["fable"].role.value == "admin"
