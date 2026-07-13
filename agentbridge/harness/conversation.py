@@ -8,24 +8,21 @@ name, kind, CURRENT status (someone who went dnd since asking may prefer not
 to be pinged back loudly) and online/last-seen, all matrix-gated exactly as
 the agent is allowed to see them.
 
-``render()`` is a deliberately plain, factual text form for R15's seam; the
-R17 prompt manager owns real prompt assembly (persona, etiquette, JSON-driven
-wording) and replaces it.
+A ``Delivery`` is pure data; every word built FROM it (the prompt, the
+context file, the feed lines) belongs to the R17 prompt manager (prompt.py).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ..core.models import ChatKind, Message, MsgKind, UserKind
+from ..core.models import ChatKind, Message, UserKind
 from ..mesh.service import Mesh
 from .queue import WorkGroup
 from .settings import HarnessSettings
 from .triggers import RULE_DESC
 
 __all__ = ["ConversationManager", "Delivery", "TriggerContext"]
-
-TRANSCRIPT_TAIL = 30
 
 
 @dataclass
@@ -52,50 +49,6 @@ class Delivery:
     transcript: list[Message] = field(default_factory=list)
     triggers: list[TriggerContext] = field(default_factory=list)
     note: str = ""                # timer note
-
-    def render(self) -> str:
-        """Plain factual rendering (R17 replaces this with real prompts)."""
-        lines = [f"Chat: {self.chat_name} ({self.chat_kind})"]
-        lines.append("Members: " + "; ".join(
-            f"@{r['name']}{' (you)' if r.get('you') else ''}"
-            f" — {r.get('desc', '')}" for r in self.roster))
-        if self.kind == "timer":
-            lines.append(f"Scheduled wake-up: {self.note}")
-        for t in self.triggers:
-            bits = [f"Trigger ({t.reason}): @{t.sender}"]
-            if t.sender_status and t.sender_status.get("state") not in (None, "available"):
-                bits.append(f"status={t.sender_status['state']}")
-            if t.sender_presence is not None:
-                bits.append("online" if t.sender_presence.get("online")
-                            else f"last seen {t.sender_presence.get('last_seen') or 'unknown'}")
-            lines.append(" ".join(bits))
-        for p in self.pins:
-            body = (p.get("body") or "").replace("\n", " ")[:160]
-            lines.append(f"[PINNED by @{p.get('by')}] {body}")
-        for m in self.transcript[-TRANSCRIPT_TAIL:]:
-            lines.append(_render_msg(m, self.agent))
-        return "\n".join(lines)
-
-
-def _render_msg(m: Message, agent: str) -> str:
-    if m.kind is MsgKind.INFO:
-        ev = m.event or {}
-        return f"[{m.ts}] · {ev.get('type', 'event')}"
-    if m.deleted:
-        return f"[{m.ts}] · a message was deleted"
-    who = f"@{m.from_}" + (" (you)" if m.from_ == agent else "")
-    rt = m.reply_to or {}
-    rline = ""
-    if rt.get("from"):
-        excerpt = (rt.get("body") or "").replace("\n", " ")[:120]
-        who_r = ("their own message" if rt["from"] == m.from_ else f"@{rt['from']}")
-        rline = f' [replying to {who_r}: "{excerpt}"]'
-    fwd = m.fwd or {}
-    fline = f" [forwarded from @{fwd['from']}]" if fwd.get("from") else ""
-    names = ", ".join(f.get("name", "") for f in (m.files or []))
-    files = f"  [files: {names}]" if names else ""
-    edited = " (edited)" if m.edited else ""
-    return f"[{m.ts}] {who}:{fline}{rline}{edited} {m.body}{files}"
 
 
 class ConversationManager:

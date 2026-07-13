@@ -12,8 +12,9 @@ CMD_TEMPLATES, upgraded:
   can only read inside it), size-verified; files the agent leaves in the
   outbox ride back on the Reply.
 
-The interim prompt below is the v1-proven wording; R17's prompt manager
-externalizes prompts to editable JSON and replaces it.
+Every word — the prompt, the context headers, the feed lines — comes from
+the R17 prompt manager (``..prompt``); this module only extracts FACTS from
+the stream (``extract_step``) and runs the process.
 """
 
 from __future__ import annotations
@@ -27,77 +28,52 @@ from pathlib import Path
 from ...core.config import DEFAULT_HOME
 from ...core.timekit import utcnow_iso
 from ..conversation import Delivery
+from ..prompt import PromptManager, PromptPack
 from ..responder import OnStep, Reply
 from ..settings import HarnessSettings
 from .registry import Invocation, ModelRegistry
 
-__all__ = ["CliResponder", "summarize_stream_event", "reply_from_output"]
+__all__ = ["CliResponder", "extract_step", "reply_from_output"]
 
 STAGE_TAIL = 30          # messages whose attachments get staged (v1 value)
 STDERR_SNIP = 1200
 
-PROMPT = (
-    "You are {display} (@{agent}), an AI agent in the multi-user chat "
-    "'{chat_name}'. Roster and reply behaviour: {roster}. New message(s) "
-    "arrived; the conversation so far is in the file {context_file} — "
-    "read it first. Rules: your final message is posted to the chat as-is, "
-    "so it must contain ONLY the chat message — no narration or preamble; "
-    "to address or notify someone, tag them like @username (people and "
-    "agents alike); to share files, save them into {outbox} and mention "
-    "them by name; never edit anything in the shared mesh folder by hand. "
-    "If a request is unclear, say so in the chat rather than guessing. "
-    "Tagging etiquette: tagging an agent that replies-only-when-tagged "
-    "FORCES it to run — only tag such agents when you genuinely need "
-    "something from them; never tag them as a courtesy or FYI. Your message "
-    "is posted as a THREADED REPLY to the message you are answering, so do "
-    "NOT tag its author just to address them — they are already notified; "
-    "tag OTHER members only when they specifically need attention. Reply "
-    "etiquette: a reply is OPTIONAL — if the new messages need no "
-    "substantive response from you (courtesy mentions, thanks, "
-    "acknowledgments, FYIs), output exactly NO_REPLY and nothing else, and "
-    "no message will be posted. Decide silence vs reply BEFORE you write — "
-    "never output NO_REPLY and then keep going. Do not keep acknowledgment "
-    "chains going."
-)
 
-TIMER_PROMPT_EXTRA = (
-    " This run is a WAKE-UP you scheduled earlier for this chat — the note "
-    "you left yourself: '{note}'. Act on it (or output NO_REPLY if it no "
-    "longer needs anything)."
-)
-
-
-def summarize_stream_event(obj: dict, fmt: str) -> str | None:
-    """One plain activity line per streamed event (v1's summarize_event,
-    plus a defensive codex-jsonl reading; R17 rewords the surface)."""
+def extract_step(obj: dict, fmt: str) -> tuple[str, str, str] | None:
+    """The FACT in one streamed event: ``(kind, name, detail)`` with kind in
+    init | result | tool | text — or None. Wording is the prompt pack's job
+    (``PromptPack.step_line``)."""
     if fmt == "claude-stream":
         t = obj.get("type")
         if t == "system" and obj.get("subtype") == "init":
-            return "Session started"
+            return ("init", "", "")
         if t == "assistant":
             for c in (obj.get("message") or {}).get("content") or []:
                 if c.get("type") == "tool_use":
-                    name = c.get("name", "tool")
                     inp = c.get("input") or {}
                     detail = (inp.get("query") or inp.get("command")
                               or inp.get("file_path") or inp.get("description")
                               or "")
-                    detail = " ".join(str(detail).split())[:90]
-                    return f"Running {name}" + (f": {detail}" if detail else "")
+                    # generous cap: step_line basenames paths AFTER this, so
+                    # a long path must not be cut mid-directory here
+                    return ("tool", str(c.get("name", "tool")),
+                            " ".join(str(detail).split())[:400])
                 if c.get("type") == "text":
                     txt = " ".join((c.get("text") or "").split())[:90]
                     if txt:
-                        return txt
+                        return ("text", "", txt)
         if t == "result":
-            return "Writing the reply"
+            return ("result", "", "")
         return None
     if fmt == "codex-jsonl":
         item = obj.get("item") or {}
         itype = item.get("type") or item.get("item_type") or ""
         if obj.get("type") == "item.completed" and itype:
+            if itype in ("agent_message", "assistant_message"):
+                return ("result", "", "")
             detail = " ".join(str(item.get("text") or item.get("command")
                                   or "").split())[:90]
-            return f"{itype}" + (f": {detail}" if detail else "")
+            return ("tool", str(itype), detail)
         return None
     return None
 
@@ -134,6 +110,7 @@ class CliResponder:
         self.mesh = mesh
         self.agent = mesh.user
         self.home = Path(home) if home else DEFAULT_HOME
+        self.prompts = PromptManager(self.home)
         self._minimal: set[str] = set()  # preset ids that needed the fallback
 
     # ------------------------------------------------------------- the run
@@ -143,6 +120,7 @@ class CliResponder:
         category = self._category(delivery, acc)
         inv = self.registry.resolve(settings, category,
                                     delivery.chat_id)  # raises with a reason
+        pack = self.prompts.for_agent(acc)
 
         workdir = self.home / "harness" / self.agent
         outbox = workdir / "outbox"
@@ -154,12 +132,13 @@ class CliResponder:
 
         staged = self._stage_inbox(delivery, workdir)
         context_file = workdir / "context.md"
-        context_file.write_text(self._context_text(delivery, staged),
+        context_file.write_text(pack.context_text(delivery, staged),
                                 encoding="utf-8", newline="\n")
         reply_file = workdir / "reply.md"
         reply_file.unlink(missing_ok=True)
 
-        prompt = self._prompt(delivery, acc, context_file, outbox)
+        prompt = pack.prompt(delivery, acc, context_file=context_file,
+                             outbox=outbox)
         steps: list[dict] = []
 
         def step(line: str) -> None:
@@ -173,7 +152,7 @@ class CliResponder:
             minimal=inv.preset.id in self._minimal,
         )
         rc, lines, err = self._run(argv, workdir, settings.timeout_s,
-                                   inv, step)
+                                   inv, pack, step)
         if self._usage_error(rc, err) and inv.preset.id not in self._minimal:
             # a CLI update rejected our flags — drop conveniences, keep safety
             step("Flags rejected — retrying with the minimal set")
@@ -184,7 +163,7 @@ class CliResponder:
                 effort=inv.effort, minimal=True,
             )
             rc, lines, err = self._run(argv, workdir, settings.timeout_s,
-                                       inv, step)
+                                       inv, pack, step)
 
         text = reply_from_output(lines, inv.preset.format)
         if not text and reply_file.is_file():
@@ -207,7 +186,8 @@ class CliResponder:
         return HarnessSettings.category(t.sender_kind, t.sender, owner)
 
     def _run(self, argv: list[str], workdir: Path, timeout_s: float,
-             inv: Invocation, step) -> tuple[int | None, list[str], str]:
+             inv: Invocation, pack: PromptPack,
+             step) -> tuple[int | None, list[str], str]:
         kwargs: dict = {}
         if os.name == "nt":  # no console flash under pythonw (v1 lesson)
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
@@ -232,10 +212,10 @@ class CliResponder:
                 s = line.strip()
                 if s.startswith("{"):
                     try:
-                        note = summarize_stream_event(
-                            json.loads(s), inv.preset.format)
+                        fact = extract_step(json.loads(s), inv.preset.format)
                     except json.JSONDecodeError:
-                        note = None
+                        fact = None
+                    note = pack.step_line(*fact) if fact else None
                     if note:
                         step(note)
             rc = proc.wait(timeout=60)
@@ -281,24 +261,3 @@ class CliResponder:
                     continue
         return staged
 
-    def _context_text(self, delivery: Delivery, staged: dict[str, str]) -> str:
-        text = delivery.render()
-        if staged:
-            notes = "\n".join(f"- {name} -> read it at {rel}"
-                              for name, rel in sorted(staged.items()))
-            text += f"\n\nAttached files staged for you:\n{notes}"
-        return text
-
-    def _prompt(self, delivery: Delivery, acc, context_file: Path,
-                outbox: Path) -> str:
-        roster = "; ".join(
-            f"@{r['name']} ({r['desc']})" for r in delivery.roster)
-        prompt = PROMPT.format(
-            display=(acc.display if acc else self.agent), agent=self.agent,
-            chat_name=delivery.chat_name, roster=roster,
-            context_file=context_file, outbox=outbox,
-        )
-        if delivery.kind == "timer":
-            prompt += TIMER_PROMPT_EXTRA.format(
-                note=delivery.note.replace("'", ""))
-        return prompt

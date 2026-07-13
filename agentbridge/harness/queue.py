@@ -8,7 +8,7 @@ the ANSWERED LEDGER guarantees a trigger is answered at most once.
 The answered-guard is two-legged (this is what kills v1's duplicate-reply bug
 for good):
 1. the local ledger, keyed ``msg_id@edit_ns`` — covers replies AND deliberate
-   silences (NO_REPLY leaves no trace in the chat);
+   silences (a silent run leaves no trace in the chat);
 2. the transcript itself — any of MY messages whose ``reply_to`` names the
    trigger proves it was answered, even if the local ledger was lost.
 

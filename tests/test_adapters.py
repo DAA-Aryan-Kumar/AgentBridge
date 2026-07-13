@@ -254,8 +254,9 @@ def test_engine_timeout_kills_the_run(arig, tmp_path):
     reg = ModelRegistry.load(arig.home)
     responder = CliResponder(reg, SimpleNamespace(user="helper"), arig.home)
     inv = reg.resolve(settings(adapter="stub"), "humans")
+    pack = responder.prompts.for_agent(None)
     stub = tmp_path / "stub_cli.py"
     rc, lines, err = responder._run(
         [sys.executable, str(stub), "--sleep", "p"],
-        arig.home, 1.0, inv, lambda s: None)
+        arig.home, 1.0, inv, pack, lambda s: None)
     assert rc is None and err == "timed out"

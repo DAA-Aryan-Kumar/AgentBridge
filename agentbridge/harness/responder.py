@@ -3,9 +3,11 @@ a ``Delivery`` to a ``Responder`` and gets a ``Reply`` back. R16's model
 registry provides real Responders (subprocess CLIs today, APIs later, one
 contract per D8); tests and smoke runs inject scripted ones.
 
-``clean_reply`` is the v1 output hygiene, ported: the NO_REPLY sentinel at
-either end and leading narration paragraphs (R17 replaces the sentinel with
-an unmistakable marker and moves reply-vs-silence into the prompt manager).
+``clean_reply`` is the v1 output hygiene: the silence sentinel at either end
+and leading narration paragraphs. R17 made the sentinel unmistakable — the
+bare word NO_REPLY could silence an agent that merely *discussed* it — and
+moved the reply-vs-silence wording into the prompt manager (prompt.py), which
+injects ``SILENCE`` into the prompt so parser and prompt can never disagree.
 """
 
 from __future__ import annotations
@@ -17,11 +19,11 @@ from typing import TYPE_CHECKING, Callable, Protocol
 if TYPE_CHECKING:  # pragma: no cover
     from .conversation import Delivery
 
-__all__ = ["Reply", "Responder", "clean_reply", "NO_REPLY"]
+__all__ = ["Reply", "Responder", "clean_reply", "SILENCE"]
 
 OnStep = Callable[[str], None]  # live activity line -> the run feed
 
-NO_REPLY = "NO_REPLY"
+SILENCE = "<<<NO-REPLY>>>"
 
 # leading paragraphs that are narration about the work, not the message —
 # smaller models leak these despite the prompt ban (v1: seen live)
@@ -45,18 +47,19 @@ class Responder(Protocol):
 
 
 def clean_reply(text: str) -> tuple[str, bool]:
-    """Returns ``(body, no_reply)``. Sentinel handling: leading NO_REPLY with
-    content after it means "changed its mind, post the rest"; NO_REPLY as the
-    final line means silence regardless of preceding narration."""
+    """Returns ``(body, no_reply)``. Sentinel handling: a leading sentinel
+    with content after it means "changed its mind, post the rest"; the
+    sentinel as the final line means silence regardless of preceding
+    narration. Matched case-insensitively — models half-follow."""
     s = (text or "").strip().strip("`'\"").strip()
     if not s:
         return "", False
-    if s.upper().startswith(NO_REPLY):
-        s = s[len(NO_REPLY):].strip("`'\"").strip()
+    if s.upper().startswith(SILENCE):
+        s = s[len(SILENCE):].strip("`'\"").strip()
         if not s:
             return "", True
     lines = s.splitlines()
-    if lines and lines[-1].strip().strip("`'\".").upper() == NO_REPLY:
+    if lines and lines[-1].strip().strip("`'\".").upper() == SILENCE:
         return "", True
     paras = re.split(r"\n\s*\n", s)
     while len(paras) > 1 and _NARRATION_RE.match(paras[0].strip()):

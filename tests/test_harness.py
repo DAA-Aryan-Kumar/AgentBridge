@@ -14,7 +14,7 @@ import pytest
 
 from agentbridge.core.errors import ValidationError
 from agentbridge.harness import (
-    AgentRunner, HarnessSettings, Reply, clean_reply,
+    AgentRunner, HarnessSettings, Reply, SILENCE, clean_reply,
 )
 from agentbridge.harness.triggers import Candidate
 from agentbridge.mesh.service import Mesh
@@ -230,7 +230,7 @@ def test_queue_survives_restart(hrig):
 def test_no_reply_sentinel_stays_quiet(hrig):
     snap = hrig.owner.create_chat("Silence", members=["helper"])
     trig = hrig.owner.post(snap.id, "@helper fyi only, no answer needed")
-    responder = Scripted(lambda d: Reply(body="NO_REPLY"))
+    responder = Scripted(lambda d: Reply(body=SILENCE))
     runner = hrig.make_runner(responder)
     ripple(hrig, runner, snap.id)
     turn(hrig, runner, snap.id)
@@ -474,12 +474,15 @@ def test_adopt_refuses_keyed_agent_from_elsewhere(tmp_path):
 # ---------------------------------------------------------------- pure bits
 
 def test_clean_reply_sentinel_and_narration():
-    assert clean_reply("NO_REPLY") == ("", True)
-    assert clean_reply("Let me check the files.\n\nNO_REPLY") == ("", True)
-    body, quiet = clean_reply("NO_REPLY actually, here is the answer")
+    assert clean_reply(SILENCE) == ("", True)
+    assert clean_reply(f"Let me check the files.\n\n{SILENCE}") == ("", True)
+    assert clean_reply(f"`{SILENCE}`") == ("", True)      # decorated sentinel
+    body, quiet = clean_reply(f"{SILENCE} actually, here is the answer")
     assert not quiet and body.startswith("actually")
     body, quiet = clean_reply("Looking at the request first.\n\nHere it is.")
     assert (body, quiet) == ("Here it is.", False)
+    # the OLD bare word never silences anyone anymore — it's just a word
+    assert clean_reply("NO_REPLY") == ("NO_REPLY", False)
 
 
 def test_settings_parse_and_clamp():

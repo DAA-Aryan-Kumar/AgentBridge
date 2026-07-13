@@ -522,13 +522,28 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       to every message", group shows the agent default; writes round-trip,
       clears drop the key, model pick survives). Live GUI + @claude harness
       restarted onto the new code.
-- [ ] **R17 — Prompt manager.** Prompts live in modifiable JSON, not code;
-      prompt assembly is a module (persona, etiquette, capabilities, context
-      blocks); **reply-vs-tag becomes the agent's judgment** (prompted, not
-      enforced): reply threads by default (safe), tag others who need
-      attention, never tag the author you just replied to; NO_REPLY replaced
-      with an unmistakable special-char sentinel; livefeed/task-step wording
-      cleaned (no raw tool noise).
+- [x] **R17 — Prompt manager. DONE 2026-07-13.** Every word an agent is told
+      is DATA: `harness/prompts/default.json` (persona / roster / task /
+      capabilities / etiquette / silence blocks + the feed's `activity`
+      wording map), overlaid key-by-key by `<home>/prompts/default.json`,
+      then the agent's own `harness["prompts"]` dict (per-agent tweaks stay
+      config — one harness, all agents). `prompt.py` (PromptManager/
+      PromptPack) assembles in fixed order so overlays reword but can't
+      drop the rails; the silence block always carries the REAL sentinel,
+      injected — pack and parser can never disagree; broken templates
+      degrade to raw text. NO_REPLY → **`<<<NO-REPLY>>>`** (the bare word
+      could silence an agent merely discussing it; old word is now just a
+      word). Reply-vs-tag: threading to the answered message stays enforced
+      (safe); tagging is prompted judgment (author already notified — never
+      tag them; tag-only agents are forced by tags — only genuine needs).
+      Livefeed/task steps: cli.py extract_step() extracts FACTS, the pack
+      words them ("Searching for …", "Reading context.md" — paths basename
+      AFTER extraction; a 90-char pre-cut had produced "Reading f164" live);
+      the sentinel never leaks into the feed. Delivery is pure data now
+      (render() moved into prompt.py). Verified with the REAL claude CLI on
+      a scratch root: intro reply threaded + clean feed lines, then an FYI
+      → sentinel → nothing posted, feed "No reply needed". 260 tests; live
+      @claude harness restarted onto it.
 - [ ] **R18 — Permission broker + workspaces.** Per-chat **workspace** for
       each agent (memory + context live there; loose sandbox per D7);
       read-only default outside it; intercept the inner CLI's permission asks
