@@ -39,8 +39,8 @@ __all__ = [
     "EV_CREATED", "EV_MEMBER_ADDED", "EV_MEMBER_REMOVED", "EV_MEMBER_LEFT",
     "EV_ADMIN_GRANTED", "EV_ADMIN_REVOKED", "EV_RENAMED", "EV_DESCRIPTION",
     "EV_PERMISSIONS", "EV_AVATAR", "EV_DELETED", "EV_KEY_ROTATED",
-    "Resolver", "fold", "signing_bytes", "genesis_gid", "GID_LEN",
-    "is_legacy_chat_id",
+    "Resolver", "fold", "signing_bytes", "redaction_signing_bytes",
+    "genesis_gid", "GID_LEN", "is_legacy_chat_id",
 ]
 
 # ------------------------------------------------------------- R13.5 integrity
@@ -76,6 +76,15 @@ def signing_bytes(chat_id: str, env: dict) -> bytes:
         f"{chat_id}|{env.get('id', '')}|{env.get('ns', 0)}|"
         f"{env.get('from', '')}|{body}"
     ).encode()
+
+
+def redaction_signing_bytes(chat_id: str, msg_id: str, by: str, ns: int) -> bytes:
+    """Canonical bytes the author of a delete-for-everyone signs (R25). Binds
+    the chat (no cross-room replay), the target message, the author, and the
+    ns — so a folder writer can't forge a redaction attributed to the sender
+    (the read model verifies this before honoring a tombstone; unsigned/forged
+    redactions are ignored and the message stays visible)."""
+    return f"{chat_id}|redact|{msg_id}|{by}|{ns}".encode()
 
 EV_CREATED = "created"
 EV_MEMBER_ADDED = "member_added"
@@ -154,6 +163,19 @@ def _id_gid(chat_id: str) -> str | None:
     return None
 
 
+def _tenure_open(snap: ChatSnapshot, name: str, ns: int) -> None:
+    spans = snap.tenure.setdefault(name, [])
+    if spans and spans[-1][1] == 0:
+        return  # already inside an open interval
+    spans.append([ns, 0])
+
+
+def _tenure_close(snap: ChatSnapshot, name: str, ns: int) -> None:
+    spans = snap.tenure.get(name)
+    if spans and spans[-1][1] == 0:
+        spans[-1][1] = ns
+
+
 def _apply(snap: ChatSnapshot, env: dict, d: Resolver) -> None:
     ev = env["event"]
     etype = ev.get("type")
@@ -181,7 +203,8 @@ def _apply(snap: ChatSnapshot, env: dict, d: Resolver) -> None:
                 role=Role.ADMIN if (wants_admin and not is_agent) else Role.MEMBER,
                 joined_ns=ns,
             )
-        _heal(snap, d)
+            _tenure_open(snap, name, ns)
+        _heal(snap, d, ns)
         return
 
     if not snap.members:
@@ -201,6 +224,7 @@ def _apply(snap: ChatSnapshot, env: dict, d: Resolver) -> None:
         # pull-ins into a PREEXISTING group join as plain members — genesis
         # is the only moment humans get admin automatically (Aryan 2026-07-12)
         snap.members[who] = Member(role=Role.MEMBER, joined_ns=ns)
+        _tenure_open(snap, who, ns)
 
     elif etype == EV_MEMBER_REMOVED:
         who = ev.get("who", "")
@@ -213,13 +237,15 @@ def _apply(snap: ChatSnapshot, env: dict, d: Resolver) -> None:
         ):
             return
         del snap.members[who]
-        _heal(snap, d)
+        _tenure_close(snap, who, ns)
+        _heal(snap, d, ns)
 
     elif etype == EV_MEMBER_LEFT:
         if fixed_membership or author not in snap.members:
             return
         del snap.members[author]
-        _heal(snap, d)
+        _tenure_close(snap, author, ns)
+        _heal(snap, d, ns)
 
     elif etype == EV_ADMIN_GRANTED:
         who = ev.get("who", "")
@@ -235,7 +261,7 @@ def _apply(snap: ChatSnapshot, env: dict, d: Resolver) -> None:
         who = ev.get("who", "")
         if not fixed_membership and authz.can_grant_admin(snap, author) and who in snap.members:
             snap.members[who].role = Role.MEMBER
-            _heal(snap, d)
+            _heal(snap, d, ns)
 
     elif etype in (EV_RENAMED, EV_DESCRIPTION, EV_AVATAR):
         if not authz.can_edit_settings(snap, author):
@@ -252,6 +278,8 @@ def _apply(snap: ChatSnapshot, env: dict, d: Resolver) -> None:
         if snap.kind is not ChatKind.GROUP or not authz.is_admin(snap, author):
             return
         snap.deleted = True
+        for name in list(snap.members):
+            _tenure_close(snap, name, ns)
         snap.members = {}  # nobody is a member of a dead chat (reads all stop)
 
     elif etype == EV_PERMISSIONS:
@@ -265,9 +293,11 @@ def _apply(snap: ChatSnapshot, env: dict, d: Resolver) -> None:
     # unknown event types: ignore (a newer peer may emit ones we don't know)
 
 
-def _heal(snap: ChatSnapshot, d: Resolver) -> None:
+def _heal(snap: ChatSnapshot, d: Resolver, ns: int = 0) -> None:
     """Post-change invariants: cascade ownerless agents out, then make sure a
-    group with human members never stays admin-less."""
+    group with human members never stays admin-less. ``ns`` stamps the tenure
+    close for any agent cascaded out here (R25), so a cascaded-out agent can't
+    inject old-epoch messages after its owner leaves either."""
     if snap.kind is not ChatKind.GROUP:
         return
     # free-chatting invariant: every agent needs its responsible member present
@@ -280,6 +310,7 @@ def _heal(snap: ChatSnapshot, d: Resolver) -> None:
             owner = d.owner_of(name)
             if owner is not None and owner not in snap.members:
                 del snap.members[name]
+                _tenure_close(snap, name, ns)
                 changed = True
     # auto-promote the longest-standing human if no admin remains
     if snap.members and not snap.admins():

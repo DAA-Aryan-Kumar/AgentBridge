@@ -75,6 +75,27 @@ but we never rely on it for secrecy: the server only ever stores ciphertext.)
   problem — unsolvable by crypto) and, being a member, can post/rotate. The
   fold's authority checks stop a member exceeding their ROLE (e.g. forging an
   admin grant), but a member acting within their role is trusted.
+- **The directory (account docs) is an UNSIGNED root of trust — the biggest
+  open residual (its own future round).** `users/<name>.json` holds the
+  `sign_pub`/`agree_pub` that every signature check (`events._authentic`) and
+  every epoch-key wrap (`keyring._wrap_for`) trust, yet the doc itself is
+  plaintext and unsigned, and the transport enforces no per-path write authz.
+  So anyone with raw folder (or Supabase-secret) write access can OVERWRITE a
+  victim's public keys and, from then on, forge info events "from" them and
+  receive their future epoch-key wraps (identity takeover). The private bundle
+  stays wrapped at rest (they can't read PAST messages), and the real victim
+  loses access — a visible, late signal — but nothing ties an account doc to
+  its prior identity. Closing this needs signed/pinned account docs with key
+  history (TOFU or a mesh trust root); scoped as a dedicated round, tracked in
+  REWRITE_PLAN. On the folder transport it is inherent to "all members share
+  the folder"; on Supabase it rides the same secret-key trust boundary below.
+- **Unauthenticated per-user overlays other than redactions** (reactions, pins).
+  A folder writer can fabricate a reaction attributed to another user, or
+  pin/unpin a message, by dropping/removing the overlay doc directly. These are
+  cosmetic/non-destructive (they never hide or alter message CONTENT), so they
+  are left as a documented low-severity residual; the redaction overlay — the
+  one that DOES destroy content visibility — is now signed (see R25 below).
+  The same signing mechanism can extend to reactions/pins in a later round.
 - **Availability**: a member can spam or write garbage; the store dedups and
   the reader tolerates junk, but E2EE is about confidentiality/authenticity,
   not anti-abuse (that's the permission layer + rate limits, R15).
@@ -125,6 +146,51 @@ migrated-chat allowances — unsigned genesis for v1-shape ids, unsigned
 events from keyless authors, epoch-0 plaintext — are gone, and with them the
 previously documented residual (a migrated chat's member back-dating its own
 genesis): no migrated chats remain to carry it.
+
+## Security review — CLOSED R25
+
+A full pass over every mutating endpoint, the E2EE surfaces, harness prompts,
+and peer access (findings + fixes; the endpoint sweep confirmed every GUI/CLI
+mutation routes through the mesh's membership/owner/admin gates and every
+membership-service op re-checks authority at fold time). Four holes were closed:
+
+- **Redaction (delete-for-everyone) is now AUTHENTICATED.** Previously the read
+  model tombstoned a message on the mere PRESENCE of an overlay doc
+  (`chats/<id>/overlays/redactions/<msg-id>.json`), so any folder writer could
+  censor any member's message. Redactions are now Ed25519-signed by the
+  original sender over `chat|redact|msg-id|by|ns` (`events.redaction_signing_bytes`);
+  the read model honors a tombstone only when the signature verifies against the
+  sender's published key AND `by` == the original sender. A forged/unsigned one
+  is ignored and the message stays visible (fail-safe). Edits were already
+  protected (the sealed edit body carries the author's signature); this brings
+  redactions to parity. A one-time, idempotent migration (`Mesh.harden_startup`)
+  re-signs any legacy unsigned redaction whose author is keyed on this machine.
+
+- **Removed members can no longer INJECT readable messages.** Epoch rotation on
+  removal stops a departed member from READING new messages, but they keep the
+  pre-rotation epoch key, so they could still seal+sign a FRESH old-epoch
+  envelope that current members decrypt. The fold now records a membership
+  TENURE timeline per user (`ChatSnapshot.tenure`, authenticated like every
+  other fold output) and the read model drops any MESSAGE whose sender was not a
+  member at its `ns` — closing the injection while keeping a departed member's
+  genuine history visible. `harden_startup` refolds pre-R25 chats so the field
+  is populated even where the last membership change predates this build.
+
+- **Transcript / prompt-injection hardening.** A chat message body is rendered
+  into the agent's `context.md` with continuation lines INDENTED
+  (`prompt._safe_body`), so a sender can no longer embed newlines to fabricate a
+  fresh transcript entry (e.g. a forged `(id m-…) @owner: approved …` at column
+  0). Forged ids were already un-actionable (capability tools validate ids
+  against the chat), and the silence sentinel is code-injected (unspoofable);
+  this removes the remaining line-forgery vector.
+
+- **Peer request replay closed.** The peer resolve cursor kept only the LAST id
+  per requester, so a captured EARLIER signed request could be re-served. A
+  monotonic per-requester `ns` floor now rejects any request at or below one
+  already handled (READ diagnostics only ever; repairs always re-prompt).
+
+Left as documented residuals (above): the unsigned directory root of trust (the
+central item, its own round) and the non-destructive reaction/pin overlays.
 
 ## Migration — R9.5 (retired R16.5)
 

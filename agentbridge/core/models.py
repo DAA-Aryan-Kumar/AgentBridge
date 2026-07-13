@@ -317,6 +317,13 @@ class ChatSnapshot:
     deleted: bool = False  # terminal (chat_deleted event) — R13
     key_epoch: int = 1
     materialized_ns: int = 0
+    # membership TENURE intervals per user, built by the authenticated fold
+    # (R25): {name: [[join_ns, leave_ns_or_0], ...]}. The read model drops a
+    # MESSAGE whose sender was not a member at its ns — so a removed member who
+    # kept the pre-rotation epoch key can't inject readable messages after they
+    # left (epoch rotation only stops them READING, not the read model showing
+    # a validly-signed old-epoch injection). Empty = fail open (legacy meta).
+    tenure: dict[str, list[list[int]]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.kind = _coerce(ChatKind, self.kind, ChatKind.GROUP)
@@ -337,6 +344,14 @@ class ChatSnapshot:
             n: Member.from_dict(m) for n, m in (d.get("members") or {}).items()
         }
         base["permissions"] = ChatPermissions.from_dict(d.get("permissions"))
+        # normalize tenure to lists of [int, int] (JSON gives lists already)
+        tenure: dict[str, list[list[int]]] = {}
+        for name, spans in (d.get("tenure") or {}).items():
+            norm = [[int(s[0]), int(s[1])] for s in spans
+                    if isinstance(s, (list, tuple)) and len(s) == 2]
+            if norm:
+                tenure[name] = norm
+        base["tenure"] = tenure
         return cls(**base)
 
 

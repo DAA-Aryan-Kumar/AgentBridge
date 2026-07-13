@@ -428,6 +428,11 @@ class AgentRunner:
                 "no responder configured — attach_cli_responder() or inject "
                 "one; use --dry-run to inspect what would trigger")
         self.mesh.start()  # outbox flusher + presence heartbeat
+        try:  # R25: warm the cache, then populate tenure + re-sign redactions
+            self.mesh.sync.sync_once()
+            self.mesh.harden_startup()
+        except Exception:  # noqa: BLE001 — hardening never blocks the harness
+            pass
         sync_thread = threading.Thread(
             target=self.mesh.sync.run,
             kwargs={"poll_s": self.poll_s,

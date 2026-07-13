@@ -155,6 +155,11 @@ class PeerService:
         state = self._state()
         awaiting = dict(state.get("awaiting") or {})   # req_id -> req meta
         resolved = dict(state.get("resolved") or {})   # requester -> last id
+        # requester -> highest request ns handled. The last-id cursor above only
+        # catches a replay of the CURRENT request; a captured EARLIER signed
+        # request (different id) would slip past it, so a monotonic ns floor
+        # rejects any request at or below one already handled (R25 replay fix).
+        resolved_ns = dict(state.get("resolved_ns") or {})
         wrote = 0
 
         # 1) verdicts the owner has answered
@@ -206,6 +211,10 @@ class PeerService:
                 continue  # already handled / already awaiting
             if not self._authentic(env, requester):
                 continue  # forged or keyless — ignore, don't even audit
+            req_ns = int(env.get("ns", 0))
+            if req_ns <= int(resolved_ns.get(requester, 0)):
+                continue  # stale / replayed earlier signed request — ns floor
+            resolved_ns[requester] = req_ns  # advance the floor as we take it up
             command = env.get("command")
             if command not in PEER_COMMANDS:
                 self._respond_env(env, ok=False, error="unknown command")
@@ -240,16 +249,20 @@ class PeerService:
                 self._audit(meta, "requested")
             wrote += 1
 
-        self._save_state({"awaiting": awaiting, "resolved": resolved})
+        self._save_state({"awaiting": awaiting, "resolved": resolved,
+                          "resolved_ns": resolved_ns})
         self._publish_pending(awaiting)
         return wrote
 
     # ------------------------------------------------------------ commands
     def _run(self, command: str) -> dict:
         if command == "ping":
-            from ..gui import __version__
+            try:  # canonical version lives in the ROOT gui package (app.py)
+                from gui import __version__ as ver
+            except ImportError:
+                ver = "unknown"
             return {"agent": self.agent, "machine": self.mesh.machine,
-                    "version": __version__, "alive": True}
+                    "version": ver, "alive": True}
         if command == "status":
             doc = self.tx.get_doc(f"status/{self.agent}_harness.json") or {}
             return {"paused": doc.get("paused"),

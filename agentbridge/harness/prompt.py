@@ -171,6 +171,17 @@ def _short_detail(detail: str) -> str:
     return d[:60]
 
 
+def _safe_body(body: str) -> str:
+    """Neutralize transcript-line injection (R25): a real entry starts at
+    column 0 with ``[<ts>] (id …) @who:`` — so a sender embedding newlines in
+    their body could otherwise fabricate extra lines, including a forged
+    ``(id m-…) @owner: approved …`` that the model reads as an instruction.
+    Indenting every continuation line keeps a body's own lines visibly nested
+    under its one entry and off column 0. (reply-quotes and pins already strip
+    newlines; the body is kept multi-line for code/lists, just indented.)"""
+    return (body or "").replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\n    ")
+
+
 def render_message(m: Message, agent: str) -> str:
     """One transcript line — factual, code-owned (moved from conversation.py).
     The message id rides every line: the chat tools (pin/star/react/forward)
@@ -195,7 +206,7 @@ def render_message(m: Message, agent: str) -> str:
     names = ", ".join(f.get("name", "") for f in (m.files or []))
     files = f"  [files: {names}]" if names else ""
     edited = " (edited)" if m.edited else ""
-    return f"[{m.ts}] {who}:{fline}{rline}{edited} {m.body}{files}"
+    return f"[{m.ts}] {who}:{fline}{rline}{edited} {_safe_body(m.body)}{files}"
 
 
 class PromptManager:

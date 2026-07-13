@@ -14,17 +14,18 @@ from __future__ import annotations
 
 import time
 
+from .. import crypto
 from ..core.errors import NotAMember, PermissionDenied, ValidationError
 from ..core.models import BodyRecord, ChatKind, ChatSnapshot, Envelope, Message, MsgKind
 from ..core.timekit import new_id, next_ns, utcnow_iso
 from ..store.db import Store
 from ..transport.base import Transport
 from . import authz
-from .events import signing_bytes
+from .events import redaction_signing_bytes, signing_bytes
 from .overlays import ChatOverlays, UserState
 from .paths import P
 from .readmodel import build_messages, parse_tags, unread_info
-from .sealer import Sealer
+from .sealer import E2EESealer, Sealer
 
 __all__ = ["MessagingService", "OUTBOX_APPEND"]
 
@@ -43,6 +44,7 @@ class MessagingService:
         notify_outbox=lambda: None,
         privacy=None,  # PrivacyService, wired by the Mesh facade (avoids a cycle)
         event_signer=lambda data: "",  # (bytes)->sig; facade wires the identity
+        directory=None,  # Directory — resolves sign_pub for redaction verify (R25)
     ) -> None:
         self.tx = tx
         self.store = store
@@ -52,6 +54,7 @@ class MessagingService:
         self._notify_outbox = notify_outbox
         self.privacy = privacy
         self._sign_event = event_signer
+        self.directory = directory
 
     # ------------------------------------------------------------- membership
     def snapshot(self, chat_id: str) -> ChatSnapshot:
@@ -158,7 +161,10 @@ class MessagingService:
         ChatOverlays(self.tx, chat_id).put_edit(msg_id, sealed, by=self.user, ns=edit_ns)
 
     def redact(self, chat_id: str, msg_ids: list[str]) -> None:
-        """Delete-for-everyone: SENDER-only, tombstoned in place (v1 rule)."""
+        """Delete-for-everyone: SENDER-only, tombstoned in place (v1 rule).
+        The tombstone is Ed25519-SIGNED by the sender (R25) so a folder writer
+        can't forge a redaction of someone else's message — the read model
+        verifies the signature before honoring it."""
         self._require_member(chat_id)
         ov = ChatOverlays(self.tx, chat_id)
         for msg_id in msg_ids:
@@ -167,7 +173,10 @@ class MessagingService:
                 raise ValidationError(f"unknown message {msg_id}")
             if original.get("from") != self.user:
                 raise PermissionDenied("only the sender may delete for everyone")
-            ov.put_redaction(msg_id, by=self.user)
+            red_ns = next_ns()  # minted first: the signature binds it
+            sig = self._sign_event(
+                redaction_signing_bytes(chat_id, msg_id, self.user, red_ns))
+            ov.put_redaction(msg_id, by=self.user, sig=sig, ns=red_ns)
 
     def react(self, chat_id: str, msg_id: str, emoji: str | None) -> None:
         self._require_member(chat_id)
@@ -239,7 +248,34 @@ class MessagingService:
             reactions=ov.reactions(),
             state=self._state(chat_id).get(),
             history_from_ns=history_from,
+            tenure=snap.tenure,
+            verify_redaction=self._redaction_verifier(chat_id),
         )
+
+    def _redaction_verifier(self, chat_id: str):
+        """A callable ``(msg_id, redaction_doc, original_sender) -> bool`` for
+        the read model, or None for a plaintext/dev mesh (no crypto boundary,
+        so redactions stay presence-based there). A redaction counts only when
+        it is SIGNED by the message's original sender (delete-for-everyone is
+        sender-only) — a forged/unsigned overlay dropped on the shared folder
+        is ignored (R25)."""
+        if not isinstance(self.sealer, E2EESealer) or self.directory is None:
+            return None
+
+        def ok(msg_id: str, red: dict, original_from: str) -> bool:
+            by = red.get("by")
+            if not by or by != original_from:
+                return False  # only the original sender may delete for everyone
+            pub = self.directory.sign_pub(by)
+            sig = red.get("sig") or ""
+            if not pub or not sig:
+                return False
+            return crypto.verify(
+                pub, sig,
+                redaction_signing_bytes(chat_id, msg_id, by, int(red.get("ns", 0))),
+            )
+
+        return ok
 
     def unread(self, chat_id: str) -> dict:
         return unread_info(

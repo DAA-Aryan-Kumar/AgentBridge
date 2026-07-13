@@ -13,14 +13,23 @@ Fold order (v1 rules, kept):
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Callable
 
 from ..core.models import BodyRecord, Envelope, Message, MsgKind
 from .sealer import Sealer
 
-__all__ = ["build_messages", "unread_info", "parse_tags"]
+__all__ = ["build_messages", "unread_info", "parse_tags", "member_at"]
 
 _TAG_RE = re.compile(r"@([a-z0-9_][a-z0-9_.-]*)", re.IGNORECASE)
+
+
+def member_at(spans: list[list[int]] | None, ns: int) -> bool:
+    """Was a user a member at ``ns``, given their tenure intervals (R25)?
+    An open interval has leave == 0. Absent tenure → True (fail open: legacy
+    meta carries none, so the drop only fires on positive evidence)."""
+    if not spans:
+        return True
+    return any(j <= ns and (e == 0 or ns < e) for j, e in spans)
 
 
 def parse_tags(body: str) -> list[str]:
@@ -43,11 +52,14 @@ def build_messages(
     reactions: dict[str, dict[str, list[str]]] | None = None,
     state: dict[str, Any] | None = None,
     history_from_ns: int = 0,
+    tenure: dict[str, list[list[int]]] | None = None,
+    verify_redaction: Callable[[str, dict, str], bool] | None = None,
 ) -> list[Message]:
     edits = edits or {}
     redactions = redactions or {}
     reactions = reactions or {}
     state = state or {}
+    tenure = tenure or {}
 
     # dedup by id (at-least-once transport), deterministic order
     by_id: dict[str, dict] = {}
@@ -64,6 +76,7 @@ def build_messages(
     keep_starred = bool(cleared.get("keep_starred"))
 
     out: list[Message] = []
+    honored: set[str] = set()   # redactions that verified — reply-quotes follow
     for rec in ordered:
         env = Envelope.from_dict(rec)
         if (
@@ -72,6 +85,16 @@ def build_messages(
             and env.ns < history_from_ns
         ):
             continue  # history-on-join: pre-join messages stay invisible
+        # R25: drop a MESSAGE whose sender wasn't a member at its ns — closes
+        # the removed-member injection (a departed member who kept the old
+        # epoch key can still SEAL+SIGN a fresh old-epoch envelope that current
+        # members can decrypt; the fold's tenure says they'd already left).
+        if (
+            env.kind is MsgKind.MESSAGE
+            and env.from_ in tenure
+            and not member_at(tenure.get(env.from_), env.ns)
+        ):
+            continue
         msg = Message(
             id=env.id, chat_id=chat_id, from_=env.from_, ns=env.ns, ts=env.ts,
             kind=env.kind, event=env.event,
@@ -94,7 +117,17 @@ def build_messages(
                     msg.body, msg.tags = eb.body, eb.tags
                     msg.edited = {"at": edit.get("at", ""), "ns": int(edit.get("ns", 0))}
 
-            if env.id in redactions:  # redaction WINS over edit
+            # redaction WINS over edit — but only an AUTHENTIC one (R25). Under
+            # E2EE the caller passes a verifier (valid sig from the ORIGINAL
+            # sender); a forged/unsigned redaction dropped on the shared folder
+            # is ignored and the message stays visible. verify_redaction is None
+            # only for plaintext/dev meshes, where there's no crypto boundary.
+            red = redactions.get(env.id)
+            if red is not None and (
+                verify_redaction is None
+                or verify_redaction(env.id, red, env.from_)
+            ):
+                honored.add(env.id)
                 msg.deleted = True
                 msg.body, msg.tags, msg.files = "", [], []
                 msg.reply_to = msg.fwd = msg.edited = None
@@ -109,9 +142,10 @@ def build_messages(
 
         out.append(msg)
 
-    # blank reply-quotes that point at redacted parents
+    # blank reply-quotes that point at redacted parents (only HONORED ones —
+    # a forged redaction that was ignored must not blank a quote either, R25)
     for msg in out:
-        if msg.reply_to and msg.reply_to.get("id") in redactions:
+        if msg.reply_to and msg.reply_to.get("id") in honored:
             msg.reply_to = {"id": msg.reply_to.get("id"), "deleted": True}
 
     return out

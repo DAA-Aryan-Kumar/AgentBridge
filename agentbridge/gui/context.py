@@ -160,6 +160,10 @@ class GuiApp:
     def _adopt(self, mesh: Mesh) -> None:
         self.mesh = mesh
         mesh.start()
+        try:  # R25: populate tenure + re-sign any legacy redactions (idempotent)
+            mesh.harden_startup()
+        except Exception:  # noqa: BLE001 — hardening must not block login
+            pass
         try:
             mesh.applink.announce(["gui"])
         except Exception:  # noqa: BLE001 — presence lane must not block login

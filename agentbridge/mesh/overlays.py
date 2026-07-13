@@ -47,10 +47,11 @@ class ChatOverlays:
         return out
 
     # ------------------------------------------------------------- redactions
-    def put_redaction(self, msg_id: str, by: str) -> None:
+    def put_redaction(self, msg_id: str, by: str, sig: str = "", ns: int | None = None) -> None:
         self.tx.put_doc(
             P.redaction(self.chat_id, msg_id),
-            {"by": by, "at": utcnow_iso(), "ns": next_ns()},
+            {"by": by, "at": utcnow_iso(),
+             "ns": ns if ns is not None else next_ns(), "sig": sig},
         )
         # a redacted message can't stay pinned (v1 rule)
         self.tx.delete_doc(P.pin(self.chat_id, msg_id))

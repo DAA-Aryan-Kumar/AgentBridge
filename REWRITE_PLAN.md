@@ -743,15 +743,47 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       optimization. Test-bug lesson recorded: a PLAIN writer next to E2EE
       readers is refused BY DESIGN (R16.5) — stress worlds must be
       uniformly encrypted. 317 tests; live harness + GUI restarted.
-- [ ] **R25 — Security review.** Permission-bypass hunt across every mutating
-      endpoint; E2EE audit (key rotation, removed-member access, envelope
-      misuse); prompt-injection resistance of harness prompts; peer-access
-      abuse cases; blocklist/read-only rails verified in every fallback path.
+- [x] **R25 — Security review. DONE 2026-07-13 (v0.24.95, 323 tests).** Swept
+      every mutating GUI/CLI endpoint (all route through the mesh's
+      membership/owner/admin gates; membership ops re-check authority at fold
+      time) + fanned two deep audits over the harness and crypto/transport.
+      Confirmed-holding rails: broker ASK fails CLOSED + caches the denial,
+      deny-roots resolve `..`/symlinks, auto_allow is read-only, capability
+      tools are chat-bound + id-validated + per-run capped, peer requests are
+      Ed25519-signed with a two-tier (access+repair) owner gate, epoch rotation
+      wraps current members only, AAD binds chat|id|ns|sender|epoch, the fold
+      re-verifies signatures + gid-pinned genesis, Supabase secret key never
+      leaves memory. **Four holes CLOSED** (docs/THREAT_MODEL.md "CLOSED R25"):
+      (1) redactions were applied by mere PRESENCE — now Ed25519-signed by the
+      sender + verified at read (a folder writer could otherwise tombstone any
+      message); (2) a removed member who kept the old epoch key could INJECT a
+      fresh old-epoch envelope current members decrypt — the fold now records a
+      membership TENURE timeline (`ChatSnapshot.tenure`) and the read model
+      drops messages sent outside a sender's tenure; (3) message bodies could
+      forge transcript lines into the agent's context.md — continuation lines
+      now indented; (4) peer request replay — added a per-requester ns floor.
+      Plus a latent bug fix (peer `ping` imported a nonexistent version).
+      `Mesh.harden_startup` (idempotent, on GUI/harness sign-in) populates
+      tenure on pre-R25 chats + re-signs any local legacy redaction. Residuals
+      DOCUMENTED for their own round: the UNSIGNED directory root of trust
+      (account-doc key overwrite → identity takeover; needs signed/pinned
+      account docs + key history — the biggest open item, → **R27**) and the
+      non-destructive reaction/pin overlays. Live-verified on a scratch mesh
+      (boots clean, renders, tenure written); live @claude + GUI restarted.
 - [ ] **R26 — Docs & retirement.** ARCHITECTURE.md rewritten for v2; HANDOFF
       updated; `mesh.py`, `agent_worker.py`, `legacy/bridge.py`,
       `handler_coco.py` moved to `legacy/`; version source moves to
       `agentbridge/__init__.py`; packaging-prep notes for the next session
       (setup wizard, installers, PWA).
+- [ ] **R27 — Directory root of trust (from the R25 review).** Close the last
+      big residual: `users/<name>.json` publishes the very keys every signature
+      + epoch-wrap trusts, but is itself unsigned and transport-writable, so a
+      folder/secret writer can overwrite a victim's `sign_pub`/`agree_pub` and
+      take over the identity. Options to weigh: TOFU key-pinning in the local
+      keystore with a change alarm (cheap, detection-first); signed account docs
+      chained to a mesh trust root / recovery key; publishing key HISTORY so a
+      rotation is provable and an overwrite is not. Must not break the legit
+      key-provisioning flows (signup, first-login upgrade, agent adoption).
 
 ---
 

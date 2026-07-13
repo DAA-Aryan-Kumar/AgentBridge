@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+from .. import crypto
 from ..core.config import DEFAULT_HOME
 from ..store.db import Store
 from ..store.outbox import OutboxWorker
@@ -22,6 +23,7 @@ from .keyring import ChatKeyService, KeyStore
 from .membership import MembershipService
 from .messaging import MessagingService
 from .notify import Notifier
+from .paths import P
 from .presence import PresenceService
 from .privacy import PrivacyService
 from .receipts import ReceiptsService
@@ -85,6 +87,7 @@ class Mesh:
             notify_outbox=lambda: self.outbox.notify(),
             privacy=self.privacy,
             event_signer=self._sign_event,
+            directory=self.directory,
         )
         self.membership = MembershipService(
             self.tx, self.store, self.directory, self.messaging,
@@ -145,6 +148,48 @@ class Mesh:
             return self.messaging.snapshot(chat_id).is_member(self.user)
         except Exception:  # noqa: BLE001 — unreadable meta = not my chat (yet)
             return False
+
+    # -------------------------------------------------------- R25 hardening
+    def harden_startup(self) -> None:
+        """One-time, idempotent security migration, called by connectors after
+        sign-in (GUI/harness). Best-effort per chat — never blocks a login.
+
+        1. Populate membership TENURE in any meta.json written before R25, so
+           the read model's removed-member drop is live even for chats whose
+           last membership change predates this build (a refold rebuilds tenure
+           from the authenticated event log; skipped once meta carries it).
+        2. Re-sign legacy UNSIGNED redactions whose author's key is available
+           on this machine — otherwise they'd stop being honored (delete-for-
+           everyone must stay sticky) now that the read model requires a valid
+           signature. A forged/unsigned one whose author isn't local is simply
+           left unhonored (fail-safe: the message reappears rather than a
+           forgery sticking)."""
+        from .overlays import ChatOverlays
+
+        for chat_id in list(self.tx.list_chat_ids()):
+            try:
+                meta = self.tx.get_doc(P.meta(chat_id))
+                if not isinstance(meta, dict) or not self._is_member(chat_id):
+                    continue
+                if "tenure" not in meta:
+                    self.membership.refold(chat_id)
+                self._reseal_redactions(chat_id, ChatOverlays(self.tx, chat_id))
+            except Exception:  # noqa: BLE001 — one bad chat never blocks startup
+                continue
+
+    def _reseal_redactions(self, chat_id: str, ov) -> None:
+        from .events import redaction_signing_bytes
+
+        for msg_id, red in ov.redactions().items():
+            if not isinstance(red, dict) or red.get("sig"):
+                continue
+            by = red.get("by")
+            bundle = self.keystore.load(by) if by else None
+            if bundle is None:
+                continue  # not ours to sign — leave it unhonored, don't forge
+            ns = int(red.get("ns", 0))
+            sig = crypto.sign(bundle, redaction_signing_bytes(chat_id, msg_id, by, ns))
+            ov.put_redaction(msg_id, by=by, sig=sig, ns=ns)
 
     # ----------------------------------------------------------- lifecycle
     def start(self, *, heartbeat: bool = True) -> None:
