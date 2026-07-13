@@ -26,6 +26,10 @@ const PERM_FLAGS = [
   ["agents_add_if_members_can", "Agents can add members (when members can)"],
 ];
 
+// availability states shared with the settings status editor (Q32)
+const STATUS_LABEL = { available: "Available", busy: "Busy",
+  dnd: "Do not disturb", away: "Away" };
+
 function permissionsCard(meta, isAdmin) {
   const p = meta.permissions || {};
   const dis = isAdmin ? "" : "disabled";
@@ -163,6 +167,23 @@ async function renderChatDetails() {
       <div class="ci-sub">${isSelf ? "Message yourself"
         : isDm ? "@" + esc(dmOther(meta, ms.user))
         : `Group · ${memberCount}`}</div>
+      ${(() => {
+        // Q32: in a DM, the peer's status (dnd/busy + text) sits below the
+        // @username, and online/last-seen below that — each shown ONLY when
+        // the peer shares it (no empty field). Re-renders on poll via dKey.
+        if (!isDm || isSelf) return "";
+        const peer = ms.users[dmOther(meta, ms.user)] || {};
+        const st = peer.status || {};
+        const statusLine = (st.state && st.state !== "available") || st.text
+          ? `<div class="ci-status">${st.state && st.state !== "available"
+              ? `<span class="status-dot ${esc(st.state)}"></span>${esc(STATUS_LABEL[st.state] || st.state)}` : ""}${
+              st.text ? `${(st.state && st.state !== "available") ? " · " : ""}${esc(st.text)}` : ""}</div>`
+          : "";
+        const p = peer.presence || {};
+        const presLine = p.online === true ? '<div class="ci-presence">online</div>'
+          : p.last_seen ? `<div class="ci-presence">last seen ${esc(fmtTime(p.last_seen))}</div>` : "";
+        return statusLine + presLine;
+      })()}
       <div class="ci-actions">
         ${isDm ? "" : `<button class="ci-act" id="ci-add">
           <span class="ci-act-circle">${ICONS.addUser}</span>Add</button>`}

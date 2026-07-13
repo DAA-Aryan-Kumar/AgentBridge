@@ -162,6 +162,31 @@ class BridgeServer:
                 for s in mesh.membership.chats_for()])
 
         @mcp.tool(structured_output=False)
+        def read_status(username: str) -> str:
+            """Check a member's availability + presence before messaging them —
+            e.g. whether they're DND/busy or offline. Returns only what that
+            member shares with you (their privacy rules gate every field); an
+            empty result means they share nothing with you."""
+            def do():
+                name = (username or "").strip().lstrip("@").lower()
+                if mesh.directory.get(name) is None:
+                    return f"no such member @{name}"
+                prof = mesh.privacy.visible_profile(name, viewer=mesh.user)
+                pres = mesh.presence.visible_presence(name, viewer=mesh.user)
+                out = {}
+                st = prof.get("status")
+                if isinstance(st, dict) and (st.get("state") or st.get("text")):
+                    out["status"] = st.get("state") or "available"
+                    if st.get("text"):
+                        out["status_text"] = st["text"]
+                if pres.get("online") is not None:
+                    out["online"] = pres["online"]
+                if pres.get("last_seen"):
+                    out["last_seen"] = pres["last_seen"]
+                return out or f"@{name} shares no status with you"
+            return guarded(do)
+
+        @mcp.tool(structured_output=False)
         def pin_message(message_id: str) -> str:
             """Pin a message of this chat for everyone (ids are in the
             transcript, e.g. m-...)."""

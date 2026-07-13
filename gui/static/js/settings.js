@@ -220,6 +220,14 @@ async function renderSettings() {
               data-agent="${esc(a.username)}" data-value="${esc(st.model || "")}"></span></dd>
             <dt>Reasoning effort</dt><dd><span class="csel-slot ag-reason"
               data-agent="${esc(a.username)}" data-value="${esc(st.reasoning || "")}"></span></dd>
+            <dt>Availability</dt><dd>
+              <span class="csel-slot ag-status-state" data-agent="${esc(a.username)}"
+                data-value="${esc((a.status && a.status.state) || "available")}"></span>
+              <input type="text" class="ag-status-text" data-agent="${esc(a.username)}"
+                placeholder="What it's working on (optional)" maxlength="80"
+                value="${esc((a.status && a.status.text) || "")}" style="margin-top:6px;width:100%">
+              <button class="ag-status-save" data-agent="${esc(a.username)}" style="margin-top:6px">Set status</button>
+              <span class="hint">Its availability, shown to members per your privacy rules</span></dd>
             <dt>Default reply rule</dt><dd><span class="csel-slot ag-default"
               data-agent="${esc(a.username)}" data-value="${esc(st.default_rule || "tagged")}"></span></dd>
             <dt>Replies per hour</dt><dd><span class="csel-slot ag-rate"
@@ -434,7 +442,14 @@ async function renderSettings() {
         { v: "off", label: "Off — unreachable by other agents" },
         { v: "ask", label: "Ask me each time" },
       ];
+      const statusOpts = [
+        { v: "available", label: "🟢 Available" },
+        { v: "busy", label: "🟠 Busy" },
+        { v: "dnd", label: "⛔ Do not disturb" },
+        { v: "away", label: "🌙 Away" },
+      ];
       mountCsels($(".settings-body"), (slot) => {
+        if (slot.classList.contains("ag-status-state")) return statusOpts;
         if (slot.classList.contains("ag-adapter")) return adapterOpts;
         if (slot.classList.contains("ag-model"))
           return modelOpts(famFor(slot.dataset.agent), "Family default");
@@ -546,6 +561,21 @@ async function renderSettings() {
       const r = await api("/api/mesh/agent", { username: agent, patch });
       if (r.error) toast(r.error, true);
       else toast(`Saved @${agent}`);
+    });
+  });
+  // owner sets the agent's availability (Q32) — a separate account field, so
+  // its own Set-status button (not the harness-settings Save above)
+  document.querySelectorAll(".ag-status-save").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const agent = btn.dataset.agent;
+      const slot = document.querySelector(`.ag-status-state[data-agent="${agent}"]`);
+      const text = document.querySelector(`.ag-status-text[data-agent="${agent}"]`);
+      const r = await api("/api/mesh/set_status", {
+        agent, state: slot?.dataset.value || "available",
+        text: (text?.value || "").trim(),
+      });
+      if (r.error) { toast(r.error, true); return; }
+      toast(`@${agent}'s status updated`, { check: true });
     });
   });
   // owner: set/clear each agent's photo — Take / Upload / Remove via the shared

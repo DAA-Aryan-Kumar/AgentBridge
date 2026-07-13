@@ -276,6 +276,42 @@ def test_capability_tools_ride_the_agents_own_gates(tmp_path):
         owner.close()
 
 
+def test_read_status_tool_is_privacy_gated(tmp_path):
+    """R35: the agent can query a member's availability on demand, but only
+    the fields that member shares with it."""
+    root = tmp_path / "mesh2"
+    root.mkdir()
+    home = tmp_path / "home"
+    owner = Mesh(root, "aryan", "devbox", encrypt=True, home=home)
+    owner.accounts.create_human("aryan", "hunter2x")
+    owner.accounts.create_agent("helper")
+    agent = Mesh(root, "helper", "devbox", encrypt=True, home=home)
+    try:
+        owner.set_status("dnd", "heads-down on the migration")
+        chat = owner.create_chat("Main", members=["helper"])
+        owner.outbox.flush_once()
+        agent.sync.sync_once([chat.id])
+
+        b = PermissionBroker(agent.tx, "helper")
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        with BridgeServer(b, chat_id=chat.id, workspace=ws, auto_allow=[],
+                          approvals=[], ask_timeout_s=0.3, mesh=agent) as bridge:
+            out = call_tool(bridge.url, "read_status", {"username": "aryan"})
+            assert "dnd" in out and "migration" in out
+            assert "no such member" in call_tool(
+                bridge.url, "read_status", {"username": "nobody"})
+
+        owner.set_privacy({"status": "nobody"})   # aryan hides status
+        with BridgeServer(b, chat_id=chat.id, workspace=ws, auto_allow=[],
+                          approvals=[], ask_timeout_s=0.3, mesh=agent) as bridge:
+            out = call_tool(bridge.url, "read_status", {"username": "aryan"})
+            assert "dnd" not in out and "migration" not in out
+    finally:
+        agent.close()
+        owner.close()
+
+
 def test_agent_edits_and_deletes_only_its_own_messages(tmp_path):
     """R33: an agent gets edit_message/delete_message over its OWN messages
     (author-only, like a human) — never over another member's."""

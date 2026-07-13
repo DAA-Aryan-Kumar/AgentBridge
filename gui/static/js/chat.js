@@ -550,16 +550,21 @@ async function renderMeshChat(force) {
     ? (meta.members || []).find((u) => u !== ms.user) : null;
   const headAgentTag = dmPeer && ms.users?.[dmPeer]?.kind === "agent"
     ? ' <span class="kind-tag">agent</span>' : "";
+  // DM header online/last-seen sub-line (Q32) — only when the peer shares it,
+  // so the name stays vertically centered otherwise (the .has-sub class drives
+  // the push-up transition in css)
+  const dmSub = dmPeer ? presenceLine(ms.users?.[dmPeer]?.presence) : "";
   // DM/self header shows the peer's photo; a group shows the group photo
   const headAva = meshChatAvatarInner(meta);
   $("#content").innerHTML = `
     <div class="chat-top" id="chat-top">
       <button class="chat-back" id="chat-back">${ICONS.back}</button>
       <span class="chat-avatar" style="width:36px;height:36px;font-size:15px;flex:none">${headAva}</span>
-      <div class="chat-title-btn" style="min-width:0" title="Open chat info">
+      <div class="chat-title-btn${(isDm && dmSub) ? " has-sub" : ""}" style="min-width:0" title="Open chat info">
         <div class="chat-head-name">${esc(title)}${headAgentTag}
           ${meta.archived ? '<span class="kind-tag">archived</span>' : ""}</div>
-        ${isDm ? "" : `<div class="chat-head-sub">${esc(memberLine)}</div>`}
+        ${isDm ? (dmSub ? `<div class="chat-head-sub">${dmSub}</div>` : "")
+               : `<div class="chat-head-sub">${esc(memberLine)}</div>`}
       </div>
       <span class="spacer"></span>
       <button class="icon-btn" id="chat-more">${ICONS.more}</button>
@@ -834,6 +839,16 @@ function receiptTicks(msg, isDm) {
   }
   return `<span class="ticks${read ? " read" : ""}" title="${esc(label)}" `
        + `aria-label="${esc(label)}">${double ? ICONS.ticks : ICONS.tick}</span>`;
+}
+
+// presence sub-line (Q32): "online" or "last seen <when>" — only when the peer
+// shares it (visible_presence already dropped hidden fields), else "" so the
+// header name stays vertically centered.
+function presenceLine(presence) {
+  if (!presence) return "";
+  if (presence.online === true) return '<span class="pres-online">online</span>';
+  if (presence.last_seen) return "last seen " + esc(fmtTime(presence.last_seen));
+  return "";
 }
 
 // one delegated listener per transcript element (full renders create a new

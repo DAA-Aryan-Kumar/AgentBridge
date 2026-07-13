@@ -43,10 +43,10 @@ by-design (documented where).
 - [x] **M6 Privacy matrix** — symmetric member/agent audiences incl.
   agents-plus-owner tiers, public messaging/add_to_group, blocks,
   read-receipt + view-read-receipt toggles; owner sets agent rules. R6.
-- [~] **M7 Status + About** — backend fields + defaults shipped (R6/R7).
-  **OPEN: GUI surfacing (header/details), owner sets agent status, dedicated
-  read_status tool** → round "status surfacing". Verify agent default about
-  reads "<Owner>'s <Agent> on <machine>".
+- [x] **M7 Status + About** — backend fields + defaults (R6/R7); GUI surfacing
+  (DM header + details), owner-sets-agent-status, and the `read_status` tool
+  all shipped R35. Agent default about VERIFIED as
+  `"<Owner>'s <Agent> on <machine>"` (accounts.py create_agent).
 - [x] **M8 Username + password change** — R7/R8 (handle change + password
   re-wrap keeping recovery).
 - [x] **M9 Local caching** — per-identity SQLite store (R2) + the R29 cloud
@@ -205,10 +205,16 @@ Ticked = shipped + verified. Rounds named for open items.
 - [ ] **Q31 Edit in the composer** — editing opens the message in the
   composer (WhatsApp), not the current window → round "composer + transcript
   bug bash".
-- [ ] **Q32 read_status tool + status/last-seen surfacing in GUI** — DM
-  details below username (hidden when not shared, never an empty field);
-  online/last-seen in chat header + details with the name push-up transition;
-  owner can set an agent's status → round "status surfacing".
+- [x] **Q32 read_status tool + status/last-seen surfacing in GUI** (R35): a
+  `read_status` bridge tool (privacy-gated) lets an agent check a member's
+  availability on demand; the DM chat-info Encryption... er, identity block
+  shows the peer's status (below @username, only when shared — no empty
+  field) + online/last-seen below it; the DM header shows online/last-seen
+  with the `.has-sub` push-up; the owner sets an agent's status from Settings
+  → My agents (Availability row → `set_status` with `agent=`). Live-verified
+  all four. (Live-header ticking on a presence change mid-view is a minor
+  polish — the header refreshes on chat open / structural change; the details
+  pane updates on poll.)
 - [x] **Q33 Unpin usable by agents** — pins now carry their message id into
   the agent's context (`context_pinned` template + prompt.py), so the agent
   can pass it to `unpin_message` even for a pin older than the transcript tail

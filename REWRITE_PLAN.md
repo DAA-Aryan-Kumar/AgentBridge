@@ -1053,6 +1053,24 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       AS its co-hosted agent's identity — an authorization + crypto-authorship
       change that earns a dedicated security pass.
 
+- [x] **R35 — status surfacing (read_status tool + GUI header/details/agent
+      editor). DONE 2026-07-14 (v0.24.109, 386 tests).** BACKLOG Q32 / M7
+      close. (1) **read_status bridge tool** — an agent checks a member's
+      availability + presence on demand before messaging, returning only what
+      that member shares with it (reuses `privacy.visible_profile` +
+      `presence.visible_presence`, matrix-gated exactly like the per-run
+      delivery enrichment). (2) **GUI status/presence** — the DM chat-info
+      identity block shows the peer's status (state + text, below @username)
+      and online/last-seen below it, each only when shared (no empty field);
+      the DM header shows online/last-seen with a `.has-sub` push-up. (3)
+      **Owner sets the agent's status** — an Availability row in Settings →
+      My agents (`set_status` with `agent=`, already owner-gated server-side).
+      Agent default about verified `"<Owner>'s <Agent> on <machine>"`.
+      Live-verified all paths on the scratch rig (peer status busy/dnd +
+      last-seen rendered; owner set scratbot to dnd). Frontend-only touch to
+      chat.js/details.js/settings.js/style.css + one bridge tool; no overlap
+      with the parallel session.
+
 | Backlog item (source) | Covered in |
 |---|---|
 | Settings overhaul: messaging-permission model (HANDOFF #1) | R6 |
