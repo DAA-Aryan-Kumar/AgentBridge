@@ -20,6 +20,7 @@ Core pieces:
 from .bridge import BridgeServer
 from .broker import PermissionBroker
 from .conversation import ConversationManager, Delivery, TriggerContext
+from .memory import Embedder, MemoryStore
 from .prompt import PromptManager, PromptPack
 from .responder import Reply, Responder, SILENCE, clean_reply
 from .runner import AgentRunner, SingleInstance, main, supervise
@@ -29,8 +30,8 @@ from .timers import TimerService
 
 __all__ = [
     "AgentRunner", "BridgeServer", "ConversationManager", "Delivery",
-    "HarnessSettings", "PermissionBroker", "PromptManager", "PromptPack",
-    "Reply", "Responder", "SILENCE", "SingleInstance", "TimerService",
-    "TriggerContext", "WorkItem", "WorkQueue", "clean_reply", "main",
-    "supervise",
+    "Embedder", "HarnessSettings", "MemoryStore", "PermissionBroker",
+    "PromptManager", "PromptPack", "Reply", "Responder", "SILENCE",
+    "SingleInstance", "TimerService", "TriggerContext", "WorkItem",
+    "WorkQueue", "clean_reply", "main", "supervise",
 ]

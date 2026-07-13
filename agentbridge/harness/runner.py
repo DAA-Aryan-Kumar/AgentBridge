@@ -438,6 +438,9 @@ class AgentRunner:
         self.stop()
         self.drain()
         self._pool.shutdown(wait=True)
+        resp_close = getattr(self.responder, "close", None)
+        if callable(resp_close):
+            resp_close()   # e.g. the CLI responder's qdrant path lock
         self.mesh.sync.stop()
         self.mesh.close()
 

@@ -596,11 +596,30 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       message", "Scheduling a wake-up"). Verified with the real claude CLI:
       pin landed on the correct message + timer scheduled and owner-visible.
       276 tests; live harness restarted onto it.
-- [ ] **R20 — Memory.** qdrant (embedded/local per R1) + fastembed; **chat
-      memory lives in that chat's workspace; global memory is separate**;
-      default policy: agents read/write GLOBAL memory only in DMs (owner can
-      change); mem0 / graphiti knowledge-graph layer per the R1 spike outcome;
-      extraction via configurable local model (D11).
+- [x] **R20 — Memory foundation. DONE 2026-07-13** (+ **R19.5** same day,
+      Aryan's ask: timers + agent asks SURFACED in the GUI — sidebar
+      hand-dots on chats where an agent waits, timer chips above the
+      composer, a Scheduled row per agent in Settings; /api/mesh/asks now
+      carries timers). Memory = two tiers: the workspace ``MEMORY.md``
+      (free-form notepad, seeded per chat) and the VECTOR store —
+      ``harness/memory.py``: qdrant **local mode** under
+      ``home/harness/<agent>/memory`` (one path per agent process —
+      portalocker), one collection per chat + one ``global``. Embeddings
+      ride the D15 probe chain behind our own interface: fastembed →
+      model2vec (probed at first use, never import; a box with neither
+      reports memory unavailable, softly). Bridge tools ``remember`` /
+      ``recall``; the GLOBAL scope follows the owner's ``global_memory``
+      policy (dm | everywhere | off — default dm: a group can't quietly
+      write into the cross-chat brain). Runner close releases the qdrant
+      path lock through the responder. Tests inject a deterministic fake
+      embedder (real backends download models — probed per box, not in CI).
+      Verified on this box: fastembed correctly falls through (onnxruntime
+      DLL block) → model2vec potion-base-8M (256d); REAL-CLI two-run arc:
+      "remember Friday 3pm" → new run → recalled it. 282 tests; live
+      harness restarted. DEFERRED: mem0/graphiti entity extraction (D16)
+      needs an extraction LLM this box lacks (no ollama) — its own
+      bring-up when one exists; pyproject ``memory-full`` extra carries
+      fastembed+mem0ai for capable boxes.
 - [ ] **R21 — Retrieval & planner.** llamaindex search over chat history +
       files (fed from the SQLite cache); the loop: request → **planner** →
       search/retrieve → rank → load summaries → build prompt → agent;

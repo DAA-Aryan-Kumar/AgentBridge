@@ -50,7 +50,9 @@ class BridgeServer:
                  workspace: Path, auto_allow: list[str],
                  approvals: list[dict], ask_timeout_s: float,
                  deny_roots: list[Path] | None = None,
-                 mesh=None, timers_out: list[dict] | None = None) -> None:
+                 mesh=None, timers_out: list[dict] | None = None,
+                 memory=None, chat_kind: str = "",
+                 global_memory: str = "dm") -> None:
         self.broker = broker
         self.chat_id = chat_id
         self.workspace = workspace
@@ -60,6 +62,9 @@ class BridgeServer:
         self.deny_roots = list(deny_roots or [])
         self.mesh = mesh                 # capability tools bind to it (R19)
         self.timers = timers_out if timers_out is not None else []
+        self.memory = memory             # MemoryStore (R20); None = no tools
+        self.chat_kind = chat_kind
+        self.global_memory = global_memory
         self._creates = 0
         self.port = 0
         self._server = None
@@ -104,6 +109,8 @@ class BridgeServer:
 
         if self.mesh is not None:
             self._capability_tools(mcp)
+        if self.memory is not None:
+            self._memory_tools(mcp)
 
         config = uvicorn.Config(mcp.streamable_http_app(), host="127.0.0.1",
                                 port=0, log_level="error", access_log=False)
@@ -263,6 +270,60 @@ class BridgeServer:
             self.timers.append(
                 {"in_s": in_s, "note": " ".join(str(note or "").split())[:300]})
             return f"scheduled: a wake-up in {in_s / 60:.0f} min"
+
+    # ---------------------------------------------------- memory tools (R20)
+    def _memory_tools(self, mcp) -> None:
+        """remember/recall over the agent's local vector store. Chat scope
+        stays inside this chat's collection; the GLOBAL scope follows the
+        owner's policy (default: only in a DM — a group can't quietly write
+        into the agent's cross-chat brain)."""
+
+        def global_ok() -> str | None:
+            if self.global_memory == "off":
+                return "global memory is turned off by your responsible member"
+            if self.global_memory == "dm" and self.chat_kind != "dm":
+                return ("global memory is only available in a direct chat — "
+                        "use scope 'chat' here")
+            return None
+
+        @mcp.tool(structured_output=False)
+        def remember(text: str, scope: str = "chat") -> str:
+            """Save one durable memory. scope 'chat' = this chat only;
+            'global' = across your chats (policy-gated)."""
+            scope = "global" if str(scope).lower() == "global" else "chat"
+            if scope == "global":
+                refusal = global_ok()
+                if refusal:
+                    return refusal
+            try:
+                if not self.memory.available():
+                    return "memory is not available on this machine"
+                self.memory.remember(scope=scope, chat_id=self.chat_id,
+                                     text=text, by=self.broker.agent)
+                return f"remembered ({scope})"
+            except Exception as e:  # noqa: BLE001 — a refusal, not a crash
+                return f"could not remember: {e}"
+
+        @mcp.tool(structured_output=False)
+        def recall(query: str, scope: str = "chat", limit: int = 5) -> str:
+            """Search your memories. scope 'chat' = this chat's memories;
+            'global' = your cross-chat memories (policy-gated)."""
+            scope = "global" if str(scope).lower() == "global" else "chat"
+            if scope == "global":
+                refusal = global_ok()
+                if refusal:
+                    return refusal
+            try:
+                if not self.memory.available():
+                    return "memory is not available on this machine"
+                hits = self.memory.recall(scope=scope, chat_id=self.chat_id,
+                                          query=query, limit=limit)
+            except Exception as e:  # noqa: BLE001
+                return f"could not recall: {e}"
+            if not hits:
+                return "nothing relevant remembered yet"
+            return "\n".join(f"- {h['text']} (relevance {h['score']})"
+                             for h in hits)
 
     def __exit__(self, *exc) -> None:
         if self._server is not None:

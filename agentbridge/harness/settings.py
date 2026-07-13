@@ -62,6 +62,10 @@ class HarnessSettings:
     ask_timeout_s: float = 120.0    # owner-answer window; silence = deny
     # owner-granted standing permissions: [{tool, chat}] (chat "*" = all)
     approvals: list[dict] = field(default_factory=list)
+    # cross-chat memory policy (R20): where may the agent touch its GLOBAL
+    # memory — "dm" (default: only one-on-one with a member), "everywhere",
+    # or "off" (chat-scoped memory only)
+    global_memory: str = "dm"
     # ----- model selection (R16): the owner's picker writes these
     adapter: str = ""               # preset family id; "" = the sole install
     model: str = ""                 # override-all "current model"
@@ -104,6 +108,9 @@ class HarnessSettings:
                 for r in (h.get("approvals") or [])
                 if isinstance(r, dict) and r.get("tool")
             ],
+            global_memory=(str(h.get("global_memory") or "dm").lower()
+                           if str(h.get("global_memory") or "dm").lower()
+                           in ("dm", "everywhere", "off") else "dm"),
             adapter=str(h.get("adapter") or "").strip().lower(),
             model=_model(h.get("model")),
             reasoning=str(h.get("reasoning") or "").strip().lower(),

@@ -31,6 +31,7 @@ from ...core.timekit import utcnow_iso
 from ..bridge import BridgeServer
 from ..broker import PermissionBroker
 from ..conversation import Delivery
+from ..memory import MemoryStore
 from ..prompt import PromptManager, PromptPack
 from ..responder import OnStep, Reply
 from ..settings import HarnessSettings
@@ -115,6 +116,9 @@ class CliResponder:
         self.home = Path(home) if home else DEFAULT_HOME
         self.prompts = PromptManager(self.home)
         self.broker = PermissionBroker(mesh.tx, self.agent)
+        # one store per agent process (qdrant local mode is single-process
+        # per path); backends load lazily on the first remember/recall
+        self.memory = MemoryStore(self.home / "harness" / self.agent / "memory")
         self._minimal: set[str] = set()  # preset ids that needed the fallback
 
     # ------------------------------------------------------------- the run
@@ -141,6 +145,11 @@ class CliResponder:
         context_file = workdir / "context.md"
         context_file.write_text(pack.context_text(delivery, staged),
                                 encoding="utf-8", newline="\n")
+        notes = workdir / "MEMORY.md"        # the workspace note tier (R20)
+        if not notes.exists():
+            notes.write_text("# Notes for this chat\n\nYours to keep — "
+                             "edit freely; it stays in this workspace.\n",
+                             encoding="utf-8", newline="\n")
         reply_file = workdir / "reply.md"
         reply_file.unlink(missing_ok=True)
 
@@ -163,6 +172,8 @@ class CliResponder:
                     ask_timeout_s=settings.ask_timeout_s,
                     deny_roots=self._deny_roots(),
                     mesh=self.mesh, timers_out=timers,
+                    memory=self.memory, chat_kind=delivery.chat_kind,
+                    global_memory=settings.global_memory,
                 ))
                 mcp_config = bridge.mcp_config()
                 # the inner CLI must out-wait the owner-answer window
@@ -208,6 +219,10 @@ class CliResponder:
         files = sorted(str(p) for p in outbox.iterdir()
                        if p.is_file() and p.stat().st_size)
         return Reply(body=text, steps=steps, files=files, timers=timers)
+
+    def close(self) -> None:
+        """Release process-held resources (the qdrant path lock above all)."""
+        self.memory.close()
 
     # ------------------------------------------------------------ plumbing
     def _deny_roots(self) -> list[Path]:
