@@ -689,11 +689,32 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
 
 ### Phase 4 — Realtime backend + hardening
 
-- [ ] **R23 — Supabase driver.** Schema + RLS mirroring visibility=membership;
-      realtime subscriptions feeding the same event bus; storage for files;
-      setup-time choice **cloud vs synced-folder** with honest pros/cons copy
-      (cloud: more users, near-realtime; folder: more private, no third
-      party); E2EE applies identically (server stores ciphertext).
+- [x] **R23 — Supabase driver. DONE 2026-07-13** (account opened + schema
+      pasted by Aryan the same day). ``transport/supabase.py`` behind the
+      SAME Transport contract: docs → ``ab_docs`` (atomic jsonb upserts),
+      logs → ``ab_logs`` (**the row id IS the read offset** — the
+      half-synced-line class can't exist), blobs → one private Storage
+      bucket, sync hints → a realtime BROADCAST channel per root on a
+      daemon thread (supabase realtime is async-only, the R1 note; socket
+      death silently degrades to pure polling — poll stays truth, tenet 6).
+      Schema = ``docs/supabase_schema.sql`` (one-time dashboard paste; two
+      RPCs make list_logs/list_chat_ids single round-trips — PostgREST has
+      no group-by). Trust model v1: SECRET key only, RLS enabled with NO
+      policies (publishable key gets nothing); per-member Supabase auth +
+      real RLS policies = a later round, recorded. E2EE identical — the
+      smoke PROVED ciphertext at rest. Credentials in
+      ``~/.agentbridge/supabase.env`` (never git; .gitignore blocks *.env).
+      Wiring: mesh root ``supabase://<name>`` via a make_transport factory
+      (Mesh/GUI/harness; Path() no longer mangles scheme specs; SQLite
+      cache key is per (project, root); R18 deny-roots skip cloud roots).
+      Verified LIVE on the real project (scripts/supabase_smoke.py, kept):
+      raw contract + cross-client realtime hint + a two-identity E2EE mesh
+      roundtrip through the cloud, SEALED at rest, self-cleaning. Connect
+      spike lesson: broadcast needs self:true to echo to the sender. 310
+      tests (9 hermetic driver tests on a fake client — CI never touches
+      the project). DEFERRED with reasons: setup-wizard cloud-vs-folder
+      choice copy (rides the setup/packaging overhaul round where the
+      wizard is rebuilt); per-member RLS (needs the auth mapping round).
 - [ ] **R24 — Stress & soak.** Simulated 10-agent machine, message storms,
       offline catch-up at scale, crash-mid-send recovery, queue durability,
       cache-rebuild-from-transport, perf profiling; fix what breaks.

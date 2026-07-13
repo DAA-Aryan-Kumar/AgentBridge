@@ -250,10 +250,11 @@ class CliResponder:
     def _deny_roots(self) -> list[Path]:
         """Paths no run may touch even with an owner's click: the harness
         home (keystore, caches, config) and the shared mesh folder — the
-        workspace subtree is exempted by the broker's first rule."""
+        workspace subtree is exempted by the broker's first rule. A cloud
+        transport's root is a name, not a directory — nothing local to deny."""
         roots = [self.home]
         mesh_root = getattr(self.mesh.tx, "root", None)
-        if mesh_root:
+        if mesh_root and Path(str(mesh_root)).is_dir():
             roots.append(Path(mesh_root))
         return roots
 

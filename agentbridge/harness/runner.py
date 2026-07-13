@@ -561,13 +561,13 @@ def supervise(agent: str, argv: list[str]) -> None:
             return
 
 
-def hosted_agents(root: Path, machine: str) -> list[str]:
+def hosted_agents(root, machine: str) -> list[str]:
     """Agents whose accounts name THIS machine as home (active or not — the
     active flag is a runtime hold, and a held agent still syncs)."""
     from ..mesh.directory import Directory
-    from ..transport.folder import FolderTransport
+    from ..transport import make_transport
 
-    directory = Directory(FolderTransport(root))
+    directory = Directory(make_transport(root))
     out = []
     for name in directory.names():
         acc = directory.get(name)
@@ -577,7 +577,7 @@ def hosted_agents(root: Path, machine: str) -> list[str]:
     return out
 
 
-def supervise_all(root: Path, machine: str, argv: list[str]) -> int:
+def supervise_all(root, machine: str, argv: list[str]) -> int:
     """One supervised runner per hosted agent (AgentHarness.pyw's engine).
     Each child holds its own single-instance lock; a second launcher's
     children simply stand aside (rc 3)."""
@@ -626,10 +626,12 @@ def main(argv: list[str] | None = None) -> int:
     root = args.root or cfg.get("mesh_root")
     if not root:
         ap.error("no --root given and none remembered in config.json")
+    # a scheme spec (supabase://…) stays a string; Path() would mangle it
+    root = root if "://" in str(root) else Path(root)
 
     if args.all:
         machine = args.machine or platform.node() or "harness"
-        return supervise_all(Path(root), machine,
+        return supervise_all(root, machine,
                              [a for a in (argv or sys.argv[1:])])
     if not args.agent:
         ap.error("an agent name is required (or use --all)")
@@ -644,7 +646,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"@{args.agent} is already running on this machine")
             return EXIT_ALREADY_RUNNING
     try:
-        runner = AgentRunner(Path(root), args.agent, home=home,
+        runner = AgentRunner(root, args.agent, home=home,
                              machine=args.machine, poll_s=args.poll)
         problems = runner.verify_identity()
         if problems:

@@ -16,3 +16,8 @@ outbox/*
 
 # Distribution zips are rebuilt from the skill folders
 skills/*.zip
+
+# Credentials NEVER land in git (Supabase etc. — the app reads
+# ~/.agentbridge/supabase.env; a stray repo-level .env stays out too)
+.env
+*.env

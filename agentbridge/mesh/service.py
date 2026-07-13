@@ -13,7 +13,6 @@ from ..core.config import DEFAULT_HOME
 from ..store.db import Store
 from ..store.outbox import OutboxWorker
 from ..transport.base import Transport
-from ..transport.folder import FolderTransport
 from ..applink import AppLink
 from . import eventbus
 from .accounts import AccountsService
@@ -47,18 +46,22 @@ class Mesh:
         app_version: str = "",
         release_info=None,
     ) -> None:
-        self.tx = (
-            transport
-            if isinstance(transport, Transport)
-            else FolderTransport(transport)
-        )
         self.user = user
         self.machine = machine
         self.home = home or DEFAULT_HOME
+        from ..transport import make_transport
+
+        self.tx = (
+            transport
+            if isinstance(transport, Transport)
+            else make_transport(transport, home=self.home)
+        )
 
         if store_path is None:
             root_tag = hashlib.sha1(
-                getattr(self.tx, "root", self.tx.scheme).__str__().encode()
+                getattr(self.tx, "cache_key",
+                        getattr(self.tx, "root", self.tx.scheme))
+                .__str__().encode()
             ).hexdigest()[:12]
             store_path = self.home / "cache" / f"{user}@{machine}-{root_tag}.sqlite"
         self.store = Store(store_path)

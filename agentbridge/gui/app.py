@@ -252,11 +252,17 @@ def main(argv: list[str] | None = None) -> int:
     # root: CLI wins and is REMEMBERED (merged into config, never clobbering
     # other keys); a bare launch reuses the saved one — the R14 cutover flip
     cfg = load_app_config(home)
+
+    def as_root(text: str):
+        # a scheme spec (supabase://…) must stay a STRING — Path() collapses
+        # the double slash and mangles it (R23); folder roots stay Paths
+        return text if "://" in text else Path(text)
+
     if args.root:
-        root = Path(args.root)
-        save_app_config({**cfg, "mesh_root": str(root)}, home)
+        root = as_root(args.root)
+        save_app_config({**cfg, "mesh_root": str(args.root)}, home)
     elif cfg.get("mesh_root"):
-        root = Path(cfg["mesh_root"])
+        root = as_root(cfg["mesh_root"])
     else:
         ap.error("no --root given and none remembered in config.json")
 
