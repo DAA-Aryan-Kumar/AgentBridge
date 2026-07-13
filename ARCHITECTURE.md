@@ -221,16 +221,24 @@ published keys is an identity-takeover vector (→ R27: signed/pinned account do
   daemon thread (degrade → poll). Trust model v1: **only the secret key** talks
   to the project (RLS on, no policies, so the publishable key can do nothing);
   bodies arrive pre-sealed, so the server only ever stores ciphertext.
-- **`transport/cache.py`** (R28) — `CachingTransport`, a short-TTL read cache
-  (`get_doc`/`list_docs`/`list_chat_ids`; NOT logs or blobs) that `make_transport`
-  wraps around a **cloud** transport only (a folder read is already free). It
-  exists because the hot GUI endpoints re-read the same metadata many times per
-  request — `visible_profile` fetches an account doc ~8× per user,
-  `presence_of` re-scans every presence doc per user — which over cloud RTT made
-  `/api/mesh/state` ~30 s. Writes through the transport write-through/invalidate
-  so a writer always sees its own writes; the short TTL keeps cross-process
-  staleness within the mesh's existing eventual-consistency window (meta.json is
-  already a rebuildable snapshot).
+- **`transport/cache.py`** (R28, reworked R29) — `CachingTransport`, a warm
+  in-memory **read mirror** (`get_doc`/`list_docs`/`list_chat_ids`; NOT logs or
+  blobs) that `make_transport` wraps around a **cloud** transport only (a folder
+  read is already free). One paged bulk query (`SupabaseTransport.get_docs`)
+  loads every doc under the root; a background daemon re-pulls the snapshot
+  every ~4 s (woken early by realtime hints), so the hot GUI read paths touch
+  the network **zero** times (`/api/mesh/state`: ~3 s under R28's short-TTL
+  read-through cache → ~12 ms mirrored). Stability rules: a FAILED refresh
+  keeps serving the last good snapshot (stale beats vanished — under R28 a
+  transient cloud fault read as "doc missing" and was cached, so chats/profiles
+  flickered out of the sidebar); writes are write-through and update the mirror
+  synchronously (a writer always sees its own writes); a refresh snapshot never
+  clobbers a doc written locally after the snapshot query began (recent-write
+  guard); returned docs are deep copies (callers patch documents in place).
+  Cross-process staleness ≤ the refresh cadence + hint latency — within the
+  mesh's existing eventual-consistency window (meta.json is already a
+  rebuildable snapshot). The GUI shares ONE mirrored transport between the
+  pre-auth directory and the Mesh (`GuiApp._build` passes `_tx0`).
 - **`store/db.py`** — a local SQLite **read cache** (messages + per-log
   offsets + a small cached-doc kv), rebuildable from the transport at any time.
 - **`store/outbox.py`** — the durable send guarantee: a sealed envelope is

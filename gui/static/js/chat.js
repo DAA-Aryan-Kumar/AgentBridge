@@ -8,7 +8,7 @@ import { isImg, fileUrl } from "./files.js";
 import { api, bindOpenFile } from "./api.js";
 import { md, stripMd, setTaggable } from "./markdown.js";
 import { App, Mesh, meshDn, chatDisplay, renderChrome, isDmLike, dmOther, meshAvatarInner, meshChatAvatarInner, meshIsAdmin } from "./state.js";
-import { renderSidebar, syncAskDots } from "./sidebar.js";
+import { renderSidebar, renderSideLoading, syncAskDots } from "./sidebar.js";
 import { initComposer, renderMeshPending, renderReplyArea, startReply } from "./composer.js";
 import { openModal, closeModal } from "./modal.js";
 import { V } from "./views.js";
@@ -24,6 +24,9 @@ async function renderChats(force) {
       && Mesh.state?.available && Mesh.state?.user) {
     renderEmptyChat();
   }
+  // very first boot (no mesh state yet): show the loading skeleton instead
+  // of the bare placeholder while the first state fetch is in flight
+  if (!Mesh.state) renderSideLoading();
   Mesh.state = await api("/api/mesh/state");
   // navigated away while the state was in flight (e.g. quick chat→settings):
   // don't let this stale render paint the empty chat state over the new page

@@ -17,7 +17,7 @@ retrieval, peer harness access + repair mutations, the Supabase cloud transport,
 a stress/soak pass with a 40× read-latency fix, and the R25 security review.
 
 - **Version:** `agentbridge/__init__.py` `__version__` (moved here from
-  `gui/__init__.py` in R26). Currently **v0.24.99**.
+  `gui/__init__.py` in R26). Currently **v0.24.100**.
 - **Mesh root:** **`supabase://mesh2`** — the cloud transport is now PRIMARY
   (cutover 2026-07-13, R28), remembered in `~/.agentbridge/config.json`
   (`mesh_root`). `mesh_root_folder_backup` keeps the synced-folder `mesh2/` path
@@ -33,18 +33,19 @@ a stress/soak pass with a 40× read-latency fix, and the R25 security review.
   `.venv\Scripts\pythonw.exe -m agentbridge.gui` + `… -m agentbridge.harness --all`.
 - **Everything is committed and pushed.** A clone is a complete copy.
 
-### Supabase status — PRIMARY + LIVE (cutover done 2026-07-13)
+### Supabase status — PRIMARY + LIVE (cutover 2026-07-13; R29 mirror on top)
 
-Supabase is now the live mesh transport. The switch had been rolled back because
-`/api/mesh/state` took ~30 s on cloud (117 ms on folder): the GUI's hot
-endpoints re-read chat/account/presence metadata **straight from the transport**,
-the same docs many times per request — free on a folder, a network round-trip
-each on cloud. **R28 fixes the cause** with `transport/cache.py`
-`CachingTransport`, a short-TTL read cache (`get_doc`/`list_docs`/
-`list_chat_ids`) that `make_transport` wraps around cloud roots only. Measured
-live: the cloud state sweep dropped **13.5 s → 2.7 s** (steady-state ~3 s/poll
-behind the SSE stream). Parallel/batched metadata reads are the next lever if
-snappier is wanted.
+Supabase is the live mesh transport. R28's short-TTL read cache got the cutover
+through, but live it was still **2.8–4.1 s per `/api/mesh/state`** (the TTL was
+always cold by the next fetch) and **unstable** (an unretried transient
+`get_doc` fault read as "doc missing" and was cached — chats/profiles flickered
+out of the sidebar). **R29 (v0.24.100) replaced the TTL cache with a warm read
+mirror** (`transport/cache.py`): one bulk query loads every doc, a background
+daemon refreshes it (~4 s cadence, woken early by realtime hints), hot reads
+are RAM-only, and a failed refresh serves the last good snapshot instead of
+"missing". Measured live: **`/api/mesh/state` 11–13 ms** (folder-grade),
+transcript fetch ~3 ms, post ~264 ms (the write's cloud RTT, by design).
+First-boot shows a sidebar loading skeleton while the mirror warms (~1 s).
 
 **Cutover (v0.24.99):** timed cloud state → pre-flight per-log folder-vs-cloud
 count check (all matched — no lost messages; the migrator's log skip is coarse,
@@ -104,11 +105,11 @@ now primary. What's left is a new session's work:
    (folder-vs-cloud choice), installers, quit-on-window-close, and the
    mobile/PWA humans-only surface. See packaging notes below + the
    `agentbridge-account-model` memory.
-2. **Cloud follow-ups now that Supabase is primary:** parallel/batched metadata
-   reads to push `/api/mesh/state` below its current ~3 s (the read cache killed
-   the O(users×fields) blowup; the residual is sequential distinct-doc RTTs),
-   and per-member Supabase auth + real RLS policies (currently secret-key-only,
-   RLS on with no policies).
+2. **Cloud follow-ups now that Supabase is primary:** per-member Supabase auth
+   + real RLS policies (currently secret-key-only, RLS on with no policies).
+   The state-latency lever is DONE (R29 mirror: ~12 ms); if the doc count ever
+   grows large, the next levers are a delta refresh on `ab_docs.updated` (+
+   periodic full pull for deletes) and persisting the mirror across restarts.
 3. **Deferred features:** agent swarms (multiple instances of one agent, each
    with its own model — R16 registry is shaped for it), out-of-band key
    fingerprint verification (the narrow R27 first-contact residual), and

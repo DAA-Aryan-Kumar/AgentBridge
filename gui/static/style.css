@@ -274,6 +274,36 @@ body { display: flex; flex-direction: column; }
    previous page) */
 .chat-loading { flex: 1; background: var(--bg-alt); }
 
+/* first-boot sidebar skeleton: slim indeterminate bar + shimmer rows while
+   the very first mesh state loads (cloud roots warm their mirror ~a second) */
+.side-skel { padding: 2px 4px; }
+.skel-bar {
+  height: 3px; border-radius: 2px; overflow: hidden;
+  background: var(--side-hover); margin: 2px 6px 10px;
+}
+.skel-bar i {
+  display: block; height: 100%; width: 35%; border-radius: 2px;
+  background: var(--accent); animation: skel-slide 1.1s ease-in-out infinite;
+}
+@keyframes skel-slide {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(300%); }
+}
+.skel-row { display: flex; align-items: center; gap: 12px; padding: 9px 10px; }
+.skel-av {
+  width: 38px; height: 38px; border-radius: 50%; flex: none;
+  background: var(--side-hover);
+}
+.skel-lines { flex: 1; min-width: 0; }
+.skel-line {
+  height: 10px; border-radius: 5px; background: var(--side-hover);
+  margin: 5px 0; animation: skel-pulse 1.4s ease-in-out infinite;
+}
+.skel-line.short { width: 55%; }
+@keyframes skel-pulse {
+  0%, 100% { opacity: 1; } 50% { opacity: .45; }
+}
+
 .empty-state {
   height: 100%; display: grid; place-items: center;
   color: var(--text-faint); text-align: center;

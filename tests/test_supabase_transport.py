@@ -23,6 +23,7 @@ class FakeQuery:
         self._gt = None
         self._order = None
         self._limit = None
+        self._range = None
         self._op = ("select", None)
 
     def select(self, *_):
@@ -60,6 +61,10 @@ class FakeQuery:
         self._limit = n
         return self
 
+    def range(self, lo, hi):
+        self._range = (lo, hi)
+        return self
+
     def _match(self, row):
         for col, val in self.filters:
             if row.get(col) != val:
@@ -94,6 +99,9 @@ class FakeQuery:
             out.sort(key=lambda r: r.get("id", 0))
         if self._limit:
             out = out[: self._limit]
+        if self._range:
+            lo, hi = self._range
+            out = out[lo:hi + 1]
         return FakeResult([dict(r) for r in out])
 
 
@@ -199,6 +207,17 @@ def test_doc_roundtrip_and_prefix_listing(tx):
     assert tx.get_doc("users/aryan.json")["name"] == "Aryan K"
     tx.delete_doc("users/aryan.json")
     assert tx.get_doc("users/aryan.json") is None
+
+
+def test_get_docs_bulk_read(tx):
+    tx.put_doc("users/aryan.json", {"name": "aryan"})
+    tx.put_doc("users/fable.json", {"name": "fable"})
+    tx.put_doc("chats/c1/meta.json", {"name": "Room"})
+    everything = tx.get_docs()
+    assert set(everything) == {"users/aryan.json", "users/fable.json",
+                               "chats/c1/meta.json"}
+    assert everything["users/aryan.json"]["name"] == "aryan"
+    assert set(tx.get_docs("users")) == {"users/aryan.json", "users/fable.json"}
 
 
 def test_path_discipline(tx):

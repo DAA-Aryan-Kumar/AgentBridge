@@ -65,6 +65,11 @@ class GuiApp:
         # a folder (the FolderTransport hard-wire here broke supabase:// roots).
         self._tx0 = make_transport(self.root, home=self.home)
         self.directory0 = Directory(self._tx0)
+        # cloud roots: start the mirror's first bulk load NOW so the first
+        # /api/mesh/state finds it hot instead of paying the warm-up (R29)
+        warm = getattr(self._tx0, "warm_async", None)
+        if callable(warm):
+            warm()
         self._lock = threading.RLock()
         self._sync_thread: threading.Thread | None = None
         self._subs: set[Subscription] = set()
@@ -154,8 +159,12 @@ class GuiApp:
 
     # ------------------------------------------------------------ internals
     def _build(self, name: str) -> Mesh:
+        # the Mesh RIDES the pre-auth transport instead of building its own:
+        # on a cloud root that shares ONE warm mirror + realtime channel per
+        # GUI process (R29). Mesh.close() never closes its transport, so a
+        # logout/login cycle keeps _tx0 valid.
         return Mesh(
-            self.root,
+            self._tx0,
             name,
             self.machine,
             encrypt=self.encrypt,

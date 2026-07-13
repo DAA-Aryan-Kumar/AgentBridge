@@ -852,6 +852,38 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       (keep `mesh_root_folder_backup`); restart the fleet (this also puts R27
       live).
 
+- [x] **R29 — cloud mirror (stability + smoothness on Supabase). DONE + LIVE
+      2026-07-13 (v0.24.100, 352 tests).** Post-cutover the app was slow AND
+      unstable: (1) the R28 TTL (2 s) was always cold by the next state fetch —
+      the frontend refetches `/api/mesh/state` on every SSE event/route
+      change/poll — so every sidebar repaint re-paid ~14 sequential cloud RTTs
+      (**measured 2.8–4.1 s live**); (2) `SupabaseTransport.get_doc` was the
+      ONE read without `_retry`, so a transient cloud fault read as "doc
+      missing" and the cache CACHED that miss — chats/profiles/presence
+      flickered out of the GUI; (3) each ~3 s state build piled up server
+      threads + concurrent cloud calls (and a second stray GUI process was
+      found sharing :7787 — killed at the restart). Fix, transport layer only
+      (mesh + folder path untouched): `CachingTransport` reworked from
+      TTL-read-through into a **warm mirror** — one paged bulk query
+      (`SupabaseTransport.get_docs`, new) loads every doc; a background daemon
+      re-pulls every ~4 s, woken early by realtime hints; hot reads are
+      RAM-only; a failed refresh keeps serving the last good snapshot; writes
+      write-through + update the mirror synchronously with a recent-write
+      guard against racing refreshes; deep-copied returns (no aliasing);
+      `get_doc` retried like every other driver op. GUI shares ONE mirrored
+      transport (pre-auth + Mesh) and kicks `warm_async()` at boot; first-boot
+      sidebar shows a loading skeleton + indeterminate bar while the first
+      state fetch warms (the "loading slider"). **Measured live:
+      `/api/mesh/state` 2.8–4.1 s → 11–13 ms; `/api/mesh/chat` 3 ms; post
+      264 ms (write RTT, unchanged by design).** Verified live end-to-end on
+      the real project: scratch room create → E2EE post → read → delete (all
+      reflected instantly through the mirror), SSE stream up, zero console
+      errors, fleet stable (8 logical procs). 15 mirror tests replace the 13
+      TTL tests (failure-serves-stale, racing-write guard, offline cold-start
+      fallback + recovery, zero-read state sweep once warm). frontend 22/22,
+      ruff clean. Future levers if doc count grows large: delta refresh on
+      `ab_docs.updated` + periodic full pull; persist the mirror.
+
 ---
 
 ## 4. Backlog cross-check (every known item → where it lands)

@@ -40,6 +40,17 @@ export function syncAskDots(asks) {
   });
 }
 
+// First-boot placeholder: a slim indeterminate bar + shimmer rows while the
+// very first /api/mesh/state is in flight (a cloud root warms its read mirror
+// for ~a second on a cold start). Replaced by the real list on arrival.
+export function renderSideLoading() {
+  const box = $("#side-chats");
+  if (!box || box.querySelector(".chat-row") || box.querySelector(".side-skel")) return;
+  const row = `<div class="skel-row"><div class="skel-av"></div>
+    <div class="skel-lines"><div class="skel-line"></div><div class="skel-line short"></div></div></div>`;
+  box.innerHTML = `<div class="side-skel"><div class="skel-bar"><i></i></div>${row.repeat(6)}</div>`;
+}
+
 export function renderSidebar() {
   const ms = Mesh.state;
   $("#rail-avatar").innerHTML =

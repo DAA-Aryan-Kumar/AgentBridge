@@ -121,12 +121,39 @@ class SupabaseTransport(Transport):
     def get_doc(self, path: str, default: Any = None) -> Any:
         path = _check(path)
         try:
-            rows = self._sb().table("ab_docs").select("data") \
-                .eq("root", self.root).eq("path", path).limit(1) \
-                .execute().data
+            # retried like every other op: without it a single transient fault
+            # read as "doc missing" and the read cache pinned that miss — chats
+            # and profiles flickered out of the GUI (the R29 instability)
+            rows = self._retry(
+                lambda: self._sb().table("ab_docs").select("data")
+                .eq("root", self.root).eq("path", path).limit(1).execute()
+            ).data
         except Exception:  # noqa: BLE001 — unreadable == missing (contract)
             return default
         return rows[0]["data"] if rows else default
+
+    def get_docs(self, prefix: str = "") -> dict[str, Any]:
+        """EVERY doc under ``prefix`` in one paged query — the bulk read the
+        mirror cache (cache.py) warms and refreshes from. Unlike ``get_doc``
+        this RAISES on failure: the mirror must be able to tell 'the store is
+        empty' apart from 'the network is down' (stale beats vanished)."""
+        prefix = _check(prefix) if prefix else ""
+        out: dict[str, Any] = {}
+        page = 1000
+        start = 0
+        while True:
+            def fetch(lo: int = start):
+                q = self._sb().table("ab_docs").select("path,data") \
+                    .eq("root", self.root)
+                if prefix:
+                    q = q.like("path", f"{prefix}%")
+                return q.order("path").range(lo, lo + page - 1).execute()
+            rows = self._retry(fetch).data
+            for r in rows:
+                out[str(r["path"])] = r["data"]
+            if len(rows) < page:
+                return out
+            start += page
 
     def put_doc(self, path: str, data: Any) -> None:
         path = _check(path)

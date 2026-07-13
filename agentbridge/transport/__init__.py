@@ -18,11 +18,12 @@ def make_transport(spec, home: Path | None = None) -> Transport:
     anything else is a synced-folder path. Callers keep passing whatever the
     remembered config holds — the scheme decides.
 
-    A cloud transport is wrapped in a short-TTL read cache
-    (``CachingTransport``): its per-op RTT makes the hot GUI endpoints'
-    repeated metadata reads unusable otherwise (see cache.py). A local folder
-    needs no cache — every read is already ~free — so it is returned bare, and
-    the well-exercised folder read/write behaviour is left untouched."""
+    A cloud transport is wrapped in a warm read MIRROR (``CachingTransport``):
+    doc metadata is bulk-loaded once and refreshed in the background, so the
+    hot GUI read paths never pay the per-op network RTT (see cache.py). A
+    local folder needs no cache — every read is already ~free — so it is
+    returned bare, and the well-exercised folder read/write behaviour is left
+    untouched."""
     if isinstance(spec, Transport):
         return spec
     text = str(spec)
