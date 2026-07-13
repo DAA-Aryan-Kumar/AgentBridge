@@ -297,8 +297,13 @@ def test_workspace_leaks_nothing_from_other_chats(arig):
         ws_root = arig.home / "harness" / "helper"
         found = []
         for p in ws_root.rglob("*"):
-            if p.is_file() and secret in p.read_text(encoding="utf-8",
-                                                     errors="replace"):
+            if not p.is_file():
+                continue
+            try:  # qdrant (R20) holds its lock file open — not readable text
+                body = p.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if secret in body:
                 found.append(str(p))
         assert found == []                                # nothing leaked
         ctx = (ws_root / "workspaces" / snap.id / "context.md").read_text(

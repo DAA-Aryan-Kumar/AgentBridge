@@ -49,6 +49,9 @@ class Delivery:
     transcript: list[Message] = field(default_factory=list)
     triggers: list[TriggerContext] = field(default_factory=list)
     note: str = ""                # timer note
+    # older messages the retrieval index judged relevant (R21) — filled by
+    # the responder when the agent has an index; rendered before the tail
+    recalled: list[Message] = field(default_factory=list)
 
 
 class ConversationManager:

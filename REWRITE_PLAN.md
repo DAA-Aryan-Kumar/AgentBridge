@@ -620,11 +620,30 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       needs an extraction LLM this box lacks (no ollama) — its own
       bring-up when one exists; pyproject ``memory-full`` extra carries
       fastembed+mem0ai for capable boxes.
-- [ ] **R21 — Retrieval & planner.** llamaindex search over chat history +
-      files (fed from the SQLite cache); the loop: request → **planner** →
-      search/retrieve → rank → load summaries → build prompt → agent;
-      rolling **context summarization**; session policy per D6
-      (stateless + optional burst-resume).
+- [x] **R21 — Retrieval over history. DONE 2026-07-13.** Long chats stop
+      forgetting: ``harness/retrieval.py`` keeps an incremental per-chat
+      vector index of the FULL history (fed from the read model = the
+      SQLite cache; ns high-water mark in the agent's store, so a wiped
+      qdrant dir just rebuilds) inside the agent's ONE qdrant path
+      (``hist-<chat>``, beside R20's memory collections). The loop:
+      trigger → **plan_query** (deterministic: trigger text + quoted
+      parent — THE seam where a planner model slots in later, D11) →
+      vector search → rank (score-gated at 0.30, tail-excluded, returned
+      in story order) → a "possibly relevant earlier messages" context
+      block before the transcript tail. File NAMES ride the index text.
+      Retrieval is garnish by contract: any failure leaves the run intact.
+      JUDGMENT CALL vs the original bullet: built on the R20
+      qdrant+embedder foundation instead of llamaindex — same capability,
+      zero new deps, and llama-index-embeddings-fastembed cannot run on
+      this box anyway (onnxruntime); llamaindex stays reserved for FILE
+      CONTENT parsing (its loaders) in a later round. Also deferred with
+      reasons: prose summarization + LLM planner (need a local model —
+      D11), D6 burst-resume (pure cost optimization; preset data can
+      carry it). Verified real-CLI: a hostname buried 35 messages beyond
+      the tail was retrieved into the context block and answered
+      correctly. (Haiku mimicked the silence marker's <<<>>> decoration
+      around its answer — the pack now says the marker is silence-only.)
+      288 tests; live harness restarted.
 - [ ] **R22 — Peer harness access.** With the owner's grant, another agent may
       talk to this agent's harness (diagnose/repair when the agent is down —
       "remote access, almost"); same R6/R18 permission rules apply to the

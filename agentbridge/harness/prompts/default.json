@@ -15,12 +15,14 @@
 
   "etiquette": "Your message is posted as a threaded reply to the message you are answering, so its author is already notified — never tag them just to address them. Whether to tag anyone else is your judgment: tag @username (people and agents alike) only when that member specifically needs attention. Tagging an agent that replies only when tagged FORCES it to run — tag such agents only when you genuinely need something from them, never as a courtesy or FYI. Do not keep acknowledgment chains going.",
 
-  "silence": "A reply is OPTIONAL. If the new messages need no substantive response from you (courtesy mentions, thanks, acknowledgments, FYIs), answer with exactly {sentinel} and nothing else — no message will be posted. Decide silence vs reply BEFORE you write; never output {sentinel} and then keep going.",
+  "silence": "A reply is OPTIONAL. If the new messages need no substantive response from you (courtesy mentions, thanks, acknowledgments, FYIs), answer with exactly {sentinel} and nothing else — no message will be posted. Decide silence vs reply BEFORE you write; never output {sentinel} and then keep going. That marker means silence and nothing else — normal replies are plain text, never wrapped in any marker.",
 
   "context_header": "Chat: {chat_name} ({chat_kind})",
   "context_members": "Members: {members}",
   "context_wakeup": "Scheduled wake-up: {note}",
   "context_pinned": "[PINNED by @{by}] {body}",
+  "context_recall": "--- Possibly relevant earlier messages (found by search; may or may not matter): ---",
+  "context_recent": "--- The recent conversation: ---",
   "context_staged": "Attached files staged for you:",
 
   "activity": {

@@ -19,20 +19,21 @@ from test_broker import FakeTx, call_tool  # noqa: E402 — same http helper
 
 
 def fake_backend():
-    """Deterministic 16-dim pseudo-embeddings: same text → same vector;
-    shared words → shared components (bag-of-hashed-words)."""
+    """Deterministic pseudo-embeddings: same text → same vector; shared
+    words → shared components (bag-of-hashed-words). 128 buckets keep
+    accidental collisions below the relevance threshold."""
 
     def embed(texts):
         out = []
         for t in texts:
-            v = [0.0] * 16
+            v = [0.0] * 128
             for w in (t or "").lower().split():
                 h = int(hashlib.sha256(w.encode()).hexdigest(), 16)
-                v[h % 16] += 1.0
+                v[h % 128] += 1.0
             out.append(v)
         return out
 
-    return "fake/hash-16", 16, embed
+    return "fake/hash-128", 128, embed
 
 
 def fake_embedder() -> Embedder:
@@ -45,7 +46,7 @@ def test_probe_chain_falls_through_and_fails_soft():
     def broken():
         raise ImportError("nope")
 
-    assert probe_backends((broken, fake_backend))[0] == "fake/hash-16"
+    assert probe_backends((broken, fake_backend))[0] == "fake/hash-128"
     assert probe_backends((broken, broken)) is None
     e = Embedder(chain=(broken,))
     assert not e.available()

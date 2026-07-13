@@ -128,6 +128,11 @@ class PromptPack:
         for p in delivery.pins:
             body = (p.get("body") or "").replace("\n", " ")[:160]
             lines.append(self.text("context_pinned", by=p.get("by"), body=body))
+        if delivery.recalled:          # retrieval hits from beyond the tail
+            lines.append(self.text("context_recall"))
+            for m in delivery.recalled:
+                lines.append(render_message(m, delivery.agent))
+            lines.append(self.text("context_recent"))
         for m in delivery.transcript[-TRANSCRIPT_TAIL:]:
             lines.append(render_message(m, delivery.agent))
         if staged:

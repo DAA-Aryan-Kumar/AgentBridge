@@ -22,6 +22,7 @@ from .broker import PermissionBroker
 from .conversation import ConversationManager, Delivery, TriggerContext
 from .memory import Embedder, MemoryStore
 from .prompt import PromptManager, PromptPack
+from .retrieval import HistoryIndex
 from .responder import Reply, Responder, SILENCE, clean_reply
 from .runner import AgentRunner, SingleInstance, main, supervise
 from .settings import HarnessSettings
@@ -30,8 +31,8 @@ from .timers import TimerService
 
 __all__ = [
     "AgentRunner", "BridgeServer", "ConversationManager", "Delivery",
-    "Embedder", "HarnessSettings", "MemoryStore", "PermissionBroker",
-    "PromptManager", "PromptPack", "Reply", "Responder", "SILENCE",
-    "SingleInstance", "TimerService", "TriggerContext", "WorkItem",
-    "WorkQueue", "clean_reply", "main", "supervise",
+    "Embedder", "HarnessSettings", "HistoryIndex", "MemoryStore",
+    "PermissionBroker", "PromptManager", "PromptPack", "Reply", "Responder",
+    "SILENCE", "SingleInstance", "TimerService", "TriggerContext",
+    "WorkItem", "WorkQueue", "clean_reply", "main", "supervise",
 ]

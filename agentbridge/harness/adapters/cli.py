@@ -32,8 +32,9 @@ from ..bridge import BridgeServer
 from ..broker import PermissionBroker
 from ..conversation import Delivery
 from ..memory import MemoryStore
-from ..prompt import PromptManager, PromptPack
+from ..prompt import PromptManager, PromptPack, TRANSCRIPT_TAIL
 from ..responder import OnStep, Reply
+from ..retrieval import HistoryIndex, plan_query
 from ..settings import HarnessSettings
 from .registry import Invocation, ModelRegistry
 
@@ -119,6 +120,9 @@ class CliResponder:
         # one store per agent process (qdrant local mode is single-process
         # per path); backends load lazily on the first remember/recall
         self.memory = MemoryStore(self.home / "harness" / self.agent / "memory")
+        # the history index (R21) shares the store's client + embedder; the
+        # per-chat high-water mark lives in the agent's SQLite store
+        self.history = HistoryIndex(self.memory, getattr(mesh, "store", None))
         self._minimal: set[str] = set()  # preset ids that needed the fallback
 
     # ------------------------------------------------------------- the run
@@ -141,6 +145,7 @@ class CliResponder:
             if stale.is_file():
                 stale.unlink(missing_ok=True)
 
+        self._retrieve(delivery)             # long chats stop forgetting (R21)
         staged = self._stage_inbox(delivery, workdir)
         context_file = workdir / "context.md"
         context_file.write_text(pack.context_text(delivery, staged),
@@ -223,6 +228,23 @@ class CliResponder:
     def close(self) -> None:
         """Release process-held resources (the qdrant path lock above all)."""
         self.memory.close()
+
+    def _retrieve(self, delivery: Delivery) -> None:
+        """Index anything new, then pull the older messages this trigger
+        makes relevant into the delivery. Retrieval is garnish: any failure
+        (no backend, no qdrant, a mid-index crash) leaves the run intact."""
+        try:
+            if delivery.kind != "message" or not self.history.available():
+                return
+            self.history.ensure_indexed(delivery.chat_id, delivery.transcript)
+            query = plan_query(delivery)
+            if not query:
+                return
+            visible = {m.id for m in delivery.transcript[-TRANSCRIPT_TAIL:]}
+            delivery.recalled = self.history.relevant(
+                delivery.chat_id, query, exclude_ids=visible)
+        except Exception:  # noqa: BLE001 — never block a reply on retrieval
+            delivery.recalled = []
 
     # ------------------------------------------------------------ plumbing
     def _deny_roots(self) -> list[Path]:
