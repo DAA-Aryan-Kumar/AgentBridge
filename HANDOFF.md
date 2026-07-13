@@ -17,29 +17,31 @@ retrieval, peer harness access + repair mutations, the Supabase cloud transport,
 a stress/soak pass with a 40× read-latency fix, and the R25 security review.
 
 - **Version:** `agentbridge/__init__.py` `__version__` (moved here from
-  `gui/__init__.py` in R26). Currently **v0.24.96**.
-- **Mesh root:** the migrated **`mesh2/`** folder in the synced directory,
-  remembered in `~/.agentbridge/config.json` (`mesh_root`). A `supabase://…`
-  root selects the cloud transport instead.
+  `gui/__init__.py` in R26). Currently **v0.24.97**.
+- **Mesh root:** the **`mesh2/`** folder in the synced directory, remembered in
+  `~/.agentbridge/config.json` (`mesh_root`). A `supabase://…` root selects the
+  cloud transport instead (see the Supabase status below).
 - **@claude** runs live on the dev box (adapter `claude`, broker-gated). @coco
   and @claudemcp are also hosted here.
+- **Fleet is clean + cut over (2026-07-13).** All R25/R26/0.24.97 fixes are
+  live; the stale v1 `AgentWorker`/`agent_worker.py` processes were stopped and
+  one v2 fleet relaunched (1 GUI + 1 `--all` + supervisor/runner per agent). The
+  count *looks* doubled because a uv-managed `.venv` runs each logical process as
+  a `.venv`-stub + `uv`-base pair — not a duplicate (ARCHITECTURE §11). Relaunch:
+  `.venv\Scripts\pythonw.exe -m agentbridge.gui` + `… -m agentbridge.harness --all`.
 - **Everything is committed and pushed.** A clone is a complete copy.
 
-### ⚠ Two live-ops follow-ups (both need Aryan)
+### Supabase status — migrated, verified, NOT primary yet (perf)
 
-1. **R25/R26 not yet cut over live.** The running GUI + harness predate these
-   edits, so restart them to pick up signed redactions, the tenure gate, and the
-   version move. Until then the live GUI writes *unsigned* redactions that new
-   readers ignore (delete-for-everyone won't take effect).
-2. **The live process fleet is TANGLED.** There is one clean v2 fleet (1 GUI +
-   1 `--all` supervisor + 3 per-agent supervisors + 3 runners), but a uv-managed
-   `.venv` makes each show as a `.venv`-stub + `uv`-base **pair** — so the count
-   looks doubled but isn't (see ARCHITECTURE §11). The genuine cruft is a set of
-   **stale v1 `AgentWorker.pyw` / `agent_worker.py` processes** from an earlier
-   launch that never exited — those are the retired v1 worker and should be
-   stopped. Clean restart: kill every `-m agentbridge.gui` / `-m
-   agentbridge.harness` **and** any `agent_worker.py`, then relaunch ONE fleet
-   (`AgentBridge.pyw` + `AgentHarness.pyw`, or the `-m agentbridge.*` commands).
+The live mesh was migrated to Supabase and proven correct (all messages decrypt;
+E2EE is transport-agnostic), and the GUI cloud-root crash was fixed (v0.24.97).
+But it was **rolled back to the folder** because `/api/mesh/state` took ~30 s on
+the cloud (117 ms on the folder): the GUI's hot endpoints read chat/account
+metadata **straight from the transport**, O(users×chats) — free on a local
+folder, ~290 ms/read over cloud RTT. The Supabase copy is intact; a
+metadata-caching round (below) unblocks the switch. Migration tool:
+`scripts/migrate_folder_to_supabase.py` (idempotent copy; folder left intact).
+Rollback lever: `config.json` keeps `mesh_root_folder_backup`.
 
 ## What lives outside this repo
 
@@ -91,11 +93,18 @@ The memory reminder list is authoritative; the plan's remaining rounds:
    TOFU key-pinning with a change alarm, signed account docs chained to a
    recovery/trust root, or published key history. Must not break the legit
    key-provisioning flows (signup, first-login upgrade, agent adoption).
-2. **Setup & packaging** (the next session's headline): a real setup wizard
+2. **Supabase-primary perf (unblocks the cloud switch):** the migration + driver
+   work; the blocker is that hot GUI endpoints read metadata straight from the
+   transport, O(users×chats) — ~30 s/poll on cloud RTT. Add a short-TTL read
+   cache in the transport (or point `PrivacyService.shares_chat`/`visible_profile`
+   and `chats_for` at cached snapshots instead of the transport), re-run the
+   idempotent migration, repoint `config.json`. Then Supabase should beat the
+   folder (realtime vs flaky OneDrive down-sync).
+3. **Setup & packaging** (the next session's headline): a real setup wizard
    (folder-vs-cloud choice), installers, quit-on-window-close, and the
    mobile/PWA humans-only surface. See packaging notes below + the
    `agentbridge-account-model` memory.
-3. **Deferred features:** agent swarms (multiple instances of one agent, each
+4. **Deferred features:** agent swarms (multiple instances of one agent, each
    with its own model — R16 registry is shaped for it), per-member Supabase auth
    + real RLS policies, and remaining WhatsApp-parity polish.
 
