@@ -2,6 +2,12 @@
 
 R5 needs kinds/owners/displays for the fold and owner-pull-in; R7 (accounts)
 grows the write side. Satisfies ``events.Resolver``.
+
+R27: when a ``KeyPinStore`` is wired in, ``get`` resolves the account's
+published keys THROUGH the pins — every consumer of directory keys (the fold's
+signature checks, the sealer, redaction verify, epoch-key wraps, peer requests)
+therefore trusts the keys this machine already knows, not whatever the
+transport currently says. This is the single choke point for key trust.
 """
 
 from __future__ import annotations
@@ -10,17 +16,34 @@ from ..core.errors import ValidationError
 from ..core.models import Account, UserKind
 from ..transport.base import Transport
 from .paths import P
+from .pins import KeyPinStore
 
 __all__ = ["Directory"]
 
 
 class Directory:
-    def __init__(self, tx: Transport) -> None:
+    def __init__(self, tx: Transport, pins: KeyPinStore | None = None) -> None:
         self.tx = tx
+        self.pins = pins
 
     def get(self, name: str) -> Account | None:
         doc = self.tx.get_doc(P.user(name))
-        return Account.from_dict(doc) if isinstance(doc, dict) else None
+        if not isinstance(doc, dict):
+            return None
+        acc = Account.from_dict(doc)
+        if self.pins is not None:
+            keys = doc.get("keys") or {}
+            acc.keys.sign_pub, acc.keys.agree_pub = self.pins.trusted(
+                name, acc.keys.sign_pub, acc.keys.agree_pub,
+                keys.get("history") if isinstance(keys, dict) else None,
+            )
+        return acc
+
+    def pin_keys(self, name: str, sign_pub: str, agree_pub: str) -> None:
+        """Pin at provisioning time (accounts service calls this right after
+        minting keys) so trust is established before any read."""
+        if self.pins is not None:
+            self.pins.pin(name, sign_pub, agree_pub)
 
     def exists(self, name: str) -> bool:
         return self.get(name) is not None

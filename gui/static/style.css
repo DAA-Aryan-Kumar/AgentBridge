@@ -381,6 +381,19 @@ h1 {
 .ask-repair { border-left-color: var(--bad); }
 .ask-repair .ask-head b { color: var(--bad); }
 
+/* R27: key-change alert — an account's published identity keys no longer
+   match the pair this device pinned; stays until acknowledged */
+.key-alert {
+  display: flex; gap: 8px; align-items: flex-start;
+  margin: 8px 10px 4px; padding: 9px 11px;
+  background: var(--panel); border: 1px solid var(--border);
+  border-left: 3px solid var(--bad); border-radius: 10px;
+  font-size: 12.5px;
+}
+.key-alert b { color: var(--bad); }
+.key-alert .hint { font-size: 12px; }
+.key-alert .icon-btn { flex: none; width: 22px; height: 22px; }
+
 /* R19.5: agents waiting on the owner (sidebar) + scheduled wake-ups */
 .ask-ind { color: var(--accent); display: inline-flex; }
 .ask-ind svg { width: 14px; height: 14px; }

@@ -74,6 +74,13 @@ def state(app: GuiApp, req) -> dict:
         overview = mesh.chat_overview(snap.id)
         chats.append(chat_json(snap, overview=overview))
     out["chats"] = chats
+    # R27: pin-mismatch alerts (an account's published keys changed) — the
+    # sidebar shows a banner until the signed-in human acknowledges
+    out["key_alerts"] = [
+        {"name": a.get("name", ""), "seen_sign_pub": a.get("seen_sign_pub", ""),
+         "first_seen": a.get("first_seen", "")}
+        for a in mesh.key_alerts()
+    ]
     return out
 
 
@@ -193,6 +200,17 @@ def create_self(app: GuiApp, req, mesh) -> dict:
     return {"ok": True, "chat": chat_json(snap, full=True)}
 
 
+@authed
+def key_alert_ack(app: GuiApp, req, mesh) -> dict:
+    """Acknowledge a key-change alert (R27). The pin stays in place — the
+    machine keeps trusting the keys it knew; this only clears the banner."""
+    name = (req.data.get("name") or "").strip().lower()
+    if not name:
+        return {"error": "name required"}
+    mesh.ack_key_alert(name, req.data.get("seen_sign_pub") or "")
+    return {"ok": True}
+
+
 GET = {
     "/api/state": bridge_state,
     "/api/mesh/state": state,
@@ -204,4 +222,5 @@ POST = {
     "/api/mesh/create_chat": create_chat,
     "/api/mesh/create_dm": create_dm,
     "/api/mesh/create_self": create_self,
+    "/api/mesh/key_alert_ack": key_alert_ack,
 }

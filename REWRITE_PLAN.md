@@ -787,15 +787,36 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       processes" are one clean v2 fleet shown doubled by the uv-managed-venv
       launcher-stub+base pairing (ARCHITECTURE §11) PLUS stale v1 AgentWorker
       processes to stop. 323 tests, ruff clean, frontend 22/22.
-- [ ] **R27 — Directory root of trust (from the R25 review).** Close the last
-      big residual: `users/<name>.json` publishes the very keys every signature
-      + epoch-wrap trusts, but is itself unsigned and transport-writable, so a
-      folder/secret writer can overwrite a victim's `sign_pub`/`agree_pub` and
-      take over the identity. Options to weigh: TOFU key-pinning in the local
-      keystore with a change alarm (cheap, detection-first); signed account docs
-      chained to a mesh trust root / recovery key; publishing key HISTORY so a
-      rotation is provable and an overwrite is not. Must not break the legit
-      key-provisioning flows (signup, first-login upgrade, agent adoption).
+- [x] **R27 — Directory root of trust. DONE 2026-07-13 (v0.24.98, 334 tests).**
+      Closed the last big residual from R25: `users/<name>.json` publishes the
+      keys every signature + epoch-wrap trusts, but is unsigned and
+      transport-writable, so a folder/secret writer could overwrite a victim's
+      `sign_pub`/`agree_pub` and take over the identity. **Chose TOFU key
+      pinning** (the detection-first option) over signed docs / a mesh trust
+      root: it needs no new key hierarchy, protects every established
+      relationship immediately, and can't break provisioning. `mesh/pins.py`
+      (`KeyPinStore`): one pin file per machine+root under `<home>/pins/`
+      (NOT the rebuildable SQLite cache — trust state must survive a cache
+      wipe), read-merge-write so the GUI + harness runners share it.
+      `Directory.get` resolves `sign_pub`/`agree_pub` THROUGH the pin, so every
+      consumer (fold `_authentic`, sealer authorship verify, redaction verify,
+      keyring epoch wraps, peer verify) trusts the pinned keys automatically —
+      a rewritten doc is inert for any machine that already knew the account.
+      Provisioning pins explicitly at mint time (signup, first-login upgrade,
+      agent adoption) so the creating machine trusts its own keys before any
+      read races a concurrent write. A published-vs-pinned mismatch records a
+      per-(name, key) alert surfaced at `/api/mesh/state` → a sidebar banner
+      (dismiss = `POST /api/mesh/key_alert_ack`, clears the banner, never moves
+      the pin). A future key-rotation flow can advance a pin via signed
+      `keys.history` entries (each signed by the retiring key,
+      `pins.rekey_signing_bytes`); nothing emits history yet, so today every
+      mismatch alerts (safe default). Residual (narrow, documented in
+      THREAT_MODEL): a machine that never saw an account pins first-read keys —
+      out-of-band fingerprint compare is the eventual answer. 16 new tests
+      (units + mesh-integration attack + GUI surface); **verified live** on a
+      scratch rig (doc-rewrite attack → red banner renders → dismiss persists →
+      pinned keys keep verifying the victim's real messages; zero console
+      errors). frontend 22/22, ruff clean. THREAT_MODEL "CLOSED R27" written.
 
 ---
 

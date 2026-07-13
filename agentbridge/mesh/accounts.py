@@ -98,6 +98,7 @@ class AccountsService:
         }
         self.tx.put_doc(P.user(name), doc)
         self.keystore.save(name, bundle)  # unlocked on the creating machine
+        self.directory.pin_keys(name, sign_pub, agree_pub)  # R27
         return Account.from_dict(doc), recovery_code
 
     def create_agent(
@@ -133,6 +134,7 @@ class AccountsService:
         }
         self.tx.put_doc(P.user(name), doc)
         self.keystore.save(name, bundle)
+        self.directory.pin_keys(name, sign_pub, agree_pub)  # R27
         return Account.from_dict(doc)
 
     def _require_free(self, name: str) -> None:
@@ -200,6 +202,10 @@ class AccountsService:
             changed = True
         if changed:
             self.tx.put_doc(P.user(name), doc)
+            if code is not None:  # keys were minted just now: pin them (R27)
+                keys = doc.get("keys") or {}
+                self.directory.pin_keys(
+                    name, keys.get("sign_pub", ""), keys.get("agree_pub", ""))
         return code
 
     def change_password(self, old: str, new: str) -> None:
@@ -381,6 +387,7 @@ class AccountsService:
 
             self.directory.patch(target, mint)
             self.keystore.save(target, bundle)
+            self.directory.pin_keys(target, sign_pub, agree_pub)  # R27
         return self.directory.patch(
             target, lambda doc: doc.setdefault("agent", {}).update(
                 machine=self.machine)

@@ -75,20 +75,20 @@ but we never rely on it for secrecy: the server only ever stores ciphertext.)
   problem — unsolvable by crypto) and, being a member, can post/rotate. The
   fold's authority checks stop a member exceeding their ROLE (e.g. forging an
   admin grant), but a member acting within their role is trusted.
-- **The directory (account docs) is an UNSIGNED root of trust — the biggest
-  open residual (its own future round).** `users/<name>.json` holds the
-  `sign_pub`/`agree_pub` that every signature check (`events._authentic`) and
-  every epoch-key wrap (`keyring._wrap_for`) trust, yet the doc itself is
-  plaintext and unsigned, and the transport enforces no per-path write authz.
-  So anyone with raw folder (or Supabase-secret) write access can OVERWRITE a
-  victim's public keys and, from then on, forge info events "from" them and
-  receive their future epoch-key wraps (identity takeover). The private bundle
-  stays wrapped at rest (they can't read PAST messages), and the real victim
-  loses access — a visible, late signal — but nothing ties an account doc to
-  its prior identity. Closing this needs signed/pinned account docs with key
-  history (TOFU or a mesh trust root); scoped as a dedicated round, tracked in
-  REWRITE_PLAN. On the folder transport it is inherent to "all members share
-  the folder"; on Supabase it rides the same secret-key trust boundary below.
+- **The directory (account docs) is an unsigned, transport-writable root of
+  trust — MOSTLY CLOSED by R27 key pinning (see "CLOSED R27" below).**
+  `users/<name>.json` holds the `sign_pub`/`agree_pub` that every signature
+  check (`events._authentic`) and every epoch-key wrap (`keyring._wrap_for`)
+  trust, yet the doc is plaintext and the transport enforces no per-path write
+  authz. Before R27, a folder (or Supabase-secret) writer could rewrite a
+  victim's published keys and thereafter sign info events "from" them and
+  receive their epoch-key wraps. R27 pins the first keys each machine sees for
+  a name and resolves all key reads through the pin, so a rewrite is inert for
+  every device that already knew the account (and raises a change alarm). The
+  remaining residual is narrow: a device that has **never** seen an account
+  pins whatever it reads first (documented under R27). On the folder transport
+  the write-access itself is inherent to "all members share the folder"; on
+  Supabase it rides the same secret-key trust boundary below.
 - **Unauthenticated per-user overlays other than redactions** (reactions, pins).
   A folder writer can fabricate a reaction attributed to another user, or
   pin/unpin a message, by dropping/removing the overlay doc directly. These are
@@ -190,7 +190,46 @@ membership-service op re-checks authority at fold time). Four holes were closed:
   already handled (READ diagnostics only ever; repairs always re-prompt).
 
 Left as documented residuals (above): the unsigned directory root of trust (the
-central item, its own round) and the non-destructive reaction/pin overlays.
+central item, addressed in R27 below) and the non-destructive reaction/pin
+overlays.
+
+## Directory root of trust — CLOSED R27
+
+The account doc publishes the keys every signature check and epoch-key wrap
+depends on, but the transport lets any member write any path. R27 makes trust
+in those keys a **machine-local decision** (trust on first use) instead of
+"whatever the doc currently says":
+
+- **Pin on first sight.** The first published keypair a machine sees for a name
+  is recorded in `<home>/pins/<root>.json` (`mesh/pins.py`, one file per
+  machine+root, read-merge-write so the GUI and each harness runner share it).
+  Provisioning flows pin explicitly the moment keys are minted — signup,
+  first-login key upgrade, agent adoption — so the creating machine trusts its
+  own keys before any read can race a concurrent doc rewrite.
+- **The pin is the choke point.** `Directory.get` resolves `sign_pub`/`agree_pub`
+  THROUGH the pin store, so every downstream consumer — the fold's
+  `events._authentic`, the sealer's authorship verify, redaction verify, the
+  keyring's per-member epoch wraps, peer-request verification — automatically
+  trusts the pinned keys. A rewritten doc changes nothing for any machine that
+  already knew the account: its real messages keep verifying, and new epoch
+  keys keep being wrapped to the key it can actually unwrap.
+- **A change is surfaced, not silently absorbed.** When published keys diverge
+  from the pin, a per-(name, seen-key) alert is recorded and returned to the
+  signed-in human (`mesh.key_alerts()` → `/api/mesh/state` → a sidebar banner);
+  acknowledging clears the banner but never moves the pin.
+- **A signed history can advance a pin.** `keys.history` entries — each signed
+  by the key it retires (`pins.rekey_signing_bytes`) — let a future
+  key-rotation flow prove a transition; a valid chain from the pinned key to
+  the published one moves the pin forward with no alarm. Nothing emits history
+  yet (v2 has no key-change flow), so today every mismatch alerts, which is the
+  safe default.
+
+**Remaining residual (narrow).** A machine that has never seen an account pins
+whatever it reads first — pinning protects every *established* relationship,
+not the very first contact. Out-of-band fingerprint verification (comparing a
+short key digest in person / over another channel) is the eventual answer and
+fits the same pin store. This is a much smaller surface than the pre-R27
+"any writer can take over any identity for everyone."
 
 ## Migration — R9.5 (retired R16.5)
 

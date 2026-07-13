@@ -24,6 +24,7 @@ from .membership import MembershipService
 from .messaging import MessagingService
 from .notify import Notifier
 from .paths import P
+from .pins import KeyPinStore
 from .presence import PresenceService
 from .privacy import PrivacyService
 from .receipts import ReceiptsService
@@ -59,16 +60,19 @@ class Mesh:
             else make_transport(transport, home=self.home)
         )
 
+        root_key = str(
+            getattr(self.tx, "cache_key", getattr(self.tx, "root", self.tx.scheme))
+        )
         if store_path is None:
-            root_tag = hashlib.sha1(
-                getattr(self.tx, "cache_key",
-                        getattr(self.tx, "root", self.tx.scheme))
-                .__str__().encode()
-            ).hexdigest()[:12]
+            root_tag = hashlib.sha1(root_key.encode()).hexdigest()[:12]
             store_path = self.home / "cache" / f"{user}@{machine}-{root_tag}.sqlite"
         self.store = Store(store_path)
 
-        self.directory = Directory(self.tx)
+        # R27: published account keys resolve through the machine-local pin
+        # store — a rewritten directory doc can't displace keys already seen.
+        # (named key_pins: mesh.pins(chat_id) is the delegated message-pin API)
+        self.key_pins = KeyPinStore(self.home, root_key)
+        self.directory = Directory(self.tx, pins=self.key_pins)
         self.keystore = KeyStore(self.home)
         self.keys = ChatKeyService(self.tx, self.directory, self.keystore, user)
         # sealer resolution: explicit arg wins; else E2EE when asked, else plain
@@ -190,6 +194,15 @@ class Mesh:
             ns = int(red.get("ns", 0))
             sig = crypto.sign(bundle, redaction_signing_bytes(chat_id, msg_id, by, ns))
             ov.put_redaction(msg_id, by=by, sig=sig, ns=ns)
+
+    # ---------------------------------------------------------- key alerts
+    def key_alerts(self, *, unacked_only: bool = True) -> list[dict]:
+        """Pin-mismatch records for the GUI banner (R27): an account's
+        published keys no longer match the pair this machine pinned."""
+        return self.key_pins.alerts(unacked_only=unacked_only)
+
+    def ack_key_alert(self, name: str, seen_sign_pub: str = "") -> None:
+        self.key_pins.ack(name, seen_sign_pub)
 
     # ----------------------------------------------------------- lifecycle
     def start(self, *, heartbeat: bool = True) -> None:

@@ -257,11 +257,27 @@ function renderChatListSidebar() {
   const rowSig = (c) => JSON.stringify([c.id === Mesh.chatId, !!c.archived,
     nameHtml(c), lastHtml(c), timeText(c), tagsHtml(c), chatAvaInner(c)]);
 
+  // R27: key-change alerts — the published identity keys of an account no
+  // longer match what this device pinned. Shown above the list until the
+  // signed-in human acknowledges (the pin itself stays; only the banner goes).
+  const alerts = ms.key_alerts || [];
+  const alertsHtml = alerts.map((a) => `
+    <div class="key-alert" data-alert="${esc(a.name)}" data-pub="${esc(a.seen_sign_pub || "")}">
+      <span style="min-width:0;flex:1">
+        <b>@${esc(a.name)}'s identity key changed</b>
+        <div class="hint">The published key no longer matches the one this
+        device trusts. Their new messages won't verify until this is resolved
+        in person.</div>
+      </span>
+      <button class="icon-btn ka-ack" title="Dismiss">${ICONS.close}</button>
+    </div>`).join("");
+
   // ---- granular update: same chats in the same order, list already built →
   // touch only the rows whose content changed. This is the fix for "the sidebar
   // is refreshed every time" — the poll no longer swaps the whole list (which
   // reset scroll + flashed every row); scroll, hover and DOM identity survive.
   const structSig = (Mesh.showArchived ? "A" : "N") + "|" + archived.length
+    + "|" + alerts.map((a) => a.name + (a.seen_sign_pub || "")).join(";")
     + "|" + listed.map((c) => c.id).join(",");
   if (box.dataset.mode === "list" && box.dataset.struct === structSig) {
     listed.forEach((c) => {
@@ -304,7 +320,8 @@ function renderChatListSidebar() {
       (listed.map(rowHtml).join("") ||
         `<div class="empty" style="padding:24px 10px">Nothing archived</div>`);
   } else {
-    html = (archived.length ? `<button class="arch-row" id="arch-toggle">
+    html = alertsHtml +
+      (archived.length ? `<button class="arch-row" id="arch-toggle">
         ${ICONS.archive} Archived <span class="arch-count">${archived.length}</span></button>` : "") +
       (listed.map(rowHtml).join("") ||
         `<div class="empty" style="padding:24px 10px">No chats yet — start one with ✎</div>`);
@@ -349,6 +366,22 @@ function renderChatListSidebar() {
     Mesh.showArchived = !Mesh.showArchived;
     $("#side-chats").dataset.mode = "";   // force a full rebuild for the new list
     renderChatListSidebar();
+  });
+  // acknowledge a key-change alert: the server marks it acked, the local
+  // state copy drops it so the banner clears without waiting for a poll
+  document.querySelectorAll("#side-chats .ka-ack").forEach((b) => {
+    b.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const card = b.closest(".key-alert");
+      const name = card.dataset.alert, pub = card.dataset.pub;
+      const r = await api("/api/mesh/key_alert_ack",
+        { name, seen_sign_pub: pub });
+      if (r.error) { toast(r.error, true); return; }
+      Mesh.state.key_alerts = (Mesh.state.key_alerts || [])
+        .filter((a) => !(a.name === name && (a.seen_sign_pub || "") === pub));
+      $("#side-chats").dataset.mode = "";
+      renderChatListSidebar();
+    });
   });
 }
 
