@@ -392,6 +392,22 @@ def test_asks_surface_and_answer_roundtrip(rig):
     assert {"tool": "Write", "chat": "c1"} \
         in me["my_agents"][0]["harness"]["approvals"]
 
+    # peer session requests surface as a chatless ask, and a verdict routes
+    # to the peer verdict doc; "always" grants a standing peer_auto (R22)
+    tx.put_doc("status/peer_pending/helper.json", {
+        "agent": "helper", "awaiting": [
+            {"id": "peer1", "from": "ops", "command": "status"}]})
+    surfaced = [a for a in rig.get("/api/mesh/asks")["asks"]
+                if a.get("kind") == "peer"]
+    assert surfaced and surfaced[0]["peer"] == "ops"
+    out = rig.post("/api/mesh/answer_ask", agent="helper", ask_id="peer1",
+                   verdict="always", kind="peer", peer="ops")
+    assert out["ok"]
+    v = tx.get_doc("status/peer_pending/helper_verdicts.json")
+    assert v["verdicts"]["peer1"]["verdict"] == "always"
+    me = rig.get("/api/mesh/me")
+    assert "ops" in me["my_agents"][0]["harness"]["peer_auto"]
+
     # not the owner -> no visibility, no verdicts
     rig.post("/api/mesh/logout")
     rig.post("/api/mesh/signup", username="mallory", password="mallory-pw1",

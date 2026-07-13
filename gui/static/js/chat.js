@@ -652,8 +652,11 @@ function startAskPoll() {
       const asks = r.asks || [], timers = r.timers || [];
       syncAskDots(asks);
       const cid = Mesh.chatId;
+      // peer-session requests are chatless — show them in whatever chat is
+      // open so the owner never misses one; chat asks filter to this chat
+      const peer = asks.filter((a) => a.kind === "peer");
       if (cid) renderAskBar(cid,
-        asks.filter((a) => a.chat_id === cid),
+        [...asks.filter((a) => a.chat_id === cid), ...peer],
         timers.filter((t) => t.chat_id === cid));
     } catch { /* next tick retries */ }
   };
@@ -677,9 +680,13 @@ function renderAskBar(chatId, asks, timers) {
   }).join("");
   bar.innerHTML = chips + asks.map((a) => {
     const q = a.kind === "question";
+    const peer = a.kind === "peer";
     const head = q
       ? `${esc(meshDn(a.agent))} <span class="kind-tag">agent</span> asks you:`
+      : peer
+      ? `<b>@${esc(a.peer)}</b> wants a diagnostic session with ${esc(meshDn(a.agent))} <span class="kind-tag">agent</span>`
       : `${esc(meshDn(a.agent))} <span class="kind-tag">agent</span> wants to use <b>${esc(a.tool)}</b>`;
+    const alwaysLabel = peer ? "Always allow this peer" : "Always allow here";
     return `
       <div class="ask-card" data-ask="${esc(a.id)}">
         <span class="chat-avatar ask-avatar">${meshAvatarInner(a.agent)}</span>
@@ -692,7 +699,7 @@ function renderAskBar(chatId, asks, timers) {
                  </div>`
               : `<div class="ask-actions">
                    <button class="primary ask-allow">Allow</button>
-                   <button class="ask-always">Always allow here</button>
+                   <button class="ask-always">${alwaysLabel}</button>
                    <button class="danger-item ask-deny">Deny</button>
                  </div>`}
         </div>
@@ -705,7 +712,7 @@ function renderAskBar(chatId, asks, timers) {
       card.classList.add("ask-done");        // grey out while it lands
       const r = await api("/api/mesh/answer_ask", {
         agent: a.agent, ask_id: a.id, verdict, text: text || "",
-        tool: a.tool, chat: a.chat_id,
+        tool: a.tool, chat: a.chat_id, kind: a.kind, peer: a.peer,
       });
       if (r.error) { toast(r.error, true); card.classList.remove("ask-done"); }
       Mesh.askKey = "";                      // repaint on the next tick

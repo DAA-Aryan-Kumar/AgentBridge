@@ -644,11 +644,29 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       correctly. (Haiku mimicked the silence marker's <<<>>> decoration
       around its answer — the pack now says the marker is silence-only.)
       288 tests; live harness restarted.
-- [ ] **R22 — Peer harness access.** With the owner's grant, another agent may
-      talk to this agent's harness (diagnose/repair when the agent is down —
-      "remote access, almost"); same R6/R18 permission rules apply to the
-      peer; frontend shows an explicit confirmation popup before any peer
-      session; every peer action audit-logged.
+- [x] **R22 — Peer harness access. DONE 2026-07-13.** With its owner's
+      grant, another agent reaches THIS agent's harness to diagnose it.
+      ``harness/peer.py``: SIGNED request/response docs (Ed25519, the
+      info-event model — a forged request from a folder writer without the
+      requester's key fails verification and is dropped; req_id is bound
+      into the signature); one writer each way (``peer/<target>/req|resp/
+      <requester>.json``). The owner gate (D19, never the agent's choice):
+      ``peer_access`` = "off" (default: unreachable, requests denied
+      silently but AUDITED) | "ask" (each session → owner popup, the R18
+      ask surface, kind "peer"); "Always" persists ``peer_auto`` (owner-
+      side write). ``serve_once`` runs in the tick NON-BLOCKING (even while
+      standing down — diagnosing a stuck agent is the point): new request →
+      verify → policy → auto? run : park awaiting; verdict lands → run/deny;
+      no answer in 180s → deny (fail closed). Commands are READ-ONLY
+      diagnostics — ping / status / run_feed; **repair mutations DEFERRED**
+      (own gating, later). ``peer_diagnose`` bridge tool for a live agent to
+      initiate (bounded wait, else "pending"). GUI: peer requests ride the
+      ask-cards (chatless → shown in the open chat), Settings→My agents gets
+      a Peer-access select + a recent peer-activity audit list. Every
+      outcome (requested/allowed/denied/timed-out/denied-off) audit-logged,
+      owner-visible. Verified two-agent live (@ops→@claude status, owner
+      approved, signed response + audit) and browser-verified the card +
+      verdict routing. 296 tests; live harness + GUI restarted.
 
 ### Phase 4 — Realtime backend + hardening
 

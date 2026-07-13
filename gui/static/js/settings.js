@@ -226,7 +226,11 @@ async function renderSettings() {
             <dt>Runs on</dt><dd class="ag-machine" data-agent="${esc(a.username)}">
               <span class="mono">${esc(a.machine || "unknown")}</span></dd>
             <dt>Owner</dt><dd>${(a.owners || []).map((o) => esc("@" + o)).join(", ")}</dd>
+            <dt>Peer access</dt><dd><span class="csel-slot ag-peer"
+              data-agent="${esc(a.username)}" data-value="${esc(st.peer_access || "off")}"></span></dd>
             <dt>Scheduled</dt><dd class="ag-timers" data-agent="${esc(a.username)}">
+              <span class="hint">Loading…</span></dd>
+            <dt>Peer activity</dt><dd class="ag-peeraudit" data-agent="${esc(a.username)}">
               <span class="hint">Loading…</span></dd>
           </dl>
           <p class="hint">"Current model" applies everywhere; the per-audience
@@ -412,6 +416,10 @@ async function renderSettings() {
         document.querySelectorAll(`.ag-route-model[data-agent="${agent}"]`)
           .forEach((s) => remount(s, modelOpts(fam, "Use current model"), noModels));
       };
+      const peerOpts = [
+        { v: "off", label: "Off — unreachable by other agents" },
+        { v: "ask", label: "Ask me each time" },
+      ];
       mountCsels($(".settings-body"), (slot) => {
         if (slot.classList.contains("ag-adapter")) return adapterOpts;
         if (slot.classList.contains("ag-model"))
@@ -420,6 +428,7 @@ async function renderSettings() {
           return effortOpts(famFor(slot.dataset.agent));
         if (slot.classList.contains("ag-route-model"))
           return modelOpts(famFor(slot.dataset.agent), "Use current model");
+        if (slot.classList.contains("ag-peer")) return peerOpts;
         if (!slot.classList.contains("ag-rate")) return ruleOpts;
         // surface a previously-set non-preset value so it labels correctly
         const cur = slot.dataset.value;
@@ -444,7 +453,8 @@ async function renderSettings() {
       // sees everything the harness intends to do, right where the agent is
       // configured (the in-chat timer chips cover the per-chat view)
       document.querySelectorAll(".ag-timers").forEach(async (dd) => {
-        const r = await api(`/api/mesh/agent_harness?agent=${encodeURIComponent(dd.dataset.agent)}`);
+        const agent = dd.dataset.agent;
+        const r = await api(`/api/mesh/agent_harness?agent=${encodeURIComponent(agent)}`);
         const h = r.harness || {};
         const chatName = (id) => {
           const c = (Mesh.state.chats || []).find((x) => x.id === id);
@@ -460,6 +470,15 @@ async function renderSettings() {
         const queued = (h.queue || []).length;
         dd.innerHTML = (timers || `<span class="hint">No wake-ups scheduled</span>`)
           + (queued ? `<div class="hint">${queued} queued trigger(s)</div>` : "");
+        // the peer-access audit rides the same fetch (R22)
+        const add = document.querySelector(`.ag-peeraudit[data-agent="${agent}"]`);
+        if (add) {
+          const entries = (r.peer_audit || []).slice(-5).reverse();
+          add.innerHTML = entries.length
+            ? entries.map((e) => `<div class="ag-timer">@${esc(e.from)} · ${
+                esc(e.command)} · ${esc(e.outcome)}</div>`).join("")
+            : `<span class="hint">No peer requests yet</span>`;
+        }
       });
       // an agent homed on another machine gets a one-click adoption (the
       // owner-side bring-up path for migrated agents)
@@ -503,6 +522,7 @@ async function renderSettings() {
         model: val(".ag-model") || null,
         reasoning: val(".ag-reason") || null,
         default_rule: val(".ag-default"),
+        peer_access: val(".ag-peer") || "off",
         routing,
         // blank clears back to the default; otherwise clamp to a sane band
         max_replies_per_hour: !rateRaw || isNaN(rateN)

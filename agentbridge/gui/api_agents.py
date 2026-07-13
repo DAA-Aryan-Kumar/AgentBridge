@@ -118,7 +118,10 @@ def agent_harness_status(app, req, mesh) -> dict:
     if mesh.directory.owner_of(name) != mesh.user:
         return {"error": "only the agent's responsible member can view this"}
     doc = mesh.tx.get_doc(f"status/{name}_harness.json")
-    return {"ok": True, "harness": doc if isinstance(doc, dict) else None}
+    audit = mesh.tx.get_doc(f"status/peer_audit/{name}.json")
+    return {"ok": True, "harness": doc if isinstance(doc, dict) else None,
+            "peer_audit": (audit.get("entries") if isinstance(audit, dict)
+                           else []) or []}
 
 
 @authed
@@ -150,13 +153,27 @@ def asks(app, req, mesh) -> dict:
             timers.append({"agent": name, "id": t.get("id"),
                            "chat_id": t.get("chat_id"),
                            "at_ns": t.get("at_ns"), "note": t.get("note")})
+        # peer harness-access requests awaiting this owner (R22) — chatless,
+        # so they only surface in the unfiltered poll (the whole-page sweep)
+        if not chat:
+            pdoc = mesh.tx.get_doc(f"status/peer_pending/{name}.json")
+            for a in (pdoc.get("awaiting") if isinstance(pdoc, dict)
+                      else None) or []:
+                if not isinstance(a, dict):
+                    continue
+                out.append({"id": a.get("id"), "agent": name, "kind": "peer",
+                            "tool": a.get("command"), "chat_id": "",
+                            "detail": f"@{a.get('from')} wants a diagnostic "
+                                      f"session ({a.get('command')})",
+                            "peer": a.get("from")})
     return {"ok": True, "asks": out, "timers": timers}
 
 
 @authed
 def answer_ask(app, req, mesh) -> dict:
-    """One owner verdict for one ask. ``always`` also persists a standing
-    approval rule ({tool, chat}) into the agent's harness config."""
+    """One owner verdict for one ask (permission, question, or peer session).
+    ``always`` persists a standing grant: an approval rule for a tool, or a
+    peer_auto entry for a peer diagnostic session."""
     d = req.data
     agent = (d.get("agent") or "").strip().lower()
     if mesh.directory.owner_of(agent) != mesh.user:
@@ -165,6 +182,25 @@ def answer_ask(app, req, mesh) -> dict:
     verdict = str(d.get("verdict") or "").lower()
     if not ask_id or verdict not in ("allow", "always", "deny", "answer"):
         return {"error": "unknown ask or verdict"}
+    # peer sessions ride their own verdict doc (the harness's PeerService
+    # reads it); everything else rides the R18 answers doc
+    if d.get("kind") == "peer":
+        path = f"status/peer_pending/{agent}_verdicts.json"
+        doc = mesh.tx.get_doc(path)
+        doc = doc if isinstance(doc, dict) else {}
+        vs = doc.setdefault("verdicts", {})
+        vs[ask_id] = {"verdict": verdict, "by": mesh.user, "ts": utcnow_iso()}
+        for stale in list(vs)[:-100]:
+            vs.pop(stale, None)
+        mesh.tx.put_doc(path, doc)
+        if verdict == "always" and d.get("peer"):
+            acc = mesh.directory.get(agent)
+            cur = list((acc.agent.harness or {}).get("peer_auto") or []) \
+                if acc and acc.agent else []
+            if d["peer"] not in cur:
+                cur.append(str(d["peer"]))
+                mesh.set_agent_harness(agent, {"peer_auto": cur})
+        return {"ok": True}
     path = f"status/asks/{agent}_answers.json"
     doc = mesh.tx.get_doc(path)
     doc = doc if isinstance(doc, dict) else {}

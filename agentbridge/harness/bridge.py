@@ -271,6 +271,33 @@ class BridgeServer:
                 {"in_s": in_s, "note": " ".join(str(note or "").split())[:300]})
             return f"scheduled: a wake-up in {in_s / 60:.0f} min"
 
+        @mcp.tool(structured_output=False)
+        def peer_diagnose(agent: str, command: str = "status") -> str:
+            """Reach ANOTHER agent's harness to diagnose it (read-only:
+            ping | status | run_feed). Its responsible member must permit
+            the session, so this can take a moment or come back pending."""
+            from .peer import PEER_COMMANDS, PeerService
+
+            command = str(command or "status").lower()
+            if command not in PEER_COMMANDS:
+                return f"unknown command — choose one of {', '.join(PEER_COMMANDS)}"
+            svc = PeerService(mesh)
+            try:
+                rid = svc.request(agent, command)
+            except Exception as e:  # noqa: BLE001
+                return f"could not reach @{agent}: {e}"
+            deadline = time.time() + min(self.ask_timeout_s + 30, 200)
+            while time.time() < deadline:
+                resp = svc.read_response(agent, rid)
+                if resp:
+                    p = resp.get("payload") or {}
+                    return (json.dumps(p.get("result") or {}) if p.get("ok")
+                            else f"@{agent} declined or could not answer: "
+                                 f"{p.get('error')}")
+                time.sleep(2.0)
+            return (f"still waiting on @{agent}'s responsible member — "
+                    f"try again later")
+
     # ---------------------------------------------------- memory tools (R20)
     def _memory_tools(self, mcp) -> None:
         """remember/recall over the agent's local vector store. Chat scope

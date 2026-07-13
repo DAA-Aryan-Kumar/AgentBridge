@@ -36,6 +36,7 @@ from ..mesh.sealer import E2EESealer
 from ..mesh.service import Mesh
 from .conversation import ConversationManager
 from .feed import RunFeed, record_tasks, write_harness_doc
+from .peer import PeerService
 from .queue import WorkGroup, WorkItem, WorkQueue
 from .responder import Reply, Responder, clean_reply
 from .settings import HarnessSettings
@@ -75,6 +76,7 @@ class AgentRunner:
         self.queue = WorkQueue(self.mesh.store, agent)
         self.timers = TimerService(self.mesh.store)
         self.conversation = ConversationManager(self.mesh)
+        self.peer = PeerService(self.mesh)   # peer harness access (R22)
         self._pool = ThreadPoolExecutor(max_workers=MAX_WORKERS,
                                         thread_name_prefix="ab-harness")
         self._inflight: dict[tuple[str, str], Future] = {}
@@ -376,6 +378,10 @@ class AgentRunner:
 
     def tick(self) -> int:
         """One scan+dispatch pass (the run loop's body; tests call it too)."""
+        settings = self.settings()
+        # peer access runs even while standing down — diagnosing a paused or
+        # stuck agent is exactly when a peer needs in (read-only, R22)
+        self.peer.serve_once(settings)
         if self.standing_down():
             self.publish_status()
             return 0
