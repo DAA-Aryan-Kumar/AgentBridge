@@ -970,6 +970,28 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       forgeries, harden state re-sign, a star-vs-mark_read race hammer, and
       the keystore wrap/upgrade/garbage trio.
 
+- [x] **R32 — E2EE notice pill + verification nudge (the e2ee closeout's
+      last mile). DONE 2026-07-14 (v0.24.105).** Aryan's two calls after the
+      residual review: (1) the **encryption pill** — every encrypted chat
+      opens with a WhatsApp-style "Messages are end-to-end encrypted" pill
+      at the top of the transcript. Deliberately SYNTHETIC (client-rendered
+      from `encrypted:true`, never a log event): retroactive in every
+      existing chat, no migration, no presentational data in the
+      authenticated log (WhatsApp's own banner is client-rendered too). In
+      a DM whose peer is unverified it appends "Tap to verify @name's keys"
+      (calm accent, not a warning); clicking any pill routes to
+      `#/chats/<id>/details`, where R31's Encryption card carries the
+      fingerprint + Mark as verified — the nudge disappears exactly when
+      it's satisfied. chat.js parts[] + the delegated transcript click +
+      `.enc-pill` css; no backend change. (2) **Signed unpin tombstones
+      considered and SKIPPED** (decision recorded in THREAT_MODEL): a
+      delete-capable adversary deletes a tombstone too — signatures can't
+      authenticate absence; the real deletion-close is per-member Supabase
+      RLS (queued cloud follow-up), zero format change needed then. Also
+      settled at review: social-graph/membership encryption is a deliberate
+      v3-scope non-goal (Signal-zkgroup-class project); signing ephemeral
+      presence/typing not worth it.
+
 | Backlog item (source) | Covered in |
 |---|---|
 | Settings overhaul: messaging-permission model (HANDOFF #1) | R6 |

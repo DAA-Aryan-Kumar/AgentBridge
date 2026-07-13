@@ -240,9 +240,13 @@ of the *pinned* pair, shown as 8×4 hex groups) surfaced in the DM info
 Encryption card, in Settings → Security (your own), and inside the key-change
 banner (trusted vs newly published). Comparing it over a call / in person and
 clicking **Mark as verified** records the verification in the pin store
-(machine-local, cleared if the pin ever legitimately advances). What remains is
-purely behavioral: a user who never compares codes keeps TOFU semantics — the
-same honest floor as Signal/WhatsApp safety numbers.
+(machine-local, cleared if the pin ever legitimately advances). R32 adds the
+nudge that makes the flow discoverable: every encrypted chat opens with a
+client-rendered **E2EE notice pill** at the top of the transcript (WhatsApp
+pattern — synthetic, never a log event), and in a DM whose peer is unverified
+it reads "Tap to verify @name's keys" and opens the Encryption card. What
+remains is purely behavioral: a user who never compares codes keeps TOFU
+semantics — the same honest floor as Signal/WhatsApp safety numbers.
 
 ## Overlay authentication + fingerprints — CLOSED R31
 
@@ -271,7 +275,13 @@ closed redactions:
 - **Not covered, on purpose:** deletion. Absence has no signature, so a
   transport writer can still remove a reaction file or a pin doc — a
   non-destructive availability nuisance (message content is never touched),
-  accepted alongside spam/garbage under "Availability".
+  accepted alongside spam/garbage under "Availability". Signed unpin
+  tombstones were considered and deliberately SKIPPED (R32 decision): a
+  delete-capable adversary deletes the tombstone too, so signatures cannot
+  authenticate absence — the real close is transport-side write authz, which
+  arrives with the queued per-member Supabase RLS round (non-owners lose
+  delete/overwrite on others' docs). On the folder transport the class stays
+  open by nature: sharing the folder IS full control.
 - **First-contact fingerprints** (the R27 residual's answer) are described in
   the R27 section above.
 
