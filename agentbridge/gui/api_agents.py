@@ -46,13 +46,23 @@ def agent(app, req, mesh) -> dict:
         s = patch.pop("status") or {}
         mesh.set_status(s.get("state") or "available", s.get("text") or "",
                         agent=name)
+    # `rules` is TWO stores under one key: gate audiences (messaging/…) go to
+    # the outbound-rule service; anything else is a chat id -> reply rule and
+    # belongs in harness config (chat info's per-chat dropdown sends these)
     rules = dict(patch.pop("rules", {}) or {})
     rules.update({k: patch.pop(k) for k in list(patch) if k in _RULE_KEYS})
-    if rules:
-        mesh.set_agent_rules(name, rules)
+    gate = {k: v for k, v in rules.items() if k in _RULE_KEYS}
+    chat_rules = {k: v for k, v in rules.items() if k not in _RULE_KEYS}
+    if gate:
+        mesh.set_agent_rules(name, gate)
     # remaining keys (incl. an explicit `harness` dict) → harness config
+    # (set_agent_harness merges dict values per-chat — nothing gets wiped)
     harness = dict(patch.pop("harness", {}) or {})
     harness.update(patch)
+    if chat_rules:
+        merged = dict(harness.get("rules") or {})
+        merged.update(chat_rules)
+        harness["rules"] = merged
     if harness:
         mesh.set_agent_harness(name, harness)
     acc = mesh.directory.get(name)

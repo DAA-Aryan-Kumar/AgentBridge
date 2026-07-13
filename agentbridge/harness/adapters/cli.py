@@ -141,7 +141,8 @@ class CliResponder:
         acc = self.mesh.directory.get(self.agent)
         settings = HarnessSettings.from_account(acc)
         category = self._category(delivery, acc)
-        inv = self.registry.resolve(settings, category)  # raises with a reason
+        inv = self.registry.resolve(settings, category,
+                                    delivery.chat_id)  # raises with a reason
 
         workdir = self.home / "harness" / self.agent
         outbox = workdir / "outbox"

@@ -30,7 +30,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 from ..core.config import DEFAULT_HOME, load_app_config
-from ..core.models import UserKind
+from ..core.models import ChatKind, UserKind
 from ..core.timekit import new_id, utcnow_iso
 from ..mesh.sealer import E2EESealer
 from ..mesh.service import Mesh
@@ -156,7 +156,7 @@ class AgentRunner:
         msgs = self.mesh.messages_for(chat_id)
         senders = {m.from_ for m in msgs}
         kinds = {s: self.mesh.directory.kind(s) for s in senders}
-        rule = settings.rule_for(chat_id)
+        rule = settings.rule_for(chat_id, dm=snap.kind is ChatKind.DM)
         me = snap.members.get(self.agent)
         cands, max_ns, max_edit = triggers.extract(
             msgs, self.agent, rule, kinds,

@@ -6,10 +6,11 @@ defaults. The registry loads them, probes which families are actually
 installed on THIS machine, and resolves an agent's owner-set harness config
 into one concrete ``Invocation`` per run.
 
-Model resolution order: the override-all ``model`` → the per-purpose route's
-model → the preset default. Families with one fixed install (or none worth
-choosing between) simply resolve without a model flag — the picker degrades
-to enable/disable per audience.
+Model resolution order (most specific wins): the chat's own model → the
+override-all ``model`` → the per-purpose route's model → the preset default.
+Families with one fixed install (or none worth choosing between) simply
+resolve without a model flag — the picker degrades to enable/disable per
+audience.
 
 Shaped for swarms: everything resolves from (account config, category) — a
 future instance carries its own config dict and rides the same path.
@@ -137,9 +138,10 @@ class ModelRegistry:
         return [p for p in self.presets.values() if self.available(p)]
 
     # ----------------------------------------------------------- resolution
-    def resolve(self, settings: HarnessSettings, category: str) -> Invocation:
-        """The owner's config + the audience -> one concrete invocation.
-        Raises ValidationError with a showable reason when it can't."""
+    def resolve(self, settings: HarnessSettings, category: str,
+                chat_id: str = "") -> Invocation:
+        """The owner's config + the audience (+ the chat) -> one concrete
+        invocation. Raises ValidationError with a showable reason."""
         if not settings.route(category).enabled:
             raise ValidationError(f"replies to {category} are turned off")
         if settings.adapter:
@@ -159,7 +161,7 @@ class ModelRegistry:
                 raise ValidationError(
                     "several agent CLIs are installed — pick one in the "
                     "agent's settings")
-        model = settings.model_for(category) or preset.default_model
+        model = settings.model_for(category, chat_id) or preset.default_model
         if preset.requires_model and not model:
             raise ValidationError(
                 f"{preset.label or preset.id} needs a model picked in the "

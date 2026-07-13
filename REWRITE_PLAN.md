@@ -505,7 +505,24 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       construction keepers: pbkdf2 login upgrade (accounts that never
       logged in) and adopt_agent's keyless minting (@coco's bring-up).
       (4) new-code rule, effective NOW: nothing new accommodates v1 shapes.
-      The v1 source tree itself still retires at R26. 248 tests. Prompts live in modifiable JSON, not code;
+      The v1 source tree itself still retires at R26. 248 tests.
+- [x] **R16.6 — Per-chat behaviour fixes (first live-use feedback). DONE
+      2026-07-13.** (1) a DM with an agent now defaults to the **'all'**
+      reply rule — talking to it one-on-one IS addressing it (v1 semantics;
+      the GUI already advertised this, the harness never implemented it);
+      explicit per-chat rules still win. (2) per-chat rule writes from chat
+      info were LANDING IN THE WRONG STORE (`rules` is two stores under one
+      key: gate audiences vs chat-id→rule) and errored on validation — now
+      partitioned in the endpoint; every write had failed since R15.
+      (3) NEW: per-chat **model picker** on the chat's Your-agents page;
+      resolution = chat pick → current model → audience route → preset
+      default. (4) `set_agent_harness` merges dict values one level deep
+      (inner null deletes) so per-chat writes never wipe sibling chats.
+      250 tests; verified in the dev-rig browser (DM shows "Default — reply
+      to every message", group shows the agent default; writes round-trip,
+      clears drop the key, model pick survives). Live GUI + @claude harness
+      restarted onto the new code.
+- [ ] **R17 — Prompt manager.** Prompts live in modifiable JSON, not code;
       prompt assembly is a module (persona, etiquette, capabilities, context
       blocks); **reply-vs-tag becomes the agent's judgment** (prompted, not
       enforced): reply threads by default (safe), tag others who need

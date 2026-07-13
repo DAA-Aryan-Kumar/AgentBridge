@@ -229,7 +229,8 @@ async function renderSettings() {
           </dl>
           <p class="hint">"Current model" applies everywhere; the per-audience
           models below kick in when it's left on the family default. Per-chat
-          rules live in each chat's info page.</p>
+          rules and models live in each chat's info page — a chat's own pick
+          wins over everything here.</p>
           <div class="row"><button class="primary ag-save" data-agent="${esc(a.username)}">Save</button></div>
         </div>`;
       }).join("") || ""}

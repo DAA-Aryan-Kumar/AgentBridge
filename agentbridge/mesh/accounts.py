@@ -326,8 +326,10 @@ class AccountsService:
 
     def set_agent_harness(self, agent: str, changes: dict) -> Account:
         """Owner-set harness config for ONE agent (model, reasoning effort,
-        concurrency, …). A shallow merge; a None value drops the key. R16
-        formalizes the schema — until then this is the model-picker's store."""
+        concurrency, …). A merge, never an overwrite: a None value drops the
+        key, and a dict value merges one level deep (an inner None drops the
+        inner key) — the per-chat dicts (``rules``, ``models``) are written
+        one chat at a time and must never wipe the other chats' picks."""
         target = self._writable_target(agent)
         if target == self.user:
             raise ValidationError("harness settings apply to agents only")
@@ -337,6 +339,15 @@ class AccountsService:
             for k, v in (changes or {}).items():
                 if v is None:
                     harness.pop(k, None)
+                elif isinstance(v, dict):
+                    inner = harness.get(k)
+                    inner = dict(inner) if isinstance(inner, dict) else {}
+                    for ik, iv in v.items():
+                        if iv is None:
+                            inner.pop(ik, None)
+                        else:
+                            inner[ik] = iv
+                    harness[k] = inner
                 else:
                     harness[k] = v
 

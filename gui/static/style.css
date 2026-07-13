@@ -355,6 +355,8 @@ h1 {
 .kv { display: grid; grid-template-columns: 130px 1fr; row-gap: 7px; }
 .kv dt { color: var(--text-dim); }
 .kv dd { margin: 0; word-break: break-all; }
+/* the per-chat agents page: the model row reads as a sub-item of its agent */
+.kv dt.cd-sub { padding-left: 14px; font-size: 12.5px; align-self: center; }
 
 /* task 1 (2026-07-11): settings read cleaner WITHOUT the boxed cards — the
    boxes + their mismatched 560/640 widths were the "inconsistent" feeling.

@@ -140,7 +140,7 @@ class ConversationManager:
             chat_name=chat_name,
             chat_kind=snap.kind.value,
             kind=group.kind,
-            rule=settings.rule_for(chat_id),
+            rule=settings.rule_for(chat_id, dm=snap.kind is ChatKind.DM),
             roster=self._roster(snap),
             pins=pins,
             transcript=transcript,
@@ -182,7 +182,8 @@ class ConversationManager:
             elif acc.kind is UserKind.HUMAN:
                 desc = "member"
             else:
-                rule = HarnessSettings.from_account(acc).rule_for(snap.id)
+                rule = HarnessSettings.from_account(acc).rule_for(
+                    snap.id, dm=snap.kind is ChatKind.DM)
                 desc = RULE_DESC.get(rule, rule)
             out.append({"name": name, "display": acc.display or name,
                         "kind": acc.kind.value, "desc": desc,

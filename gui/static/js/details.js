@@ -45,16 +45,25 @@ function permissionsCard(meta, isAdmin) {
     </div>`;
 }
 
-// agent reply-rule dropdowns (info pane + agents page share this)
-function mountRuleSlots(scope, chatId) {
+// agent reply-rule + model dropdowns (the per-chat agents page). Every change
+// writes immediately; picking "Default" writes null, which clears the per-chat
+// entry (rules/models merge server-side — other chats' picks survive).
+function mountAgentSlots(scope, chatId, fams) {
   mountCsels(scope, (slot) => {
+    if (slot.classList.contains("cd-model")) {
+      const fam = fams.find((f) => f.id === slot.dataset.fam);
+      return [
+        { v: "", label: `Default — ${slot.dataset.def || "family default"}` },
+        ...((fam && fam.models) || []).map((m) => ({ v: m, label: m })),
+      ];
+    }
     const def = RULE_LABELS[slot.dataset.def] || "";
     return [{ v: "", label: `Default — ${def.toLowerCase()}` },
       ...Object.entries(RULE_LABELS).map(([v, label]) => ({ v, label }))];
   }, async (slot, v) => {
-    if (!v) return;   // keeping the default — nothing to write
+    const key = slot.classList.contains("cd-model") ? "models" : "rules";
     const r = await api("/api/mesh/agent", {
-      username: slot.dataset.agent, patch: { rules: { [chatId]: v } },
+      username: slot.dataset.agent, patch: { [key]: { [chatId]: v || null } },
     });
     if (r.error) toast(r.error, true);
   });
@@ -611,14 +620,21 @@ async function renderChatStarred(info) {
   });
 }
 
-// per-chat agent rules — its own page off chat info (a full permissions
-// overhaul comes later)
-function renderChatAgents(agents, meta) {
+// per-chat agent rules + models — its own page off chat info (a full
+// permissions overhaul comes later)
+async function renderChatAgents(agents, meta) {
   const chatId = Mesh.chatId;
   const isDm = isDmLike(meta || {});
   // reached from the composer's hand → a Close that dismisses the pane;
   // reached from chat info → a Back that returns to it
   const fromComposer = Mesh.agentsFromComposer;
+  // model options come from this machine's preset catalog (the same source
+  // as Settings → My agents); a family with no model list gets no model row
+  const ho = await api("/api/mesh/harness_options");
+  const FAMS = (ho && ho.families) || [];
+  const avail = FAMS.filter((f) => f.available);
+  const famFor = (st) => FAMS.find((f) => f.id === (st.adapter || ""))
+    || (avail.length === 1 ? avail[0] : null);
   $("#details-pane").innerHTML = `
     <div class="pane-head">
       <button class="icon-btn" id="ca-back">${fromComposer ? ICONS.close : ICONS.back}</button>
@@ -627,16 +643,27 @@ function renderChatAgents(agents, meta) {
     <div class="card pane-view" style="border-bottom:none">
       <dl class="kv" style="grid-template-columns:minmax(90px,130px) 1fr">
         ${agents.map((a) => {
-          const current = ((a.settings || {}).rules || {})[chatId] || "";
-          return `<dt>${esc(a.display)}</dt>
+          const st = a.settings || {};
+          const fam = famFor(st);
+          const rows = [`<dt>${esc(a.display)}</dt>
             <dd><div class="csel-slot cd-rule" data-agent="${esc(a.username)}"
-                     data-value="${esc(current)}" data-def="${esc(isDm ? "all"
-                       : (a.settings || {}).default_rule || "tagged")}"></div></dd>`;
+                     data-value="${esc((st.rules || {})[chatId] || "")}"
+                     data-def="${esc(isDm ? "all"
+                       : st.default_rule || "tagged")}"></div></dd>`];
+          if (fam && (fam.models || []).length) {
+            rows.push(`<dt class="cd-sub">Model here</dt>
+              <dd><div class="csel-slot cd-model" data-agent="${esc(a.username)}"
+                       data-fam="${esc(fam.id)}"
+                       data-value="${esc((st.models || {})[chatId] || "")}"
+                       data-def="${esc(st.model || fam.default_model
+                         || "family default")}"></div></dd>`);
+          }
+          return rows.join("");
         }).join("")}
       </dl>
-      <p class="hint" style="margin-bottom:0">Rules apply from the agent's
-      next check and only in this chat. Defaults live in Settings → My
-      agents.</p>
+      <p class="hint" style="margin-bottom:0">Rules and models apply from the
+      agent's next check and only in this chat. Defaults live in Settings →
+      My agents.</p>
     </div>`;
   $("#ca-back").addEventListener("click", () => {
     Mesh.agentsView = false;
@@ -648,5 +675,5 @@ function renderChatAgents(agents, meta) {
     }
     renderChatDetails();
   });
-  mountRuleSlots($("#details-pane"), chatId);
+  mountAgentSlots($("#details-pane"), chatId, FAMS);
 }

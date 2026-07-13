@@ -125,6 +125,11 @@ def test_resolution_order_and_degrades(tmp_path):
     inv = reg.resolve(settings(model="m2",
                                routing={"humans": {"model": "m1"}}), "humans")
     assert inv.model == "m2"
+    # ...and the chat's own pick wins over the override-all
+    inv = reg.resolve(settings(model="m2", models={"c9": "m1"}), "humans", "c9")
+    assert inv.model == "m1"
+    inv = reg.resolve(settings(model="m2", models={"c9": "m1"}), "humans", "cX")
+    assert inv.model == "m2"
     # effort only when the family supports the value
     assert reg.resolve(settings(reasoning="high"), "humans").effort == "high"
     assert reg.resolve(settings(reasoning="max"), "humans").effort == ""

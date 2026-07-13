@@ -116,6 +116,26 @@ def test_untagged_message_stays_silent(hrig):
     assert agent_msgs(hrig.owner, snap.id) == []
 
 
+def test_dm_replies_without_tagging(hrig):
+    """Talking to an agent one-on-one IS addressing it: a DM defaults to
+    the 'all' rule (v1 semantics; the GUI advertises exactly this)."""
+    dm = hrig.owner.create_dm("helper")
+    hrig.owner.post(dm.id, "hi, no tag needed here")
+    responder = Scripted()
+    runner = hrig.make_runner(responder)
+    ripple(hrig, runner, dm.id)
+    turn(hrig, runner, dm.id)
+    assert len(agent_msgs(hrig.owner, dm.id)) == 1
+    assert responder.calls[0].rule == "all"
+
+    # an explicit per-chat rule still wins over the DM default
+    hrig.owner.accounts.set_agent_harness(
+        "helper", {"rules": {dm.id: "tagged"}})
+    hrig.owner.post(dm.id, "this untagged one stays unanswered")
+    turn(hrig, runner, dm.id)
+    assert len(agent_msgs(hrig.owner, dm.id)) == 1
+
+
 def test_scan_is_idempotent(hrig):
     snap = hrig.owner.create_chat("Once", members=["helper"])
     hrig.owner.post(snap.id, "@helper ping")
@@ -465,13 +485,31 @@ def test_clean_reply_sentinel_and_narration():
 def test_settings_parse_and_clamp():
     s = HarnessSettings.from_account(None)
     assert (s.default_rule, s.concurrency, s.catchup) == ("tagged", 2, "recent")
+    assert s.rule_for("any") == "tagged"
+    assert s.rule_for("any", dm=True) == "all"         # a DM answers everyone
     acc = SimpleNamespace(agent=SimpleNamespace(harness={
         "default_rule": "ALL", "concurrency": 99, "catchup": "bogus",
         "rules": {"c1": "humans", "c2": "bogus"},
+        "models": {"c1": "m-fast", "c2": ""},
     }))
     s = HarnessSettings.from_account(acc)
     assert s.default_rule == "all"
     assert s.concurrency == 8                          # clamped to the ceiling
     assert s.catchup == "recent"                       # unknown fails closed
     assert s.rule_for("c1") == "humans"
+    assert s.rule_for("c1", dm=True) == "humans"       # explicit beats the DM default
     assert s.rule_for("c2") == "all"                   # bad per-chat -> default
+    assert s.models == {"c1": "m-fast"}                # blank picks are dropped
+
+
+def test_model_precedence_most_specific_wins():
+    acc = SimpleNamespace(agent=SimpleNamespace(harness={
+        "model": "global", "models": {"c1": "chat-pick"},
+        "routing": {"humans": {"model": "route-pick"}},
+    }))
+    s = HarnessSettings.from_account(acc)
+    assert s.model_for("humans", "c1") == "chat-pick"  # the chat's own model
+    assert s.model_for("humans", "c2") == "global"     # then the override-all
+    acc.agent.harness.pop("model")
+    s = HarnessSettings.from_account(acc)
+    assert s.model_for("humans", "c2") == "route-pick"  # then the audience

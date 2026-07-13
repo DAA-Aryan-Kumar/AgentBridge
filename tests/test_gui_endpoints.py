@@ -320,6 +320,27 @@ def test_agents_create_patch_standdown_delete(rig):
     assert me["my_agents"][0]["name"] == "helper"
     assert me["my_agents"][0]["harness"]["reasoning"] == "high"
 
+    # per-chat rules/models: chat-id keys under `rules` are HARNESS config
+    # (not outbound gates), and each chat's write merges — never overwrites
+    out = rig.post("/api/mesh/agent", username="helper",
+                   patch={"rules": {"chatA": "all"}})
+    assert out["agent"]["harness"]["rules"] == {"chatA": "all"}
+    out = rig.post("/api/mesh/agent", username="helper",
+                   patch={"rules": {"chatB": "humans"},
+                          "models": {"chatB": "m-1"}})
+    h2 = out["agent"]["harness"]
+    assert h2["rules"] == {"chatA": "all", "chatB": "humans"}
+    assert h2["models"] == {"chatB": "m-1"}
+    # null clears ONE chat's pick; gate audiences still route to agent_rules
+    out = rig.post("/api/mesh/agent", username="helper",
+                   patch={"rules": {"chatA": None, "messaging": "members"},
+                          "models": {"chatB": None}})
+    h2 = out["agent"]["harness"]
+    assert h2["rules"] == {"chatB": "humans"} and h2["models"] == {}
+    assert "messaging" not in h2["rules"]
+    me = rig.get("/api/mesh/me")   # the gate landed in agent_rules instead
+    assert me["my_agents"][0]["rules"]["messaging"] == "members"
+
     down = rig.post("/api/mesh/stand_down", down=True)
     assert down["changed"] == ["helper"]
     assert rig.get("/api/mesh/state")["users"]["helper"]["active"] is False

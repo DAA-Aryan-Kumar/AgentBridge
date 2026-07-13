@@ -51,7 +51,8 @@ class Route:
 @dataclass
 class HarnessSettings:
     default_rule: str = "tagged"
-    rules: dict[str, str] = field(default_factory=dict)  # chat_id -> rule
+    rules: dict[str, str] = field(default_factory=dict)   # chat_id -> rule
+    models: dict[str, str] = field(default_factory=dict)  # chat_id -> model
     concurrency: int = 2            # parallel runs (across AND within chats)
     max_replies_per_hour: int = 30  # per chat — the runaway-conversation brake
     catchup: str = "recent"         # after downtime: recent | none | all
@@ -73,6 +74,11 @@ class HarnessSettings:
             for k, v in (h.get("rules") or {}).items()
             if str(v).lower() in RULES
         }
+        models = {
+            str(k): _model(v)
+            for k, v in (h.get("models") or {}).items()
+            if _model(v)
+        }
         catchup = str(h.get("catchup") or "recent").lower()
         routing = {
             cat: Route.from_dict((h.get("routing") or {}).get(cat))
@@ -81,6 +87,7 @@ class HarnessSettings:
         return cls(
             default_rule=rule if rule in RULES else "tagged",
             rules=rules,
+            models=models,
             concurrency=_int(h.get("concurrency"), 2, 1, 8),
             max_replies_per_hour=_int(h.get("max_replies_per_hour"), 30, 1, 1000),
             catchup=catchup if catchup in CATCHUP_POLICIES else "recent",
@@ -93,16 +100,24 @@ class HarnessSettings:
             routing=routing,
         )
 
-    def rule_for(self, chat_id: str) -> str:
-        return self.rules.get(chat_id, self.default_rule)
+    def rule_for(self, chat_id: str, *, dm: bool = False) -> str:
+        """The reply rule in ONE chat: an explicit per-chat rule wins; a DM
+        defaults to answering every message (talking to an agent one-on-one
+        IS addressing it — v1 semantics, and what the GUI advertises)."""
+        explicit = self.rules.get(chat_id)
+        if explicit:
+            return explicit
+        return "all" if dm else self.default_rule
 
     def route(self, category: str) -> Route:
         return self.routing.get(category) or Route()
 
-    def model_for(self, category: str) -> str:
-        """Override-all wins, then the category's model, else the preset's
-        default (resolved by the registry when this comes back empty)."""
-        return self.model or self.route(category).model
+    def model_for(self, category: str, chat_id: str = "") -> str:
+        """Most specific wins: this chat's model → the override-all "current
+        model" → the audience route's model — else empty, and the registry
+        falls back to the preset default."""
+        return (self.models.get(chat_id, "") or self.model
+                or self.route(category).model)
 
     @staticmethod
     def category(sender_kind: str, sender: str, owner: str | None) -> str:
