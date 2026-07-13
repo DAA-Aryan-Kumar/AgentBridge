@@ -351,8 +351,33 @@ class BridgeServer:
                 return f"could not recall: {e}"
             if not hits:
                 return "nothing relevant remembered yet"
-            return "\n".join(f"- {h['text']} (relevance {h['score']})"
-                             for h in hits)
+            return "\n".join(
+                f"- {h['text']} (relevance {h['score']}, id {h['id']})"
+                for h in hits)
+
+        @mcp.tool(structured_output=False)
+        def forget(query: str = "", memory_id: str = "",
+                   scope: str = "chat") -> str:
+            """Delete one saved memory: pass the id from recall (exact), or a
+            query (deletes the single closest match — only when it's a
+            confident match). scope as in remember/recall."""
+            scope = "global" if str(scope).lower() == "global" else "chat"
+            if scope == "global":
+                refusal = global_ok()
+                if refusal:
+                    return refusal
+            try:
+                if not self.memory.available():
+                    return "memory is not available on this machine"
+                removed = self.memory.forget(
+                    scope=scope, chat_id=self.chat_id,
+                    query=query, memory_id=memory_id)
+            except Exception as e:  # noqa: BLE001 — a refusal, not a crash
+                return f"could not forget: {e}"
+            if not removed:
+                return ("no confidently matching memory — use recall to find "
+                        "the exact id, then forget with memory_id")
+            return "forgot: " + "; ".join(r["text"] for r in removed)
 
     def __exit__(self, *exc) -> None:
         if self._server is not None:

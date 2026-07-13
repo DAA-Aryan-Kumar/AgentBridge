@@ -347,6 +347,13 @@ class AgentRunner:
             last = delivery.triggers[-1].message
             reply_to = {"id": last.id, "from": last.from_,
                         "body": (last.body or "")[:200]}
+            # R31: answering the NEWEST message displays as a plain standalone
+            # message (WhatsApp) — quote=False keeps the attribution in the
+            # record (the answered-guard's transcript leg depends on it) while
+            # clients skip the quote bubble. A chat that moved on keeps the
+            # visible quote so readers see what the reply belongs to.
+            if not self._chat_moved_on(chat_id, last.ns):
+                reply_to["quote"] = False
         timings.start("post")
         posted = self.mesh.post(chat_id, body, reply_to=reply_to,
                                 files=self._attach(chat_id, reply.files))
@@ -388,6 +395,16 @@ class AgentRunner:
             # so a broken adapter can't flood a chat with error posts
         except Exception:  # noqa: BLE001 — the notice is best-effort
             pass
+
+    def _chat_moved_on(self, chat_id: str, since_ns: int) -> bool:
+        """Did any chat MESSAGE land after ``since_ns``? Info events (joins,
+        renames) don't count — they never need a quote to stay readable."""
+        try:
+            return any(
+                int(r.get("ns", 0)) > since_ns and r.get("kind") == "message"
+                for r in self.mesh.store.messages(chat_id))
+        except Exception:  # noqa: BLE001 — unsure = quote, the safe default
+            return True
 
     def _attach(self, chat_id: str, paths: list[str]) -> list[dict]:
         """Local files a Reply shares -> sealed chat blobs -> files[] records

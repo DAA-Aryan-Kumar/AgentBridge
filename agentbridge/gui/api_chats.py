@@ -11,6 +11,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
+from ..mesh.pins import key_fingerprint
 from .context import GuiApp
 from .routing import authed
 from .serialize import chat_json, message_json, user_json
@@ -95,7 +96,14 @@ def state(app: GuiApp, req) -> dict:
         presence = {
             k: v for k, v in mesh.visible_presence(name).items() if v is not None
         }
-        users[name] = user_json(acc, profile, presence or None)
+        entry = user_json(acc, profile, presence or None)
+        if app.encrypt:
+            # R31: the trusted-key fingerprint + out-of-band verified state,
+            # for the DM info Encryption card (compare over another channel)
+            entry["key_fp"] = mesh.key_pins.fingerprint(
+                name, acc.keys.sign_pub, acc.keys.agree_pub)
+            entry["key_verified"] = mesh.key_pins.verified(name)
+        users[name] = entry
     out["users"] = users
     chats = []
     for snap in mesh.chats_for():
@@ -106,7 +114,13 @@ def state(app: GuiApp, req) -> dict:
     # sidebar shows a banner until the signed-in human acknowledges
     out["key_alerts"] = [
         {"name": a.get("name", ""), "seen_sign_pub": a.get("seen_sign_pub", ""),
-         "first_seen": a.get("first_seen", "")}
+         "first_seen": a.get("first_seen", ""),
+         # both fingerprints, so the human can compare out-of-band (R31):
+         # pinned = what this machine trusts, seen = what the doc now claims
+         "pinned_fp": mesh.key_pins.fingerprint(a.get("name", "")),
+         "seen_fp": key_fingerprint(
+             a.get("name", ""), a.get("seen_sign_pub", ""),
+             a.get("seen_agree_pub", ""))}
         for a in mesh.key_alerts()
     ]
     return out
@@ -249,6 +263,18 @@ def key_alert_ack(app: GuiApp, req, mesh) -> dict:
     return {"ok": True}
 
 
+@authed
+def key_verify(app: GuiApp, req, mesh) -> dict:
+    """Mark an account's pinned keys as verified out-of-band (R31): the
+    signed-in human compared fingerprints over another channel. Machine-local,
+    like the pin — it never touches the directory."""
+    name = (req.data.get("name") or "").strip().lower()
+    if not name:
+        return {"error": "name required"}
+    mesh.mark_key_verified(name)
+    return {"ok": True, **mesh.key_fingerprint(name)}
+
+
 GET = {
     "/api/state": bridge_state,
     "/api/mesh/state": state,
@@ -261,4 +287,5 @@ POST = {
     "/api/mesh/create_dm": create_dm,
     "/api/mesh/create_self": create_self,
     "/api/mesh/key_alert_ack": key_alert_ack,
+    "/api/mesh/key_verify": key_verify,
 }

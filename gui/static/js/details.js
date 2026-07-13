@@ -203,6 +203,29 @@ async function renderChatDetails() {
         <span class="sec-count">${myAgentsHere.length}</span>
       </button>
     </div>` : ""}
+    ${(() => {
+      // R31: the Encryption card (DM info, WhatsApp pattern) — the peer's
+      // trusted-key fingerprint + the out-of-band "mark verified" action.
+      // Both devices derive the same code from the same (name, keys), so
+      // comparing it over a call/in person closes the first-contact gap.
+      if (!isDm || isSelf || !ms.encrypted) return "";
+      const peer = ms.users[dmOther(meta, ms.user)] || {};
+      if (!peer.key_fp) return "";
+      return `
+    <div class="card" id="enc-card">
+      <div class="sec-head" style="cursor:default">
+        ${ICONS.key}<span class="sec-label">Encryption</span>
+        ${peer.key_verified ? '<span class="owner-chip">Verified</span>' : ""}
+      </div>
+      <p class="hint" style="margin:6px 0 8px">Messages are end-to-end
+        encrypted. Compare this code with @${esc(peer.username || "")} over a
+        call or in person — if it matches on both devices, you're talking to
+        the right keys.</p>
+      <code class="key-fp-code">${esc(peer.key_fp)}</code>
+      ${peer.key_verified ? "" : `<button id="enc-verify" class="primary"
+        style="margin-top:8px">Mark as verified</button>`}
+    </div>`;
+    })()}
     ${isDm ? "" : `
     <div class="card">
       <div class="mem-head">
@@ -228,6 +251,19 @@ async function renderChatDetails() {
       esc(meshDn(meta.created_by))}, ${esc(fmtTime(meta.created))}</div>`}`;
 
   $("#cd-close").addEventListener("click", () => { location.hash = `#/chats/${chatId}`; });
+  const encVerify = $("#enc-verify");
+  if (encVerify) encVerify.addEventListener("click", async () => {
+    const name = dmOther(meta, ms.user);
+    const r = await api("/api/mesh/key_verify", { name });
+    if (r.error) { toast(r.error, true); return; }
+    // patch the CURRENT state object — `ms` is this render's capture and a
+    // state poll may have replaced Mesh.state since (the chip stayed hidden)
+    const cur = Mesh.state;
+    if (cur?.users?.[name]) cur.users[name].key_verified = r.verified || "now";
+    toast(`@${name}'s keys marked verified`, { check: true });
+    Mesh.detailsKey = "";
+    renderChatDetails();
+  });
   $("#ci-search").addEventListener("click", () => {
     Mesh.searchView = true;
     Mesh.detailsKey = "";

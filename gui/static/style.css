@@ -423,6 +423,18 @@ h1 {
 .key-alert b { color: var(--bad); }
 .key-alert .hint { font-size: 12px; }
 .key-alert .icon-btn { flex: none; width: 22px; height: 22px; }
+/* R31: key fingerprints — the out-of-band verification code (DM info
+   Encryption card, Settings Security, key-change banner) */
+.key-fp-code {
+  display: block; font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px; letter-spacing: 0.5px; user-select: all;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; overflow-wrap: anywhere;
+}
+.key-fps code {
+  font-family: ui-monospace, Consolas, monospace; font-size: 11px;
+  overflow-wrap: anywhere;
+}
 
 /* R19.5: agents waiting on the owner (sidebar) + scheduled wake-ups */
 .ask-ind { color: var(--accent); display: inline-flex; }

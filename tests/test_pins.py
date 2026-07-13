@@ -244,3 +244,45 @@ def test_state_carries_key_alerts_and_ack(rig):
     assert alerts and alerts[0]["name"] == "fable"
     assert rig.post("/api/mesh/key_alert_ack", name="fable")["ok"]
     assert rig.get("/api/mesh/state")["key_alerts"] == []
+
+
+# ============================ R31: fingerprints =============================
+
+def test_fingerprint_same_on_both_machines(world):
+    """Both devices derive the same code for the same account, from the pin —
+    the out-of-band comparison only works if the values agree."""
+    meshes, _ = world
+    aryan, fable = meshes["aryan"], meshes["fable"]
+    # each side resolves the OTHER through its own pin store
+    a_view = aryan.key_fingerprint("fable")["fingerprint"]
+    f_view = fable.key_fingerprint("fable")["fingerprint"]
+    assert a_view and a_view == f_view
+    # 8 groups of 4 hex chars, human-readable
+    groups = a_view.split(" ")
+    assert len(groups) == 8 and all(len(g) == 4 for g in groups)
+
+
+def test_fingerprint_tracks_the_pin_not_the_doc(world):
+    """A hostile doc rewrite must not move the fingerprint a device shows —
+    what you read aloud is what you actually trust."""
+    meshes, _ = world
+    aryan = meshes["aryan"]
+    before = aryan.key_fingerprint("fable")["fingerprint"]
+
+    _, sign, agree = keypair()
+    doc = aryan.tx.get_doc(P.user("fable"))
+    doc["keys"] = {"sign_pub": sign, "agree_pub": agree}
+    aryan.tx.put_doc(P.user("fable"), doc)
+
+    assert aryan.key_fingerprint("fable")["fingerprint"] == before
+
+
+def test_mark_verified_round_trip(world):
+    meshes, _ = world
+    aryan = meshes["aryan"]
+    assert aryan.key_fingerprint("fable")["verified"] == ""
+    aryan.mark_key_verified("fable")
+    assert aryan.key_fingerprint("fable")["verified"] != ""
+    # a fresh store over the same file keeps it (machine-local, durable)
+    fresh = KeyPinStore(aryan.home, str(aryan.tx.root))
+    assert fresh.verified("fable") != ""

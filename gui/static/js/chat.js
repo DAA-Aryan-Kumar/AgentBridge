@@ -410,7 +410,7 @@ async function renderMeshChat(force) {
           <button class="msg-arrow" aria-label="Message menu">${ICONS.chevD}</button>
           ${showSender ? `<div class="sender">${esc(meshDn(msg.from))} ${kindTag}</div>` : ""}
           ${msg.fwd ? `<div class="fwd-tag">${ICONS.forward} Forwarded from ${esc(meshDn(msg.fwd.from))}</div>` : ""}
-          ${msg.reply_to ? replyQuote(msg.reply_to, isDm, ms) : ""}
+          ${msg.reply_to && msg.reply_to.quote !== false ? replyQuote(msg.reply_to, isDm, ms) : ""}
           <div class="msg-body">${md(msg.body || "")}</div>${files}${metaRow}</div>
       </div>`);
   }
@@ -475,6 +475,11 @@ async function renderMeshChat(force) {
                     starred: starredSet, pins };
   if (Mesh.structKey === structKey && $("#transcript")) {
     const tr = $("#transcript");
+    // banner FIRST: it's a sibling of #transcript, so inserting/removing it
+    // changes the transcript's height — synced after the scroll measurement
+    // it invalidated nearBottom/prevTop and the restore landed wrong (the
+    // "pin + new agent message refreshes the app" jump, R31)
+    syncPinBanner(chatId, pins);
     const nearBottom = tr.scrollHeight - tr.scrollTop - tr.clientHeight < 120;
     const prevTop = tr.scrollTop;
     tr.innerHTML = bubbles;
@@ -484,7 +489,6 @@ async function renderMeshChat(force) {
     // only the per-row checkmarks (and stale ids) need reconciling
     if (Mesh.select.on) applySelectAfterRender(chatId);
     clampLong(tr, Mesh.msgExpand = Mesh.msgExpand || {});
-    syncPinBanner(chatId, pins);
     // keep the ⋮-menu's Clear item current without a full rebuild: it greys out
     // the moment the transcript empties and re-enables the moment the first
     // message lands (was stale until the chat was reopened)

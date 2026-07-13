@@ -17,12 +17,16 @@ retrieval, peer harness access + repair mutations, the Supabase cloud transport,
 a stress/soak pass with a 40× read-latency fix, and the R25 security review.
 
 - **Version:** `agentbridge/__init__.py` `__version__` (moved here from
-  `gui/__init__.py` in R26). Currently **v0.24.102** (R30: change-feed sync —
-  one query per tick instead of list_logs×chats, post latency off the cloud
-  RTT, per-run agent response profiling, connector contract formalized).
-  v0.24.101 was the transport-aware Connection panel (a cloud root shows
-  "Cloud mesh ✓ Connected" + project host + mirror health instead of the
-  folder/OneDrive checks; `/api/open` restored in v2).
+  `gui/__init__.py` in R26). Currently **v0.24.103** (R31: threat-model
+  closeout — signed reaction/pin overlays + key fingerprints with
+  out-of-band verification — plus Aryan's QA list: memory `forget` tool,
+  standalone agent replies via `reply_to.quote=false`, sidebar
+  repaint-on-send + pinned-then-recency ordering, pin-banner scroll fix,
+  and a per-(chat,user) lock fixing R30's mark_read vs star/flag write
+  race). Before that: v0.24.102 (R30: change-feed sync — one query per tick
+  instead of list_logs×chats, post latency off the cloud RTT, per-run agent
+  response profiling, connector contract formalized); v0.24.101 (transport-
+  aware Connection panel).
 - **Mesh root:** **`supabase://mesh2`** — the cloud transport is now PRIMARY
   (cutover 2026-07-13, R28), remembered in `~/.agentbridge/config.json`
   (`mesh_root`). `mesh_root_folder_backup` keeps the synced-folder `mesh2/` path
@@ -124,9 +128,10 @@ now primary. What's left is a new session's work:
    grows large, the next levers are a delta refresh on `ab_docs.updated` (+
    periodic full pull for deletes) and persisting the mirror across restarts.
 3. **Deferred features:** agent swarms (multiple instances of one agent, each
-   with its own model — R16 registry is shaped for it), out-of-band key
-   fingerprint verification (the narrow R27 first-contact residual), and
-   remaining WhatsApp-parity polish.
+   with its own model — R16 registry is shaped for it) and remaining
+   WhatsApp-parity polish. (Out-of-band key fingerprint verification shipped
+   in R31 — the threat model's open residuals are closed; what remains
+   accepted is documented in docs/THREAT_MODEL.md.)
 
 ## Packaging-prep notes (for the setup & packaging session)
 

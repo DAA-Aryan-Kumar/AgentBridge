@@ -236,3 +236,106 @@ def test_peer_replayed_earlier_request_is_dropped(tmp_path):
     finally:
         for m in meshes.values():
             m.close()
+
+
+# ==================== R31: reaction / pin overlay forgery ===================
+
+def test_forged_reaction_file_is_ignored(world):
+    """A folder writer can drop reactions/<victim>.json attributed to anyone.
+    R31 signs the per-user file over its full mapping; readers ignore files
+    whose signature doesn't verify, so the fabrication never renders."""
+    meshes, _ = world
+    aryan, fable = meshes["aryan"], meshes["fable"]
+    chat = aryan.create_chat("Reactions", members=["fable"])
+    env = aryan.post(chat.id, "react to this")
+    ripple(aryan, chat.id, fable)
+
+    # the genuine, signed reaction shows for the other member
+    fable.react(chat.id, env.id, "👍")
+    got = [m for m in aryan.messages_for(chat.id) if m.id == env.id][0]
+    assert got.reactions == {"👍": ["fable"]}
+
+    # 1) unsigned legacy-shape forgery attributed to aryan -> ignored
+    fable.tx.put_doc(P.reactions(chat.id, "aryan"), {env.id: "💀"})
+    got = [m for m in aryan.messages_for(chat.id) if m.id == env.id][0]
+    assert got.reactions == {"👍": ["fable"]}
+
+    # 2) a VALID signature by the WRONG identity (fable signing a file that
+    #    claims to be aryan's) -> still ignored
+    from agentbridge.mesh.events import reaction_signing_bytes
+    ns = next_ns()
+    sig = crypto.sign(fable.keystore.load("fable"),
+                      reaction_signing_bytes(chat.id, "aryan", ns, {env.id: "💀"}))
+    fable.tx.put_doc(P.reactions(chat.id, "aryan"),
+                     {"v": {env.id: "💀"}, "ns": ns, "sig": sig})
+    got = [m for m in aryan.messages_for(chat.id) if m.id == env.id][0]
+    assert got.reactions == {"👍": ["fable"]}
+
+
+def test_non_member_reaction_never_counts(world):
+    """Even a correctly SELF-signed reaction file from an account that was
+    never a member of the chat is ignored (visibility = membership)."""
+    meshes, _ = world
+    aryan, fable, sudhir = meshes["aryan"], meshes["fable"], meshes["sudhir"]
+    chat = aryan.create_chat("Two only", members=["fable"])  # sudhir excluded
+    env = aryan.post(chat.id, "members only")
+    ripple(aryan, chat.id, fable)
+
+    from agentbridge.mesh.events import reaction_signing_bytes
+    ns = next_ns()
+    sig = crypto.sign(sudhir.keystore.load("sudhir"),
+                      reaction_signing_bytes(chat.id, "sudhir", ns, {env.id: "👀"}))
+    sudhir.tx.put_doc(P.reactions(chat.id, "sudhir"),
+                      {"v": {env.id: "👀"}, "ns": ns, "sig": sig})
+    got = [m for m in aryan.messages_for(chat.id) if m.id == env.id][0]
+    assert got.reactions == {}
+
+
+def test_forged_or_tampered_pin_is_ignored(world):
+    """A dropped-in pin doc attributed to a member — or a real pin whose
+    expiry was stretched after the fact — fails signature verification."""
+    meshes, _ = world
+    aryan, fable = meshes["aryan"], meshes["fable"]
+    chat = aryan.create_chat("Pins", members=["fable"])
+    env = aryan.post(chat.id, "worth pinning")
+    ripple(aryan, chat.id, fable)
+
+    # unsigned forgery attributed to aryan -> not honored
+    fable.tx.put_doc(P.pin(chat.id, env.id),
+                     {"by": "aryan", "ns": next_ns(), "sig": "AAAA"})
+    assert env.id not in aryan.pins(chat.id)
+
+    # the genuine signed pin shows for both members
+    fable.pin(chat.id, env.id, hours=24)
+    assert env.id in aryan.pins(chat.id)
+
+    # tampering the expiry breaks the bind -> pin no longer honored
+    doc = fable.tx.get_doc(P.pin(chat.id, env.id))
+    doc["until_ns"] = doc["until_ns"] * 2
+    fable.tx.put_doc(P.pin(chat.id, env.id), doc)
+    assert env.id not in aryan.pins(chat.id)
+
+
+def test_harden_startup_resigns_legacy_reactions_and_pins(world):
+    """Pre-R31 overlays are unsigned. harden_startup re-signs the ones whose
+    author is keyed on this machine so real reactions/pins keep counting."""
+    meshes, _ = world
+    aryan, fable = meshes["aryan"], meshes["fable"]
+    chat = aryan.create_chat("Legacy", members=["fable"])
+    env = aryan.post(chat.id, "old world")
+    ripple(aryan, chat.id, fable)
+
+    # legacy-shape docs, as a pre-R31 build would have written them
+    aryan.tx.put_doc(P.reactions(chat.id, "aryan"), {env.id: "🎉"})
+    aryan.tx.put_doc(P.pin(chat.id, env.id),
+                     {"by": "aryan", "at": utcnow_iso(), "ns": next_ns()})
+
+    # unsigned -> invisible on the tightened read path
+    got = [m for m in fable.messages_for(chat.id) if m.id == env.id][0]
+    assert got.reactions == {} and env.id not in fable.pins(chat.id)
+
+    aryan.harden_startup()  # aryan's key is local on aryan's home
+
+    got = [m for m in fable.messages_for(chat.id) if m.id == env.id][0]
+    assert got.reactions == {"🎉": ["aryan"]}
+    assert env.id in fable.pins(chat.id)

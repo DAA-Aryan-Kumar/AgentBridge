@@ -913,6 +913,37 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       68 ms, mirror warm ~200 ms, mirror read 0 ms). Merged over the parallel
       session's v0.24.101 Connection-panel round (one import conflict).
 
+- [x] **R31 — threat-model closeout + QA-list app fixes. DONE 2026-07-14
+      (v0.24.103, 373 tests).** Aryan: "close out the remaining surfaces in
+      the threat model once and for all" + the improvement list from his
+      @claude chat. Threat model (docs/THREAT_MODEL.md "CLOSED R31"): (1)
+      **reaction + pin overlays signed** — the per-user reaction file signs
+      its full mapping (`reaction_signing_bytes`), the pin doc binds
+      `chat|pin|msg-id|by|ns|until_ns`; reads verify signature + (tenure-)
+      membership against the PINNED key, `harden_startup` re-signs locally
+      keyed legacy overlays; deletion stays possible (absence has no
+      signature — documented under Availability). (2) **Key fingerprints**
+      (the R27 first-contact answer): sha256 over `name|sign_pub|agree_pub`
+      of the pinned pair as 8×4 hex groups; DM info gets an Encryption card
+      (+ **Mark as verified** → the pin store), Settings → Security shows
+      your own, the key-change banner shows trusted vs published
+      (`/api/mesh/key_verify`; verified live — both scratch machines derived
+      identical codes, forged reaction/pin docs planted on the transport
+      rendered nothing). QA list: (3) memory **forget** tool (by recall id,
+      or single confident query match; global scope policy-gated like
+      remember); (4) **standalone agent replies** — `reply_to.quote=false`
+      when answering the newest message (attribution kept: the
+      answered-guard's transcript leg reads reply_to.id; the first attempt
+      that DROPPED reply_to broke exactly that guard — caught by its test);
+      (5) **sidebar fixes** — composer send now repaints the sidebar (a
+      local post fires no SSE), chats sort pinned-then-recency, pure
+      reorders MOVE row nodes (no flush); (6) **pin-banner scroll jump**
+      fixed (banner synced before the scroll measurement it used to
+      invalidate); (7) burst batching + no-self-permission-escalation
+      documented as by-design. BONUS regression fix caught by the suite:
+      R30's background `mark_read` raced the user's own star/flag writes —
+      per-user state files now mutate under a per-(chat,user) lock.
+
 | Backlog item (source) | Covered in |
 |---|---|
 | Settings overhaul: messaging-permission model (HANDOFF #1) | R6 |

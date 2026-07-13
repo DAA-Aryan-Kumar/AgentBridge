@@ -85,6 +85,60 @@ def test_store_roundtrip_and_scope_separation(tmp_path):
         store.close()
 
 
+def test_forget_by_query_and_by_id(tmp_path):
+    """R31: a wrong note can finally be removed — by confident query match or
+    by the exact id recall reports; an unrelated query deletes nothing."""
+    store = MemoryStore(tmp_path / "mem", fake_embedder())
+    try:
+        store.remember(scope="chat", chat_id="c1",
+                       text="the birthday is on friday")
+        store.remember(scope="chat", chat_id="c1",
+                       text="the deploy window is monday morning")
+
+        # an unrelated query is not a confident match — nothing deleted
+        assert store.forget(scope="chat", chat_id="c1",
+                            query="zebra quantum xylophone") == []
+
+        removed = store.forget(scope="chat", chat_id="c1",
+                               query="when is the birthday")
+        assert len(removed) == 1 and "birthday" in removed[0]["text"]
+        left = store.recall(scope="chat", chat_id="c1", query="the birthday")
+        assert all("birthday" not in h["text"] for h in left)
+
+        # exact delete by the id recall reports
+        hits = store.recall(scope="chat", chat_id="c1", query="deploy window")
+        removed = store.forget(scope="chat", chat_id="c1",
+                               memory_id=hits[0]["id"])
+        assert removed and "deploy window" in removed[0]["text"]
+        assert store.recall(scope="chat", chat_id="c1",
+                            query="deploy window") == []
+    finally:
+        store.close()
+
+
+def test_forget_tool_policy_and_report(tmp_path):
+    """The bridge forget tool reports what went away and rides the same
+    global-memory policy gate as remember/recall."""
+    store = MemoryStore(tmp_path / "mem", fake_embedder())
+    try:
+        with bridge_for(tmp_path, store, chat_kind="dm") as bridge:
+            call_tool(bridge.url, "remember", {
+                "text": "the owner's birthday is friday", "scope": "global"})
+            out = call_tool(bridge.url, "forget", {
+                "query": "owner birthday", "scope": "global"})
+            assert out.startswith("forgot:") and "birthday" in out
+            out = call_tool(bridge.url, "recall", {
+                "query": "owner birthday", "scope": "global"})
+            assert out == "nothing relevant remembered yet"
+
+        with bridge_for(tmp_path, store, chat_kind="group") as bridge:
+            out = call_tool(bridge.url, "forget", {
+                "query": "anything", "scope": "global"})
+            assert "only available in a direct chat" in out
+    finally:
+        store.close()
+
+
 def test_store_without_a_backend_reports_unavailable(tmp_path):
     def broken():
         raise ImportError("nope")

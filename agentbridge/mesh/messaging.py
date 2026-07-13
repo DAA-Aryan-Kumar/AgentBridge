@@ -21,8 +21,9 @@ from ..core.timekit import new_id, next_ns, utcnow_iso
 from ..store.db import Store
 from ..transport.base import Transport
 from . import authz
-from .events import redaction_signing_bytes, signing_bytes
-from .overlays import ChatOverlays, UserState
+from .events import pin_signing_bytes, reaction_signing_bytes, \
+    redaction_signing_bytes, signing_bytes
+from .overlays import ChatOverlays, UserState, fold_reactions, reaction_map
 from .paths import P
 from .readmodel import build_messages, parse_tags, unread_info
 from .sealer import E2EESealer, Sealer
@@ -180,13 +181,21 @@ class MessagingService:
 
     def react(self, chat_id: str, msg_id: str, emoji: str | None) -> None:
         self._require_member(chat_id)
-        ChatOverlays(self.tx, chat_id).set_reaction(self.user, msg_id, emoji)
+        ChatOverlays(self.tx, chat_id).set_reaction(
+            self.user, msg_id, emoji, signer=self._sign_event)
 
     def pin(self, chat_id: str, msg_id: str, hours: float | None = None) -> None:
         """Pin, optionally expiring (v1 UX: 24h/7d/forever). Expiry is LAZY —
-        readers just stop seeing it; nobody writes a cleanup."""
+        readers just stop seeing it; nobody writes a cleanup. The pin doc is
+        signed by the pinner (R31) — the ns and expiry are minted first so the
+        signature binds them."""
         self._require_member(chat_id)
-        ChatOverlays(self.tx, chat_id).put_pin(msg_id, by=self.user, hours=hours)
+        pin_ns = next_ns()
+        until_ns = pin_ns + int(hours * 3600 * 1e9) if hours else 0
+        sig = self._sign_event(
+            pin_signing_bytes(chat_id, msg_id, self.user, pin_ns, until_ns))
+        ChatOverlays(self.tx, chat_id).put_pin(
+            msg_id, by=self.user, ns=pin_ns, until_ns=until_ns, sig=sig)
 
     def unpin(self, chat_id: str, msg_id: str) -> None:
         self._require_member(chat_id)
@@ -245,12 +254,46 @@ class MessagingService:
             self.sealer,
             edits=ov.edits(),
             redactions=ov.redactions(),
-            reactions=ov.reactions(),
+            reactions=self._verified_reactions(chat_id, snap, ov),
             state=self._state(chat_id).get(),
             history_from_ns=history_from,
             tenure=snap.tenure,
             verify_redaction=self._redaction_verifier(chat_id),
         )
+
+    def _crypto_boundary(self) -> bool:
+        """True when this mesh has a real crypto boundary to enforce overlay
+        signatures against (E2EE + a directory to resolve keys). A plaintext/
+        dev mesh keeps the presence-based overlay semantics."""
+        return isinstance(self.sealer, E2EESealer) and self.directory is not None
+
+    def _ever_member(self, snap: ChatSnapshot, user: str) -> bool:
+        """Current member, or was one (tenure) — a departed member's
+        reactions/pins on old messages stay, a never-member's never count."""
+        return snap.is_member(user) or user in snap.tenure
+
+    def _verified_reactions(
+        self, chat_id: str, snap: ChatSnapshot, ov: ChatOverlays,
+    ) -> dict[str, dict[str, list[str]]]:
+        """Reactions folded from per-user files that VERIFY (R31): the file
+        must be signed by its owner over the full mapping, and the owner must
+        be (or have been) a member. Unsigned/forged files are ignored —
+        fail-safe, like redactions (harden_startup re-signs local legacy
+        files so real reactions survive the tightening)."""
+        if not self._crypto_boundary():
+            return ov.reactions()
+        verified: dict[str, dict[str, str]] = {}
+        for user, doc in ov.reaction_docs().items():
+            sig = doc.get("sig") or ""
+            pub = self.directory.sign_pub(user)
+            if not sig or not pub or not self._ever_member(snap, user):
+                continue
+            mapping = reaction_map(doc)
+            data = reaction_signing_bytes(
+                chat_id, user, int(doc.get("ns", 0)), mapping)
+            if crypto.verify(pub, sig, data):
+                verified[user] = mapping
+        return fold_reactions(verified)
 
     def _redaction_verifier(self, chat_id: str):
         """A callable ``(msg_id, redaction_doc, original_sender) -> bool`` for
@@ -259,7 +302,7 @@ class MessagingService:
         it is SIGNED by the message's original sender (delete-for-everyone is
         sender-only) — a forged/unsigned overlay dropped on the shared folder
         is ignored (R25)."""
-        if not isinstance(self.sealer, E2EESealer) or self.directory is None:
+        if not self._crypto_boundary():
             return None
 
         def ok(msg_id: str, red: dict, original_from: str) -> bool:
@@ -315,13 +358,30 @@ class MessagingService:
         }
 
     def pins(self, chat_id: str) -> dict[str, dict]:
-        self._require_member(chat_id)
+        snap = self._require_member(chat_id)
         now = time.time_ns()
-        return {
+        live = {
             mid: doc
             for mid, doc in ChatOverlays(self.tx, chat_id).pins().items()
             if not doc.get("until_ns") or int(doc["until_ns"]) > now
         }
+        if not self._crypto_boundary():
+            return live
+        # R31: honor only pins signed by their pinner (a member); a dropped-in
+        # doc or a tampered expiry doesn't verify and is ignored
+        out: dict[str, dict] = {}
+        for mid, doc in live.items():
+            by = doc.get("by") or ""
+            pub = self.directory.sign_pub(by)
+            sig = doc.get("sig") or ""
+            if not pub or not sig or not self._ever_member(snap, by):
+                continue
+            data = pin_signing_bytes(
+                chat_id, mid, by, int(doc.get("ns", 0)),
+                int(doc.get("until_ns", 0)))
+            if crypto.verify(pub, sig, data):
+                out[mid] = doc
+        return out
 
     def starred(self, chat_id: str) -> list[Message]:
         """Starred = ids resolved LIVE (v2 change: no snapshots — a redacted

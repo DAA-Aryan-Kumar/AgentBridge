@@ -146,7 +146,10 @@ def build_messages(
     # a forged redaction that was ignored must not blank a quote either, R25)
     for msg in out:
         if msg.reply_to and msg.reply_to.get("id") in honored:
-            msg.reply_to = {"id": msg.reply_to.get("id"), "deleted": True}
+            blank = {"id": msg.reply_to.get("id"), "deleted": True}
+            if msg.reply_to.get("quote") is False:  # unthreaded stays unthreaded
+                blank["quote"] = False
+            msg.reply_to = blank
 
     return out
 

@@ -163,6 +163,32 @@ def test_dm_replies_without_tagging(hrig):
     assert len(agent_msgs(hrig.owner, dm.id)) == 1
 
 
+def test_reply_quote_flag_follows_the_chat_moving_on(hrig):
+    """R31: answering the NEWEST message keeps the attribution (reply_to.id —
+    the answered-guard's transcript leg needs it) but flags quote=False so
+    clients show a plain standalone message; once the chat has moved on past
+    the trigger, the visible quote stays."""
+    snap = hrig.owner.create_chat("Thread", members=["helper"])
+    q1 = hrig.owner.post(snap.id, "@helper newest-message question")
+    responder = Scripted()
+    runner = hrig.make_runner(responder)
+    ripple(hrig, runner, snap.id)
+    turn(hrig, runner, snap.id)
+
+    first = agent_msgs(hrig.owner, snap.id)[0]
+    assert first.reply_to.get("id") == q1.id
+    assert first.reply_to.get("quote") is False        # displays standalone
+
+    q2 = hrig.owner.post(snap.id, "@helper older question")
+    hrig.owner.post(snap.id, "an untagged aside lands after it")
+    ripple(hrig, runner, snap.id)
+    turn(hrig, runner, snap.id)
+
+    second = agent_msgs(hrig.owner, snap.id)[-1]
+    assert second.reply_to.get("id") == q2.id
+    assert second.reply_to.get("quote", True) is True  # quote stays visible
+
+
 def test_scan_is_idempotent(hrig):
     snap = hrig.owner.create_chat("Once", members=["helper"])
     hrig.owner.post(snap.id, "@helper ping")

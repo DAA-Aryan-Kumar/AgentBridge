@@ -226,7 +226,11 @@ export function initComposer(chatId, members) {
     autosize();
     renderMeshPending(chatId);
     renderReplyArea(chatId);
-    V.renderMeshChat(true);
+    // renderChats (not renderMeshChat): a local post fires no SSE event
+    // (only synced-IN records do), so the transcript AND the sidebar row
+    // (preview/time/order) must both repaint now — without this the sidebar
+    // stayed stale until the next poll or the peer's reply (R31)
+    V.renderChats(true);
   };
   $("#mesh-send-btn").addEventListener("click", doSend);
   // Enter-to-send (default on, per device). ON: Enter sends, Shift+Enter is a

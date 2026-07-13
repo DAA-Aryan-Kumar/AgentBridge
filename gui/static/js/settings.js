@@ -131,6 +131,10 @@ async function renderSettings() {
         <p class="hint" style="margin-bottom:0">Your messages are end-to-end
         encrypted. Your password unlocks your keys on each device; changing it
         re-wraps them and keeps your recovery code working.</p>
+        ${ms.users?.[ms.user]?.key_fp ? `
+        <p class="hint" style="margin:8px 0 4px">Your key fingerprint — someone
+        verifying you reads this from their chat info and compares:</p>
+        <code class="key-fp-code">${esc(ms.users[ms.user].key_fp)}</code>` : ""}
       </div>` : ""}
       <div class="card">
         <h2>Session</h2>

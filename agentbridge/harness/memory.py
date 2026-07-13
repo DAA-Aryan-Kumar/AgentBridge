@@ -180,9 +180,45 @@ class MemoryStore:
             name, query=self.embedder.embed([query])[0],
             limit=max(1, min(int(limit), 20)),
         ).points
-        return [{"text": (h.payload or {}).get("text", ""),
+        return [{"id": str(h.id),
+                 "text": (h.payload or {}).get("text", ""),
                  "score": round(float(h.score), 3),
                  "ts": (h.payload or {}).get("ts")} for h in hits]
+
+    # a forget-by-query only fires on a confident match — deleting the
+    # "closest" memory to an unrelated query would silently eat a good note
+    FORGET_MIN_SCORE = 0.30
+
+    def forget(self, *, scope: str, chat_id: str, query: str = "",
+               memory_id: str = "") -> list[dict]:
+        """Delete one memory (R31 — a wrong or stale note could never be
+        removed before). By ``memory_id`` (exact, from recall) or by ``query``
+        (the single closest match, only above FORGET_MIN_SCORE). Returns the
+        removed entries so the caller can show what actually went away."""
+        from qdrant_client import models  # noqa: PLC0415
+
+        name = self._collection(scope, chat_id)
+        client = self._ensure_client()
+        if not client.collection_exists(name):
+            return []
+        if memory_id:
+            pts = client.retrieve(name, ids=[memory_id])
+            removed = [{"id": str(p.id),
+                        "text": (p.payload or {}).get("text", "")}
+                       for p in pts]
+        else:
+            if not (query or "").strip():
+                raise ValueError("a query or memory id is required")
+            hits = client.query_points(
+                name, query=self.embedder.embed([query])[0], limit=1).points
+            hits = [h for h in hits if float(h.score) >= self.FORGET_MIN_SCORE]
+            removed = [{"id": str(h.id),
+                        "text": (h.payload or {}).get("text", "")}
+                       for h in hits]
+        if removed:
+            client.delete(name, points_selector=models.PointIdsList(
+                points=[r["id"] for r in removed]))
+        return removed
 
     def close(self) -> None:
         if self._client is not None:

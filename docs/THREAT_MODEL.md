@@ -89,13 +89,11 @@ but we never rely on it for secrecy: the server only ever stores ciphertext.)
   pins whatever it reads first (documented under R27). On the folder transport
   the write-access itself is inherent to "all members share the folder"; on
   Supabase it rides the same secret-key trust boundary below.
-- **Unauthenticated per-user overlays other than redactions** (reactions, pins).
-  A folder writer can fabricate a reaction attributed to another user, or
-  pin/unpin a message, by dropping/removing the overlay doc directly. These are
-  cosmetic/non-destructive (they never hide or alter message CONTENT), so they
-  are left as a documented low-severity residual; the redaction overlay — the
-  one that DOES destroy content visibility — is now signed (see R25 below).
-  The same signing mechanism can extend to reactions/pins in a later round.
+- **Reaction/pin overlay FABRICATION — CLOSED R31** (see "CLOSED R31" below).
+  What remains accepted: a transport writer can still *remove* an overlay doc
+  (delete someone's reaction file or unpin a message) — absence carries no
+  signature to verify. That is an availability nuisance in the same class as
+  the spam/garbage bullet below, never a false attribution.
 - **Availability**: a member can spam or write garbage; the store dedups and
   the reader tolerates junk, but E2EE is about confidentiality/authenticity,
   not anti-abuse (that's the permission layer + rate limits, R15).
@@ -224,12 +222,59 @@ in those keys a **machine-local decision** (trust on first use) instead of
   yet (v2 has no key-change flow), so today every mismatch alerts, which is the
   safe default.
 
-**Remaining residual (narrow).** A machine that has never seen an account pins
-whatever it reads first — pinning protects every *established* relationship,
-not the very first contact. Out-of-band fingerprint verification (comparing a
-short key digest in person / over another channel) is the eventual answer and
-fits the same pin store. This is a much smaller surface than the pre-R27
-"any writer can take over any identity for everyone."
+**Remaining residual (narrow) — ANSWERED R31.** A machine that has never seen
+an account pins whatever it reads first — pinning protects every *established*
+relationship, not the very first contact. R31 ships the out-of-band answer:
+every account has a **key fingerprint** (sha256 over ``name|sign_pub|agree_pub``
+of the *pinned* pair, shown as 8×4 hex groups) surfaced in the DM info
+Encryption card, in Settings → Security (your own), and inside the key-change
+banner (trusted vs newly published). Comparing it over a call / in person and
+clicking **Mark as verified** records the verification in the pin store
+(machine-local, cleared if the pin ever legitimately advances). What remains is
+purely behavioral: a user who never compares codes keeps TOFU semantics — the
+same honest floor as Signal/WhatsApp safety numbers.
+
+## Overlay authentication + fingerprints — CLOSED R31
+
+The two residuals left open by R25/R27, closed with the same machinery that
+closed redactions:
+
+- **Reactions are signed.** The per-user reaction file (single-writer by
+  design) now carries an Ed25519 signature by its owner over the FULL
+  ``{msg_id: emoji}`` mapping plus the write's ns
+  (``events.reaction_signing_bytes``). The read fold honors only files whose
+  signature verifies against the owner's PINNED key AND whose owner is (or
+  was — tenure) a member of the chat. A dropped-in file attributed to someone
+  else, a wrong-key signature, or a never-member's self-signed file all render
+  nothing.
+- **Pins are signed.** The pin doc binds ``chat|pin|msg-id|by|ns|until_ns``
+  (``events.pin_signing_bytes``) — minted before the write so the signature
+  covers the expiry. ``messaging.pins`` verifies signature + (ever-)membership
+  before returning a pin; stretching a pin's expiry after the fact breaks the
+  bind and the pin is ignored.
+- **Legacy overlays** (pre-R31, unsigned) are re-signed by the idempotent
+  ``Mesh.harden_startup`` for authors whose keys live on this machine — same
+  pattern as R25's redaction re-sign. Anything not locally re-signable is
+  simply not honored (fail-safe: a reaction/pin disappears rather than a
+  forgery sticking). Plaintext/dev meshes (no crypto boundary) keep
+  presence-based semantics.
+- **Not covered, on purpose:** deletion. Absence has no signature, so a
+  transport writer can still remove a reaction file or a pin doc — a
+  non-destructive availability nuisance (message content is never touched),
+  accepted alongside spam/garbage under "Availability".
+- **First-contact fingerprints** (the R27 residual's answer) are described in
+  the R27 section above.
+
+Also closed as **by design** after a live QA pass (Aryan's checklist):
+- **Agents cannot raise their own permissions.** There is deliberately no
+  self-service escalation tool: capabilities are fixed by the owner-side
+  harness config, and the only runtime channel is the R18 permission broker —
+  an owner-approved ask-card per action, failing closed on timeout. The
+  blocklist and read-only flags hold in every fallback path.
+- **Burst batching.** Several rapid messages from one sender produce ONE agent
+  invocation answering the last of them (queue groups per chat+sender). This
+  is the intended anti-flood shape, not a delivery gap — each message is still
+  individually present in the agent's context.
 
 ## Migration — R9.5 (retired R16.5)
 

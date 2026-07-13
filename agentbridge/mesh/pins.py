@@ -38,7 +38,7 @@ from .. import crypto
 from ..core.config import DEFAULT_HOME, atomic_write_json, read_json
 from ..core.timekit import utcnow_iso
 
-__all__ = ["KeyPinStore", "rekey_signing_bytes"]
+__all__ = ["KeyPinStore", "rekey_signing_bytes", "key_fingerprint"]
 
 
 def rekey_signing_bytes(
@@ -48,6 +48,19 @@ def rekey_signing_bytes(
     Binds the account name (no cross-account replay), both keypairs of the
     transition, and an ns for ordering."""
     return f"{name}|rekey|{old_sign_pub}|{sign_pub}|{agree_pub}|{ns}".encode()
+
+
+def key_fingerprint(name: str, sign_pub: str, agree_pub: str) -> str:
+    """The short human-comparable digest of an account's keypair (R31 — the
+    out-of-band answer to the first-contact residual). Both devices derive it
+    from the same (name, keys) triple, so reading it aloud over a call — or
+    comparing in person — proves they pinned the same identity. Rendered as
+    8 groups of 4 hex chars: 'A1B2 C3D4 …'."""
+    if not sign_pub:
+        return ""
+    digest = hashlib.sha256(f"{name}|{sign_pub}|{agree_pub}".encode()).hexdigest()
+    hexs = digest[:32].upper()
+    return " ".join(hexs[i:i + 4] for i in range(0, 32, 4))
 
 
 class KeyPinStore:
@@ -134,6 +147,38 @@ class KeyPinStore:
         with self._lock:
             if name not in self._pins and sign_pub:
                 self._write_pin(name, sign_pub, agree_pub)
+
+    def fingerprint(self, name: str, sign_pub: str = "", agree_pub: str = "") -> str:
+        """The fingerprint of the keys THIS MACHINE trusts for ``name`` — the
+        pin when one exists, else the published pair the caller has in hand.
+        What you read aloud is what you actually verify against."""
+        with self._lock:
+            pin = self._pins.get(name) or {}
+        sign = pin.get("sign_pub") or sign_pub
+        agree = pin.get("agree_pub") or agree_pub
+        return key_fingerprint(name, sign, agree)
+
+    def verified(self, name: str) -> str:
+        """ISO timestamp of the out-of-band verification, or '' (R31). Cleared
+        automatically if the pin ever moves (a signed-history advance mints a
+        fresh entry without the flag)."""
+        with self._lock:
+            pin = self._pins.get(name) or {}
+        return str(pin.get("verified") or "")
+
+    def mark_verified(self, name: str) -> None:
+        """Record that the signed-in human compared fingerprints out-of-band.
+        Machine-local trust metadata, like the pin itself."""
+        with self._lock:
+            if name not in self._pins:
+                return
+
+            def apply(doc: dict) -> None:
+                pin = doc.setdefault("pins", {}).get(name)
+                if isinstance(pin, dict):
+                    pin["verified"] = utcnow_iso()
+
+            self._mutate(apply)
 
     def alerts(self, *, unacked_only: bool = False) -> list[dict]:
         with self._lock:

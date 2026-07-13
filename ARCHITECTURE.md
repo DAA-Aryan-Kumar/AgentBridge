@@ -125,11 +125,17 @@ Per-message and per-user side-data that would churn the append-only log:
 - **Chat-level, one file per message** (concurrent actors never clobber):
   `edits/` (author-only, the new body is sealed+signed so a forged edit fails
   to open), `redactions/` (delete-for-everyone — **signed by the sender since
-  R25**, §5), `pins/`.
+  R25**, §5), `pins/` (**signed by the pinner since R31** over
+  `chat|pin|msg-id|by|ns|until_ns` — a dropped-in pin or a stretched expiry
+  doesn't verify).
 - **Per-user** (`state/<user>.json`, read-**merge**-write — never overwrite, a
   clobber once wiped stars): `read_ns`/`read_ts`, `starred`, `hidden`,
   `cleared`, `pinned`, `archived`, `deleted`, `forced_unread`, `mute`; plus
-  per-user reaction files folded across members.
+  per-user reaction files folded across members (**signed by their owner since
+  R31** over the full mapping — the read fold drops unverified files). Every
+  state mutation holds a per-(chat, user) in-process lock: R30 moved the
+  post path's `mark_read` onto a background thread, and an unlocked
+  read-modify-write raced the user's own star/flag writes.
 
 ---
 
@@ -155,7 +161,8 @@ cache.
 
 `harden_startup()` (R25, called by connectors on sign-in) is an idempotent
 migration: it refolds pre-R25 chats to populate `tenure` and re-signs any
-legacy unsigned redaction whose author is keyed on this machine.
+legacy unsigned redaction — and, since R31, any legacy unsigned pin or
+reaction file — whose author is keyed on this machine.
 
 ---
 
@@ -197,10 +204,15 @@ See **docs/THREAT_MODEL.md** for the full statement; the mechanics:
   continuation lines so a body can't forge a transcript entry), and the peer
   channel got a per-requester ns replay floor.
 
-**Documented residuals (own rounds):** the **directory is an unsigned root of
-trust** — account docs are transport-writable, so overwriting a victim's
-published keys is an identity-takeover vector (→ R27: signed/pinned account docs
-+ key history); and reaction/pin overlays are forgeable but non-destructive.
+**R27 closed the directory root of trust** with TOFU key pinning (pins resolve
+every key read; a doc rewrite is inert for machines that knew the account and
+raises a banner). **R31 closed the rest:** reaction/pin overlay fabrication is
+signature-verified (see §3 Overlays), and every account has a **key
+fingerprint** (`pins.key_fingerprint`, 8×4 hex groups over the pinned pair)
+surfaced in the DM info Encryption card / Settings → Security / the key-change
+banner, with an out-of-band **Mark as verified** state stored in the pin store
+(`/api/mesh/key_verify`). Remaining accepted risks live in
+docs/THREAT_MODEL.md ("What is NOT protected").
 
 ---
 
@@ -281,6 +293,13 @@ live only in an adapter preset.
   never reaches inside it) and best-effort — profiling never breaks a run.
 - **`queue.py` / TimerService** — a durable work queue (two-legged answered
   guard) + scheduled wake-ups (surfaced to the owner in the GUI, R19.5).
+  Dispatch groups a sender's rapid burst into ONE run answering the last
+  message — intended anti-flood behavior, not a delivery gap (every message
+  still reaches the agent's context). The reply always records which message
+  it answers (`reply_to.id` — the answered-guard's transcript leg reads it),
+  but displays **standalone** when it answers the newest message
+  (`reply_to.quote=false`, R31) and as a visible quote once the chat has
+  moved on past the trigger.
 - **`conversation.py`** — builds the enriched `Delivery` (roster, triggers,
   pins, recalled memory, transcript tail) the prompt is rendered from.
 - **`prompt.py` + `prompts/default.json`** (R17) — the PromptManager: all agent
@@ -298,12 +317,18 @@ live only in an adapter preset.
   an ephemeral `127.0.0.1` port, tools bound to the run's chat/workspace/policy:
   the `approve` permission gate + `ask_member`; capability tools
   (pin/star/react/forward/create_dm/create_group[capped]/schedule_timer, all
-  chat-bound + id-validated); memory `remember`/`recall`; `peer_diagnose`. Every
-  tool sets `structured_output=False` (a spike lesson: FastMCP's
-  `structuredContent` wrapping reads as an invalid permission response).
+  chat-bound + id-validated); memory `remember`/`recall`/`forget`;
+  `peer_diagnose`. Every tool sets `structured_output=False` (a spike lesson:
+  FastMCP's `structuredContent` wrapping reads as an invalid permission
+  response). There is deliberately NO tool for an agent to raise its own
+  permissions — capabilities are owner-side config, and the broker ask-card is
+  the only runtime channel (fail-closed).
 - **`memory.py`** (R20) — a workspace `MEMORY.md` notepad + a local qdrant vector
   store (one path per agent process, collections per chat + global), behind an
-  Embedder probe chain (fastembed → model2vec).
+  Embedder probe chain (fastembed → model2vec). `forget` (R31) deletes one
+  entry — by the exact id `recall` reports, or by query when the single
+  closest match clears a confidence gate (never "delete the closest thing to
+  anything").
 - **`retrieval.py`** (R21) — an incremental per-chat history index (`hist-<chat>`)
   with a planner seam and a score gate; recalled hits are injected before the
   transcript tail.

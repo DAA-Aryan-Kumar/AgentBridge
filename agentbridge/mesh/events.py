@@ -40,6 +40,7 @@ __all__ = [
     "EV_ADMIN_GRANTED", "EV_ADMIN_REVOKED", "EV_RENAMED", "EV_DESCRIPTION",
     "EV_PERMISSIONS", "EV_AVATAR", "EV_DELETED", "EV_KEY_ROTATED",
     "Resolver", "fold", "signing_bytes", "redaction_signing_bytes",
+    "reaction_signing_bytes", "pin_signing_bytes",
     "genesis_gid", "GID_LEN", "is_legacy_chat_id",
 ]
 
@@ -85,6 +86,25 @@ def redaction_signing_bytes(chat_id: str, msg_id: str, by: str, ns: int) -> byte
     (the read model verifies this before honoring a tombstone; unsigned/forged
     redactions are ignored and the message stays visible)."""
     return f"{chat_id}|redact|{msg_id}|{by}|{ns}".encode()
+
+
+def reaction_signing_bytes(chat_id: str, user: str, ns: int, mapping: dict) -> bytes:
+    """Canonical bytes a user signs over their whole per-chat reaction file
+    (R31 — same recipe as redactions). The file is single-writer, so the
+    signature covers the full {msg_id: emoji} mapping plus the write's ns:
+    a transport writer can no longer fabricate a reaction attributed to
+    someone else (readers ignore files whose signature doesn't verify)."""
+    body = json.dumps(mapping, sort_keys=True, separators=(",", ":"))
+    return f"{chat_id}|react|{user}|{ns}|{body}".encode()
+
+
+def pin_signing_bytes(
+    chat_id: str, msg_id: str, by: str, ns: int, until_ns: int = 0
+) -> bytes:
+    """Canonical bytes the pinner signs (R31). Binds the chat, the target
+    message, the pinner, the ns, and the expiry — so a dropped-in pin doc
+    attributed to a member (or a tampered expiry) doesn't verify."""
+    return f"{chat_id}|pin|{msg_id}|{by}|{ns}|{until_ns}".encode()
 
 EV_CREATED = "created"
 EV_MEMBER_ADDED = "member_added"

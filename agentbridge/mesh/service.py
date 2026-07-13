@@ -167,7 +167,10 @@ class Mesh:
            everyone must stay sticky) now that the read model requires a valid
            signature. A forged/unsigned one whose author isn't local is simply
            left unhonored (fail-safe: the message reappears rather than a
-           forgery sticking)."""
+           forgery sticking).
+        3. Same for legacy UNSIGNED pins and reaction files (R31 signs both):
+           re-sign the ones authored by locally-keyed identities so they keep
+           counting; anything else is ignored by readers, not deleted."""
         from .overlays import ChatOverlays
 
         for chat_id in list(self.tx.list_chat_ids()):
@@ -177,7 +180,10 @@ class Mesh:
                     continue
                 if "tenure" not in meta:
                     self.membership.refold(chat_id)
-                self._reseal_redactions(chat_id, ChatOverlays(self.tx, chat_id))
+                ov = ChatOverlays(self.tx, chat_id)
+                self._reseal_redactions(chat_id, ov)
+                self._reseal_pins(chat_id, ov)
+                self._reseal_reactions(chat_id, ov)
             except Exception:  # noqa: BLE001 — one bad chat never blocks startup
                 continue
 
@@ -195,6 +201,41 @@ class Mesh:
             sig = crypto.sign(bundle, redaction_signing_bytes(chat_id, msg_id, by, ns))
             ov.put_redaction(msg_id, by=by, sig=sig, ns=ns)
 
+    def _reseal_pins(self, chat_id: str, ov) -> None:
+        from .events import pin_signing_bytes
+
+        for msg_id, doc in ov.pins().items():
+            if not isinstance(doc, dict) or doc.get("sig"):
+                continue
+            by = doc.get("by")
+            bundle = self.keystore.load(by) if by else None
+            if bundle is None:
+                continue  # not ours to sign — readers just ignore it
+            ns = int(doc.get("ns", 0))
+            until = int(doc.get("until_ns", 0))
+            sig = crypto.sign(
+                bundle, pin_signing_bytes(chat_id, msg_id, by, ns, until))
+            ov.put_pin(msg_id, by=by, ns=ns, until_ns=until, sig=sig)
+
+    def _reseal_reactions(self, chat_id: str, ov) -> None:
+        from ..core.timekit import next_ns, utcnow_iso
+        from .events import reaction_signing_bytes
+        from .overlays import reaction_map
+
+        for user, doc in ov.reaction_docs().items():
+            if not isinstance(doc, dict) or doc.get("sig"):
+                continue
+            bundle = self.keystore.load(user)
+            if bundle is None:
+                continue
+            mapping = reaction_map(doc)
+            ns = next_ns()  # fresh write: the signature binds the new ns
+            sig = crypto.sign(
+                bundle, reaction_signing_bytes(chat_id, user, ns, mapping))
+            self.tx.put_doc(
+                P.reactions(chat_id, user),
+                {"v": mapping, "ns": ns, "at": utcnow_iso(), "sig": sig})
+
     # ---------------------------------------------------------- key alerts
     def key_alerts(self, *, unacked_only: bool = True) -> list[dict]:
         """Pin-mismatch records for the GUI banner (R27): an account's
@@ -203,6 +244,22 @@ class Mesh:
 
     def ack_key_alert(self, name: str, seen_sign_pub: str = "") -> None:
         self.key_pins.ack(name, seen_sign_pub)
+
+    def key_fingerprint(self, name: str) -> dict:
+        """The short digest of the keys this machine trusts for ``name`` + its
+        out-of-band verification state (R31). Empty fingerprint = the account
+        has no published keys (or was never seen)."""
+        acc = self.directory.get(name)  # resolving pins on first sight
+        sign = acc.keys.sign_pub if acc else ""
+        agree = acc.keys.agree_pub if acc else ""
+        return {
+            "name": name,
+            "fingerprint": self.key_pins.fingerprint(name, sign, agree),
+            "verified": self.key_pins.verified(name),
+        }
+
+    def mark_key_verified(self, name: str) -> None:
+        self.key_pins.mark_verified(name)
 
     # ----------------------------------------------------------- lifecycle
     def start(self, *, heartbeat: bool = True) -> None:

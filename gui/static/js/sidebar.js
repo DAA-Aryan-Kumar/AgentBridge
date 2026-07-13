@@ -233,6 +233,10 @@ function renderChatListSidebar() {
   const chats = ms.chats || [];
   const archived = chats.filter((c) => c.archived);
   const listed = Mesh.showArchived ? archived : chats.filter((c) => !c.archived);
+  // WhatsApp order: pinned chats first, then most recent activity first —
+  // the backend returns chats in storage order, recency lives in last.ns
+  const recency = (c) => (c.last && c.last.ns) || 0;
+  listed.sort((a, b) => (!!b.pinned - !!a.pinned) || (recency(b) - recency(a)));
   const box = $("#side-chats");
 
   // the mutable pieces of a row, shared by the full build AND the in-place
@@ -279,6 +283,8 @@ function renderChatListSidebar() {
         <div class="hint">The published key no longer matches the one this
         device trusts. Their new messages won't verify until this is resolved
         in person.</div>
+        ${a.pinned_fp ? `<div class="hint key-fps">Trusted: <code>${esc(a.pinned_fp)}</code><br>
+        Now published: <code>${esc(a.seen_fp || "—")}</code></div>` : ""}
       </span>
       <button class="icon-btn ka-ack" title="Dismiss">${ICONS.close}</button>
     </div>`).join("");
@@ -287,10 +293,22 @@ function renderChatListSidebar() {
   // touch only the rows whose content changed. This is the fix for "the sidebar
   // is refreshed every time" — the poll no longer swaps the whole list (which
   // reset scroll + flashed every row); scroll, hover and DOM identity survive.
+  // the SET of chats (ids sorted), not their order — a pure reorder (a chat
+  // bubbling to the top on a new message) stays on the granular path, which
+  // MOVES the existing row nodes instead of flushing the list
   const structSig = (Mesh.showArchived ? "A" : "N") + "|" + archived.length
     + "|" + alerts.map((a) => a.name + (a.seen_sign_pub || "")).join(";")
-    + "|" + listed.map((c) => c.id).join(",");
+    + "|" + [...listed.map((c) => c.id)].sort().join(",");
   if (box.dataset.mode === "list" && box.dataset.struct === structSig) {
+    // reorder in place: appendChild MOVES a node, so identity (hover, menus,
+    // scroll anchoring) survives; rows land after the alerts/archived header
+    const want = listed.map((c) =>
+      box.querySelector(`.chat-row[data-chat="${CSS.escape(c.id)}"]`))
+      .filter(Boolean);
+    const have = [...box.querySelectorAll(".chat-row")];
+    if (want.some((el, i) => el !== have[i])) {
+      want.forEach((el) => box.appendChild(el));
+    }
     listed.forEach((c) => {
       const el = box.querySelector(`.chat-row[data-chat="${CSS.escape(c.id)}"]`);
       if (!el) return;
