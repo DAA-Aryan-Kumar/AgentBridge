@@ -144,9 +144,10 @@ Ticked = shipped + verified. Rounds named for open items.
   "settings + model config".
 - [ ] **Q14 User-facing permissions list** (safe toggles per chat + settings;
   setup-assist compatible) → round "settings + model config".
-- [ ] **Q15 Agents can delete messages** — deleted look unchanged; owner-only
-  Undo (for me / for everyone) inside the tombstone; groups keep showing the
-  original sender → round "agent message ops".
+- [~] **Q15 Agents can delete messages** — the AGENT can now delete its own
+  messages for everyone (`delete_message` tool, R34). **OPEN: owner-only Undo
+  (for me / for everyone) inside the tombstone; groups keep showing the
+  original sender** → round "agent message ops — owner side".
 - [ ] **Q16 Send button disabled when composer empty** → round "composer +
   transcript bug bash".
 - [x] **Q17 Message info broken — show delivered + seen timings** — the
@@ -155,9 +156,11 @@ Ticked = shipped + verified. Rounds named for open items.
   timestamps; the dialog renders them (R33, live-verified: "Read Today 04:27
   AM / Delivered Today 04:27 AM"). Bubble ticks now three-state (grey single
   sent / grey double delivered / accent double read).
-- [ ] **Q18 Agents can edit their messages; owner gets edit + delete-for-
-  everyone in the right-click menu of their agent's messages** → round
-  "agent message ops".
+- [~] **Q18 Agents can edit their messages** — DONE agent-side: `edit_message`
+  tool (author-only, R34). **OPEN: owner gets edit + delete-for-everyone in
+  the right-click menu of their agent's messages** (an authorization +
+  crypto-authorship change — the owner acts AS the co-hosted agent's identity;
+  its own security-reviewed round) → round "agent message ops — owner side".
 - [~] **Q19 Clear-chat: sidebar right-click vs in-chat menu same logic** —
   AUDIT: already consistent (both call `clearChatDialog` → `/api/mesh/
   clear_chat` with the same `keep_starred`). Just needs a live confirm in the
@@ -206,8 +209,10 @@ Ticked = shipped + verified. Rounds named for open items.
   details below username (hidden when not shared, never an empty field);
   online/last-seen in chat header + details with the name push-up transition;
   owner can set an agent's status → round "status surfacing".
-- [ ] **Q33 Unpin usable by agents** — pins must carry ids into agent context
-  → round "agent message ops".
+- [x] **Q33 Unpin usable by agents** — pins now carry their message id into
+  the agent's context (`context_pinned` template + prompt.py), so the agent
+  can pass it to `unpin_message` even for a pin older than the transcript tail
+  (R34).
 - [ ] **Q34 GUI parity sweep** — after everything above: one complete read of
   the GUI against app state → final round.
 
@@ -230,7 +235,8 @@ Ticked = shipped + verified. Rounds named for open items.
 | Round | Items |
 |---|---|
 | receipts | Q8, Q17 |
-| agent message ops | Q15, Q18, Q33 (H11 close) |
+| agent message ops (R34, done) | Q33, Q18-agent, Q15-agent (self edit/delete + unpin ids) |
+| agent message ops — owner side | Q18-owner, Q15-owner (owner edits/deletes agent msg + undo) |
 | status surfacing | Q32 (M7 close) |
 | run UX | Q9, Q10, Q11, Q12 |
 | composer + transcript bug bash | Q16, Q19, Q24, Q25, Q27, Q29, Q31 |

@@ -276,6 +276,52 @@ def test_capability_tools_ride_the_agents_own_gates(tmp_path):
         owner.close()
 
 
+def test_agent_edits_and_deletes_only_its_own_messages(tmp_path):
+    """R33: an agent gets edit_message/delete_message over its OWN messages
+    (author-only, like a human) — never over another member's."""
+    root = tmp_path / "mesh2"
+    root.mkdir()
+    home = tmp_path / "home"
+    owner = Mesh(root, "aryan", "devbox", encrypt=True, home=home)
+    owner.accounts.create_human("aryan", "hunter2x")
+    owner.accounts.create_agent("helper")
+    agent = Mesh(root, "helper", "devbox", encrypt=True, home=home)
+    try:
+        chat = owner.create_chat("Main", members=["helper"])
+        theirs = owner.post(chat.id, "the owner's message")
+        owner.outbox.flush_once()
+        agent.sync.sync_once([chat.id])
+        mine = agent.post(chat.id, "the agent's first take")
+        agent.outbox.flush_once()
+        agent.sync.sync_once([chat.id])
+
+        b = PermissionBroker(agent.tx, "helper")
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        with BridgeServer(b, chat_id=chat.id, workspace=ws, auto_allow=[],
+                          approvals=[], ask_timeout_s=0.3, mesh=agent) as bridge:
+            url = bridge.url
+            # its own message: edit + delete both work
+            assert call_tool(url, "edit_message", {
+                "message_id": mine.id, "new_body": "the agent's revised take"}) \
+                == "edited"
+            # the owner's message: refused on both, no backend error leaks
+            assert "your own" in call_tool(url, "edit_message", {
+                "message_id": theirs.id, "new_body": "hijack"})
+            assert "your own" in call_tool(url, "delete_message",
+                                           {"message_id": theirs.id})
+            assert call_tool(url, "delete_message",
+                             {"message_id": mine.id}) == "deleted"
+
+        owner.sync.sync_once([chat.id])
+        seen = {x.id: x for x in owner.messages_for(chat.id)}
+        assert seen[theirs.id].body == "the owner's message"   # untouched
+        assert seen[mine.id].deleted                           # deleted wins
+    finally:
+        agent.close()
+        owner.close()
+
+
 def test_capability_creates_are_gated_and_capped(tmp_path):
     root = tmp_path / "mesh2"
     root.mkdir()

@@ -119,7 +119,8 @@ def test_context_text_renders_transcript(tmp_path):
     assert "Chat: Ops (group)" in text
     assert "@helper (you)" in text
     assert "Trigger (tagged): @aryan" in text
-    assert "[PINNED by @aryan] pinned note" in text
+    # the pin carries its message id so the agent can unpin it (R33)
+    assert "[PINNED by @aryan] (id m1) pinned note" in text
     assert '@helper (you): [replying to @aryan: "hello there"] hi' in text
     assert "(id m1)" in text and "(id m2)" in text   # tool-actable ids (R19)
     assert "- a.csv -> read it at inbox/a.csv" in text

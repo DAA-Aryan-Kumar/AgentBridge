@@ -127,7 +127,11 @@ class PromptPack:
             lines.append(" ".join(bits))
         for p in delivery.pins:
             body = (p.get("body") or "").replace("\n", " ")[:160]
-            lines.append(self.text("context_pinned", by=p.get("by"), body=body))
+            # carry the pin's message id (R33) so the agent can actually
+            # unpin_message it — a pinned message older than the transcript
+            # tail has its id nowhere else in the context
+            lines.append(self.text("context_pinned", by=p.get("by"), body=body,
+                                   id=p.get("id", "")))
         if delivery.recalled:          # retrieval hits from beyond the tail
             lines.append(self.text("context_recall"))
             for m in delivery.recalled:

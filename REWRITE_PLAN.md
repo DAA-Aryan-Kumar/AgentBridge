@@ -1033,6 +1033,26 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       (unverified DM = clickable modal, verified DM + group = inert static
       notice, static click is a no-op).
 
+- [x] **R34 — agent message ops (self edit/delete) + unpin ids. DONE
+      2026-07-14 (v0.24.108, 385 tests).** BACKLOG Q33 + the agent-side of
+      Q18/Q15 (H11 capability parity). (1) **Pins carry their id into the
+      agent's context** — `context_pinned` was `[PINNED by @x] body` with the
+      id dropped, so a pin older than the transcript tail was un-unpinnable;
+      now `[PINNED by @x] (id m-…) body` (Q33). (2) **edit_message /
+      delete_message bridge tools** — the agent edits or deletes-for-everyone
+      its OWN live messages, author-only exactly like a human (the mesh gate
+      already enforces author==sender; a `mine()` check gives a clean refusal
+      on anyone else's message, no backend error leak). Advertised in the
+      prompt pack + activity labels. Verified: a real-HTTP bridge test drives
+      both tools against an encrypted mesh (own message edits/deletes, the
+      owner's message refused on both) and the owner then sees the edit +
+      tombstone; the GUI render path (edited flag / deleted tombstone) is the
+      same author-agnostic readmodel path already used for humans, spot-checked
+      live. **Split off to its own round** (owner acts on the agent's message +
+      owner-only undo): that relaxes the author-only gate to let an owner act
+      AS its co-hosted agent's identity — an authorization + crypto-authorship
+      change that earns a dedicated security pass.
+
 | Backlog item (source) | Covered in |
 |---|---|
 | Settings overhaul: messaging-permission model (HANDOFF #1) | R6 |

@@ -33,6 +33,7 @@ import threading
 import time
 from pathlib import Path
 
+from ..core.models import MsgKind
 from ..core.timekit import new_id
 from .broker import PermissionBroker
 
@@ -190,6 +191,32 @@ class BridgeServer:
                 return "no such message in this chat — ids are in the transcript"
             return guarded(
                 lambda: (mesh.react(chat, message_id, emoji or None), "ok")[1])
+
+        def mine(message_id: str) -> bool:
+            """Your OWN, still-live message in this chat — the only kind you
+            may edit or delete for everyone (author-only, like a human)."""
+            return any(
+                m.id == message_id and m.from_ == mesh.user
+                and not m.deleted and m.kind is MsgKind.MESSAGE
+                for m in mesh.messages_for(chat))
+
+        @mcp.tool(structured_output=False)
+        def edit_message(message_id: str, new_body: str) -> str:
+            """Edit one of YOUR OWN messages in this chat (the new text
+            replaces the old for everyone; edited messages are marked edited)."""
+            if not mine(message_id):
+                return "you can only edit your own messages in this chat"
+            return guarded(
+                lambda: (mesh.edit(chat, message_id, new_body), "edited")[1])
+
+        @mcp.tool(structured_output=False)
+        def delete_message(message_id: str) -> str:
+            """Delete one of YOUR OWN messages for everyone in this chat
+            (delete-for-everyone; it shows as removed, like a human's)."""
+            if not mine(message_id):
+                return "you can only delete your own messages in this chat"
+            return guarded(
+                lambda: (mesh.redact(chat, [message_id]), "deleted")[1])
 
         @mcp.tool(structured_output=False)
         def forward_message(message_id: str, to_chat_id: str) -> str:
