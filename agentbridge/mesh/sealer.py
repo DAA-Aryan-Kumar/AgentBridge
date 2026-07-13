@@ -113,6 +113,14 @@ class E2EESealer(Sealer):
         self.keys = keys
         self.user = user
         self._bundle = keystore_bundle
+        # unseal-result LRU (R24): a sealed envelope is IMMUTABLE for its
+        # (id, ns, epoch, nonce) — the AAD binds them — so re-verifying and
+        # re-decrypting on every read is pure waste. The profile showed the
+        # read model spending ~95% of its time here (one signature verify
+        # plus one account-doc file read PER MESSAGE PER CALL). Successes
+        # only: a failed unseal (key not yet synced) must retry next read.
+        self._cache: dict[tuple, BodyRecord] = {}
+        self._cache_cap = 4096
 
     def seal(self, chat_id: str, env_id: str, ns: int, body: BodyRecord) -> dict:
         bundle = self._bundle()
@@ -132,6 +140,16 @@ class E2EESealer(Sealer):
     def unseal(self, chat_id: str, env: Envelope) -> BodyRecord | None:
         if env.epoch == 0:
             return None  # v2 has no plaintext envelopes (R16.5)
+        # the digest covers ct+sig so a record tampered AT REST misses the
+        # cache and re-verifies (to a blank) — "show nothing rather than lie"
+        # survives the cache; an untouched envelope always hits
+        import hashlib as _h
+
+        digest = _h.sha1(f"{env.ct}|{env.sig}".encode()).digest()
+        ckey = (chat_id, env.id, env.ns, env.epoch, env.nonce, digest)
+        hit = self._cache.get(ckey)
+        if hit is not None:
+            return hit                    # verified + decrypted once already
         sender = self.directory.get(env.from_)
         if sender is None or not sender.keys.sign_pub:
             return None
@@ -150,7 +168,12 @@ class E2EESealer(Sealer):
             data = json.loads(raw)
         except json.JSONDecodeError:
             return None
-        return BodyRecord.from_dict(data if isinstance(data, dict) else {})
+        record = BodyRecord.from_dict(data if isinstance(data, dict) else {})
+        if len(self._cache) >= self._cache_cap:   # drop the oldest half
+            for k in list(self._cache)[: self._cache_cap // 2]:
+                self._cache.pop(k, None)
+        self._cache[ckey] = record        # treated as immutable by readers
+        return record
 
     def seal_blob(self, chat_id: str, blob_id: str, data: bytes) -> bytes:
         snap_doc = self.tx.get_doc(P.meta(chat_id))

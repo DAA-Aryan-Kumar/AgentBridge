@@ -715,9 +715,34 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       the project). DEFERRED with reasons: setup-wizard cloud-vs-folder
       choice copy (rides the setup/packaging overhaul round where the
       wizard is rebuilt); per-member RLS (needs the auth mapping round).
-- [ ] **R24 — Stress & soak.** Simulated 10-agent machine, message storms,
-      offline catch-up at scale, crash-mid-send recovery, queue durability,
-      cache-rebuild-from-transport, perf profiling; fix what breaks.
+- [x] **R24 — Stress & soak. DONE 2026-07-13.** CI-sized deterministic
+      stress tests (tests/test_stress.py, 7): 4-writer message storm
+      converges bit-identically for every member (nothing lost, nothing
+      duplicated, per-author ns strict); offline catch-up 5×60 in one sync
+      (second sync no-op); crash-mid-send in BOTH windows (transport dies
+      before the record lands → backoff retry, no loss; process dies AFTER
+      the send but before the outbox ack → retry re-appends and the read
+      model's dedup-by-id keeps readers at exactly one); cache rebuild from
+      the transport is transcript-identical with overlays intact; TEN
+      concurrent agent runners answer exactly once each, queues empty;
+      queue lease recovery after a crashed claim. Heavy numbers via
+      ``scripts/soak.py`` (kept; ``--supabase`` = light cloud soak).
+      **Profiling found + fixed a real hot-path pathology**: messages_for
+      spent ~95% of its time re-verifying Ed25519 sigs and re-reading the
+      sender's account doc PER MESSAGE PER CALL → (1) an unseal-result LRU
+      in E2EESealer keyed (chat,id,ns,epoch,nonce,sha1(ct|sig)) — the
+      digest keeps "show nothing rather than lie" intact for records
+      tampered at rest (the tamper test caught the naive key); successes
+      only, so an unsynced key still retries; (2) a deterministic _abs
+      path-resolution memo in FolderTransport. **messages_for @400: 198.6ms
+      → 4.7ms (42×)**; @1000 depth: 26.3ms. Soak (10 agents/10 chats/1000
+      msgs, E2EE): post 593 msg/s enqueue · flush 1504 msg/s · storm 4×250
+      converge 2.2s · catch-up 10×100 0.1s · 10 agents reply 0.3s · full
+      cache rebuild 0.6s. Cloud (real project): ~290ms/op RTT-bound —
+      livable behind the async outbox; row-batching noted as a later
+      optimization. Test-bug lesson recorded: a PLAIN writer next to E2EE
+      readers is refused BY DESIGN (R16.5) — stress worlds must be
+      uniformly encrypted. 317 tests; live harness + GUI restarted.
 - [ ] **R25 — Security review.** Permission-bypass hunt across every mutating
       endpoint; E2EE audit (key rotation, removed-member access, envelope
       misuse); prompt-injection resistance of harness prompts; peer-access

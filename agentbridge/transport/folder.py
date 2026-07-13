@@ -46,6 +46,10 @@ class FolderTransport(Transport):
         self.root.mkdir(parents=True, exist_ok=True)
         if max_upload_mb is not None:
             self.max_upload_bytes = max_upload_mb * 1024 * 1024
+        # rel -> validated absolute Path. The mapping is DETERMINISTIC for a
+        # fixed root, and resolve() (an OS realpath call) dominated hot reads
+        # in the R24 profile — memoizing it is free correctness-wise.
+        self._abs_cache: dict[str, Path] = {}
 
     # ------------------------------------------------------------ path guard
     def _abs(self, rel: str) -> Path:
@@ -57,12 +61,18 @@ class FolderTransport(Transport):
         (``\\\\?\\C:\\...``) of the SAME path, and a naive comparison read
         that as an escape (a real flake the R15 parallel tests caught —
         OneDrive locks trigger the identical misfire live)."""
+        cached = self._abs_cache.get(rel)
+        if cached is not None:
+            return cached
         p = (self.root / rel).resolve()
         target = os.path.normcase(_unextend(str(p)))
         root = os.path.normcase(_unextend(str(self.root)))
         if target != root and not target.startswith(root + os.sep):
             raise TransportError(f"path escapes transport root: {rel!r}")
-        return Path(_unextend(str(p)))
+        out = Path(_unextend(str(p)))
+        if len(self._abs_cache) < 8192:   # plenty for a mesh; never unbounded
+            self._abs_cache[rel] = out
+        return out
 
     @staticmethod
     def _retrying(fn, what: str):
