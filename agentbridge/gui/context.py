@@ -20,7 +20,7 @@ from ..mesh.directory import Directory
 from ..mesh.eventbus import Subscription
 from ..mesh.keyring import KeyStore
 from ..mesh.service import Mesh
-from ..transport.folder import FolderTransport
+from ..transport import make_transport
 
 __all__ = ["GuiApp"]
 
@@ -42,7 +42,11 @@ class GuiApp:
         poll_s: float = 4.0,
         sse_ping_s: float = 15.0,
     ) -> None:
-        self.root = Path(root)
+        # a scheme spec (supabase://…) MUST stay a string — Path() collapses the
+        # double slash into `supabase:\…` and mkdir fails (R23; folder roots
+        # stay Paths). Mirrors app.main()'s as_root — the GuiApp was the one
+        # cloud-wiring site R23 missed.
+        self.root = root if (isinstance(root, str) and "://" in root) else Path(root)
         self.home = Path(home) if home else DEFAULT_HOME
         self.machine = machine or platform.node() or "gui"
         self.encrypt = encrypt
@@ -56,8 +60,10 @@ class GuiApp:
             else Path(__file__).resolve().parents[2] / "gui" / "static"
         )
         self.mesh: Mesh | None = None
-        # pre-auth reads (login screen, name checks) — directory only, no store
-        self._tx0 = FolderTransport(self.root)
+        # pre-auth reads (login screen, name checks) — directory only, no store.
+        # make_transport so the login screen works on a cloud root too, not just
+        # a folder (the FolderTransport hard-wire here broke supabase:// roots).
+        self._tx0 = make_transport(self.root, home=self.home)
         self.directory0 = Directory(self._tx0)
         self._lock = threading.RLock()
         self._sync_thread: threading.Thread | None = None
