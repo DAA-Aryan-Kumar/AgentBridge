@@ -884,9 +884,34 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       ruff clean. Future levers if doc count grows large: delta refresh on
       `ab_docs.updated` + periodic full pull; persist the mirror.
 
----
-
-## 4. Backlog cross-check (every known item → where it lands)
+- [x] **R30 — Supabase connector performance pass + agent response profiling.
+      DONE + LIVE 2026-07-14 (v0.24.102, 363 tests).** Three asks from Aryan:
+      profile agent response time, keep connectors easy to add, full connector
+      perf pass. (1) **Change-feed sync** — `ab_logs` row ids are one global
+      identity column, so `SupabaseTransport.changed_logs(cursor)` answers
+      "what changed since?" in ONE indexed query; `SyncEngine` uses it when
+      `tx.has_change_feed` (cursor persisted in the store; a newly-joined
+      chat gets one full scan since its history may sit below the cursor; a
+      failed feed query keeps the cursor and retries; the run loop now
+      survives a failing pass — previously a cloud blip after retries KILLED
+      the sync thread until relaunch). Idle tick: 1 query per process instead
+      of `list_logs` × chats — O(1) in chat count. (2) **Post latency** —
+      the composer's 264 ms was the SYNCHRONOUS `mark_read` overlay write
+      (one cloud RTT) after the (already outbox-backed) post; it now runs off
+      the response path. (3) **Connector contract formalized** (base.py):
+      required abstract surface + two OPTIONAL fast paths with working
+      defaults — `get_docs` bulk read (mirror warm source) and
+      `changed_logs`/`has_change_feed` (sync fast path); a future driver
+      (gdrive://…) works correctly with neither. `CachingTransport` delegates
+      both explicitly (base-class attrs would shadow `__getattr__`). (4)
+      **Response profiling** (`harness/perf.py`): pickup/context/model/post
+      stage timings per run → `<home>/harness/perf/<agent>.jsonl` +
+      run-feed summary + ⏱ line in the Message-info task doc (zero new UI;
+      adapter-agnostic per the one-harness rule). (5)
+      `scripts/profile_supabase.py` — rerunnable per-op profile against a
+      throwaway root (live p50: doc/log ops ~62-84 ms, bulk 40-doc get_docs
+      68 ms, mirror warm ~200 ms, mirror read 0 ms). Merged over the parallel
+      session's v0.24.101 Connection-panel round (one import conflict).
 
 | Backlog item (source) | Covered in |
 |---|---|

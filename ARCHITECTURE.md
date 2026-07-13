@@ -151,7 +151,7 @@ cache.
 | `PrivacyService` | the R6 matrix (who may see/reach whom), blocks, agent outbound rules; `visible_profile` is the projection every connector serves instead of raw account docs |
 | `PresenceService` / `ReceiptsService` | online/last-seen heartbeat + read receipts derived from per-member cursors (no new write path) |
 | `Notifier` / `EventBus` | in-process pub/sub feeding the GUI SSE + the CLI long-poll |
-| `SyncEngine` | pulls new records per chat by byte-offset, in parallel, **never reading logs of chats this identity isn't in**; drops any record whose `from` ≠ the log's owner (ingestion sanity) |
+| `SyncEngine` | pulls new records per chat by byte-offset, in parallel, **never reading logs of chats this identity isn't in**; drops any record whose `from` ≠ the log's owner (ingestion sanity). On a change-feed transport (R30) a tick is ONE "what changed since cursor?" query (cursor persisted in the store; a newly-joined chat gets one full scan since its history may sit below the cursor); the run loop survives a failing pass (a cloud transport can throw after retries — next tick heals) |
 
 `harden_startup()` (R25, called by connectors on sign-in) is an idempotent
 migration: it refolds pre-R25 chats to populate `tenure` and re-signs any
@@ -209,7 +209,13 @@ published keys is an identity-takeover vector (→ R27: signed/pinned account do
 - **`transport/base.py`** — the `Transport` ABC: `get_doc`/`put_doc`/`delete_doc`,
   `list_docs`, `append_log`/`read_log`(offset-based)/`list_logs`,
   blob put/get/size, `list_chat_ids`, `watch()` (a wake-up *hint* only). Plus a
-  `cache_key` for store partitioning.
+  `cache_key` for store partitioning. **Adding a connector = implement the
+  abstract surface + one `make_transport` scheme entry.** Two OPTIONAL fast
+  paths (R30) make a high-RTT driver feel local and degrade gracefully when
+  absent: `get_docs(prefix)` (bulk read; default loops the required methods —
+  the mirror warms from it) and `changed_logs(cursor)` +
+  `has_change_feed = True` (a global monotonic change feed over the logs —
+  the sync engine then polls every chat in ONE round-trip).
 - **`transport/folder.py`** — the synced-folder impl. Retries transient
   `PermissionError` (OneDrive mid-sync locks), tolerates half-synced files (BOM
   strip, partial trailing JSONL line not consumed), a memoized path-escape guard
@@ -221,6 +227,11 @@ published keys is an identity-takeover vector (→ R27: signed/pinned account do
   daemon thread (degrade → poll). Trust model v1: **only the secret key** talks
   to the project (RLS on, no policies, so the publishable key can do nothing);
   bodies arrive pre-sealed, so the server only ever stores ciphertext.
+  Implements both R30 fast paths: `get_docs` (one paged query) and
+  `changed_logs` (`ab_logs` row ids are one global identity column, so
+  "what changed since cursor?" is one indexed query — measured ~65-85 ms
+  p50/op on the live project; `scripts/profile_supabase.py` re-measures
+  every op against a throwaway root).
 - **`transport/cache.py`** (R28, reworked R29) — `CachingTransport`, a warm
   in-memory **read mirror** (`get_doc`/`list_docs`/`list_chat_ids`; NOT logs or
   blobs) that `make_transport` wraps around a **cloud** transport only (a folder
@@ -261,6 +272,13 @@ live only in an adapter preset.
   runner (it stands aside with rc 3). The loop: sync → scan triggers → dispatch
   → post. Honors the global stand-down (`control.json`) and a persisted local
   peer-hold. Calls `mesh.harden_startup()` on start.
+- **`perf.py`** (R30) — per-run response-time profile: `pickup` (trigger
+  posted → group claimed) / `context` (delivery build) / `model` (the
+  responder run) / `post` (seal + commit). One JSONL record per run in
+  `<home>/harness/perf/<agent>.jsonl` (size-capped), a human summary on the
+  run feed ("Reply posted · 44.6s total · model 41.8s…") and a ⏱ line in the
+  reply's Message-info task doc. Adapter-agnostic (times the Responder call,
+  never reaches inside it) and best-effort — profiling never breaks a run.
 - **`queue.py` / TimerService** — a durable work queue (two-legged answered
   guard) + scheduled wake-ups (surfaced to the owner in the GUI, R19.5).
 - **`conversation.py`** — builds the enriched `Delivery` (roster, triggers,

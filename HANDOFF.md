@@ -17,10 +17,12 @@ retrieval, peer harness access + repair mutations, the Supabase cloud transport,
 a stress/soak pass with a 40× read-latency fix, and the R25 security review.
 
 - **Version:** `agentbridge/__init__.py` `__version__` (moved here from
-  `gui/__init__.py` in R26). Currently **v0.24.101** (transport-aware
-  Connection panel: a cloud root shows "Cloud mesh ✓ Connected" + project host
-  + mirror health instead of the folder/OneDrive checks, which read "✗ No —
-  check OneDrive" on the healthy Supabase root; `/api/open` restored in v2).
+  `gui/__init__.py` in R26). Currently **v0.24.102** (R30: change-feed sync —
+  one query per tick instead of list_logs×chats, post latency off the cloud
+  RTT, per-run agent response profiling, connector contract formalized).
+  v0.24.101 was the transport-aware Connection panel (a cloud root shows
+  "Cloud mesh ✓ Connected" + project host + mirror health instead of the
+  folder/OneDrive checks; `/api/open` restored in v2).
 - **Mesh root:** **`supabase://mesh2`** — the cloud transport is now PRIMARY
   (cutover 2026-07-13, R28), remembered in `~/.agentbridge/config.json`
   (`mesh_root`). `mesh_root_folder_backup` keeps the synced-folder `mesh2/` path
@@ -47,8 +49,16 @@ mirror** (`transport/cache.py`): one bulk query loads every doc, a background
 daemon refreshes it (~4 s cadence, woken early by realtime hints), hot reads
 are RAM-only, and a failed refresh serves the last good snapshot instead of
 "missing". Measured live: **`/api/mesh/state` 11–13 ms** (folder-grade),
-transcript fetch ~3 ms, post ~264 ms (the write's cloud RTT, by design).
-First-boot shows a sidebar loading skeleton while the mirror warms (~1 s).
+transcript fetch ~3 ms. First-boot shows a sidebar loading skeleton while the
+mirror warms (~1 s). **R30 (v0.24.102) finished the pass:** sync rides the
+`ab_logs` change feed (ONE "changed since cursor?" query per tick per process
+— O(1) in chat count; a join still full-scans that chat once), the composer's
+post no longer waits on the read-cursor's cloud write (~264 ms → local-fast),
+the sync loop survives transient cloud faults (it used to die silently), and
+per-run **agent response profiling** lands in `<home>/harness/perf/
+<agent>.jsonl` + the run feed ("Reply posted · 44s total · model 41s…") + a ⏱
+line in Message info. `scripts/profile_supabase.py` re-measures every
+transport op against a throwaway root (live p50 ~62–84 ms/op).
 
 **Cutover (v0.24.99):** timed cloud state → pre-flight per-log folder-vs-cloud
 count check (all matched — no lost messages; the migrator's log skip is coarse,

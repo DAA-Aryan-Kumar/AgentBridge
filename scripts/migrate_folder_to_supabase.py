@@ -16,7 +16,6 @@ folder). Credentials come from ~/.agentbridge/supabase.env (R23).
 from __future__ import annotations
 
 import argparse
-import glob
 import os
 from pathlib import Path
 

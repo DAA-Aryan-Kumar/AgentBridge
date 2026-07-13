@@ -52,8 +52,6 @@ _WRITE_GUARD_S = 60.0
 # a failing refresh backs off up to this, still serving the last snapshot
 _MAX_BACKOFF_S = 60.0
 
-_MISS = object()  # sentinel for the per-path fallback snapshot assembly
-
 
 class CachingTransport(Transport):
     def __init__(self, inner: Transport, refresh_s: float = CLOUD_REFRESH_S,
@@ -125,15 +123,9 @@ class CachingTransport(Transport):
 
     def _refresh_once(self) -> None:
         t0 = time.monotonic()
-        fetch = getattr(self.inner, "get_docs", None)
-        if callable(fetch):
-            docs = dict(fetch(""))
-        else:  # no bulk read on this driver: assemble the snapshot per path
-            docs = {}
-            for path in self.inner.list_docs(""):
-                value = self.inner.get_doc(path, _MISS)
-                if value is not _MISS:
-                    docs[path] = value
+        # every Transport has get_docs (base.py default loops per path; cloud
+        # drivers override it with one bulk query)
+        docs = dict(self.inner.get_docs(""))
         ids = set(self.inner.list_chat_ids())
         with self._lock:
             # local writes newer than the snapshot query win until the next
@@ -231,6 +223,15 @@ class CachingTransport(Transport):
 
     def list_logs(self, chat_id: str) -> list[tuple[str, int]]:
         return self.inner.list_logs(chat_id)
+
+    # the change feed is log-domain (never cached) — delegate it explicitly:
+    # these exist on the Transport base class now, so __getattr__ won't fire
+    @property
+    def has_change_feed(self) -> bool:  # type: ignore[override]
+        return self.inner.has_change_feed
+
+    def changed_logs(self, cursor: int) -> tuple[list[tuple[str, str]], int]:
+        return self.inner.changed_logs(cursor)
 
     def append_log(self, chat_id: str, log_name: str, record: dict) -> None:
         self.inner.append_log(chat_id, log_name, record)

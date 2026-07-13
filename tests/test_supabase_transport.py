@@ -247,6 +247,21 @@ def test_log_append_read_incremental(tx):
     assert tx.list_chat_ids() == ["c1"]
 
 
+def test_changed_logs_is_a_global_cursor_feed(tx):
+    assert tx.has_change_feed is True
+    assert tx.changed_logs(0) == ([], 0)          # empty root: empty feed
+    tx.append_log("c1", "ann@box.jsonl", {"id": "m1"})
+    tx.append_log("c1", "ann@box.jsonl", {"id": "m2"})
+    tx.append_log("c2", "sue@box.jsonl", {"id": "m3"})
+    pairs, cursor = tx.changed_logs(0)
+    assert pairs == [("c1", "ann@box.jsonl"), ("c2", "sue@box.jsonl")]
+    assert cursor == 3
+    assert tx.changed_logs(cursor) == ([], cursor)   # idle tick
+    tx.append_log("c2", "sue@box.jsonl", {"id": "m4"})
+    pairs2, cursor2 = tx.changed_logs(cursor)
+    assert pairs2 == [("c2", "sue@box.jsonl")] and cursor2 == 4
+
+
 def test_corrupt_log_row_is_skipped_not_stuck(tx):
     tx.append_log("c1", "log.jsonl", {"id": "m1"})
     tx._client.db["ab_logs"].append({          # a hand-corrupted row

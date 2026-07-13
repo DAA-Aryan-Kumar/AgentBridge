@@ -76,6 +76,7 @@ def _check(path: str) -> str:
 class SupabaseTransport(Transport):
     scheme = "supabase"
     max_upload_bytes = 50 * 1024 * 1024   # storage free-tier per-object cap
+    has_change_feed = True                # ab_logs row ids are the feed
 
     def __init__(self, root: str, *, env: dict[str, str] | None = None,
                  home: Path | None = None, client=None) -> None:
@@ -224,6 +225,27 @@ class SupabaseTransport(Transport):
             except (TypeError, ValueError):
                 new_offset = int(r["id"])   # a bad row is skipped, not re-read
         return out, new_offset
+
+    def changed_logs(self, cursor: int) -> tuple[list[tuple[str, str]], int]:
+        """The R30 sync fast path: ``ab_logs`` row ids are globally monotonic
+        (one identity column for the whole table), so "what changed since?"
+        is ONE indexed query no matter how many chats exist. Idle ticks cost
+        one empty-result round-trip instead of a list_logs RPC per chat."""
+        rows = self._retry(
+            lambda: self._sb().table("ab_logs").select("id,chat_id,log_name")
+            .eq("root", self.root).gt("id", int(cursor)).order("id")
+            .execute()
+        ).data
+        new_cursor = int(cursor)
+        pairs: list[tuple[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+        for r in rows:
+            new_cursor = max(new_cursor, int(r["id"]))
+            key = (str(r["chat_id"]), str(r["log_name"]))
+            if key not in seen:
+                seen.add(key)
+                pairs.append(key)
+        return pairs, new_cursor
 
     def delete_chat(self, chat_id: str) -> None:
         chat_id = _check(chat_id)

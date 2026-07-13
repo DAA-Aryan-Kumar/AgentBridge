@@ -289,8 +289,9 @@ def test_delegates_unknown_attributes(mirror):
     assert tx.scheme == "counting"
 
 
-def test_per_path_fallback_when_no_bulk_read():
-    """A driver without ``get_docs`` still gets a mirror (assembled per path)."""
+def test_base_default_get_docs_feeds_the_mirror():
+    """A driver without its own bulk read still gets a mirror — the base
+    Transport's get_docs default assembles the snapshot per path."""
     inner = CountingTransport()
     inner.put_doc("users/a.json", {"v": 1})
     tx = CachingTransport(inner, auto_refresh=False)
@@ -300,6 +301,23 @@ def test_per_path_fallback_when_no_bulk_read():
         assert tx.get_doc("users/a.json")["v"] == 1
         tx.list_docs("users")
     assert sum(inner.reads.values()) == 0
+
+
+def test_change_feed_delegates_through_the_wrapper():
+    """The change feed is log-domain: the wrapper must pass it through to the
+    inner driver (has_change_feed lives on the base class, so plain attribute
+    lookup would otherwise shadow the inner's True)."""
+    class FeedBulk(BulkTransport):
+        has_change_feed = True
+
+        def changed_logs(self, cursor):
+            return [("c1", "a@m.jsonl")], cursor + 7
+
+    plain = CachingTransport(BulkTransport(), auto_refresh=False)
+    assert plain.has_change_feed is False
+    feed = CachingTransport(FeedBulk(), auto_refresh=False)
+    assert feed.has_change_feed is True
+    assert feed.changed_logs(3) == ([("c1", "a@m.jsonl")], 10)
 
 
 # ------------------------------------------------------------------ factory

@@ -16,6 +16,20 @@ Contract highlights (the parts that make a sync transport reliable):
   the caller's timed rescan remains the source of truth (FORMAT2 tenet 6).
 - Paths are POSIX-style, RELATIVE, and validated — a transport must refuse
   any path that escapes its root.
+
+Adding a connector = subclass Transport, implement the abstract methods, and
+register the scheme in ``make_transport``. The REQUIRED surface is enough for
+full correctness; two OPTIONAL fast paths make a high-RTT (cloud) driver feel
+local, and both degrade gracefully when absent:
+- ``get_docs(prefix)`` — bulk-read every doc in one round-trip. The default
+  loops ``list_docs``+``get_doc`` (fine locally, slow over a network); a cloud
+  driver should override it with one query. The mirror cache (cache.py) warms
+  and refreshes from this.
+- ``changed_logs(cursor)`` + ``has_change_feed = True`` — a global,
+  monotonic change feed over the message logs ("which (chat, log) have rows
+  newer than this opaque cursor?"). Lets the sync engine poll ALL chats in
+  one round-trip instead of listing logs per chat. Leave ``has_change_feed``
+  False (the default) and the sync engine sticks to the per-chat scan.
 """
 
 from __future__ import annotations
@@ -67,9 +81,35 @@ class Transport(ABC):
     def list_docs(self, prefix: str) -> list[str]:
         """Paths of ``.json`` documents under ``prefix`` (recursive)."""
 
+    def get_docs(self, prefix: str = "") -> dict[str, Any]:
+        """OPTIONAL fast path: every doc under ``prefix`` at once. This
+        default loops the required methods (fine on a local driver); a cloud
+        driver should override it with ONE bulk query — the mirror cache
+        warms from it. Unlike ``get_doc`` this may RAISE on failure, so the
+        caller can tell "store is empty" apart from "network is down"."""
+        _absent = object()
+        out: dict[str, Any] = {}
+        for path in self.list_docs(prefix):
+            value = self.get_doc(path, _absent)
+            if value is not _absent:
+                out[path] = value
+        return out
+
     # ----------------------------------------------------------- chats / logs
     @abstractmethod
     def list_chat_ids(self) -> list[str]: ...
+
+    # OPTIONAL fast path: a driver with a global, monotonic change feed over
+    # its logs sets this True and overrides changed_logs — the sync engine
+    # then polls every chat in ONE round-trip instead of listing logs per chat
+    has_change_feed: bool = False
+
+    def changed_logs(self, cursor: int) -> tuple[list[tuple[str, str]], int]:
+        """``(chat_id, log_name)`` pairs holding records newer than the opaque
+        ``cursor``, plus the new cursor (pass 0 for "everything"). Only called
+        when ``has_change_feed`` is True. May RAISE on failure — the caller
+        retries with the same cursor next tick."""
+        raise NotImplementedError(f"{type(self).__name__} has no change feed")
 
     @abstractmethod
     def list_logs(self, chat_id: str) -> list[tuple[str, int]]:

@@ -8,6 +8,7 @@ with the Delivered tier, per-user ``archived``.
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 from .context import GuiApp
@@ -190,7 +191,17 @@ def post(app: GuiApp, req, mesh) -> dict:
         reply_to=data.get("reply_to"),
         files=files,
     )
-    mesh.mark_read(chat_id)
+    # the read-cursor write is one cloud round-trip on a cloud root — keep it
+    # OFF the response path (composer latency = this endpoint's latency). A
+    # lost cursor write just re-shows an unread badge; posting stays durable
+    # through the outbox either way.
+    def _mark() -> None:
+        try:
+            mesh.mark_read(chat_id)
+        except Exception:  # noqa: BLE001 — cursor advance is best-effort
+            pass
+
+    threading.Thread(target=_mark, daemon=True, name="ab-mark-read").start()
     return {"ok": True, "id": env.id, "ns": env.ns}
 
 

@@ -37,6 +37,7 @@ from ..mesh.service import Mesh
 from .conversation import ConversationManager
 from .feed import RunFeed, record_tasks, write_harness_doc
 from .peer import PeerService
+from .perf import RunTimings
 from .queue import WorkGroup, WorkItem, WorkQueue
 from .responder import Reply, Responder, clean_reply
 from .settings import HarnessSettings
@@ -277,6 +278,8 @@ class AgentRunner:
 
     def _process_group(self, group: WorkGroup, settings: HarnessSettings) -> None:
         chat_id = group.chat_id
+        # response-time profile (R30): pickup = trigger posted -> claimed here
+        timings = RunTimings(max((it.ns for it in group.items), default=0))
         try:
             if self.standing_down():
                 self.queue.release(group, retry_in_s=self.poll_s * 2)
@@ -298,24 +301,35 @@ class AgentRunner:
             if not self.queue.rate_acquire(chat_id, settings.max_replies_per_hour):
                 self.queue.release(group, retry_in_s=RATE_RETRY_S)
                 return
+            timings.start("context")
             delivery = self.conversation.build(group, transcript, settings)
+            timings.stop()
             if group.kind == "message" and not delivery.triggers:
                 self.queue.rate_refund(chat_id)
                 self.queue.finish(group, "gone")  # trigger deleted meanwhile
                 return
             self.mesh.messaging.mark_read(chat_id)  # context read = read
             feed = RunFeed(self.mesh.tx, self.agent, chat_id)
+            timings.start("model")
             try:
                 reply = self.responder.respond(delivery, on_step=feed.step)
             except Exception as e:  # noqa: BLE001 — a run dies, the loop lives
+                timings.stop()
+                self._log_perf(timings, group, f"error:{type(e).__name__}")
                 self._run_failed(group, feed, settings, delivery, e)
                 return
-            self._deliver_reply(group, delivery, reply, feed)
+            timings.stop()
+            self._deliver_reply(group, delivery, reply, feed, timings)
         except Exception:  # noqa: BLE001 — never kill the pool thread
             self.queue.release(group, retry_in_s=self.poll_s * 4)
 
+    def _log_perf(self, timings: RunTimings, group: WorkGroup,
+                  outcome: str) -> None:
+        timings.log(self.home, agent=self.agent, chat_id=group.chat_id,
+                    kind=group.kind, outcome=outcome)
+
     def _deliver_reply(self, group: WorkGroup, delivery, reply: Reply,
-                       feed: RunFeed) -> None:
+                       feed: RunFeed, timings: RunTimings) -> None:
         chat_id = group.chat_id
         body, no_reply = clean_reply(reply.body)
         timer_ids = self.timers.add_from_reply(chat_id, reply.timers)
@@ -325,6 +339,7 @@ class AgentRunner:
             self.queue.rate_refund(chat_id)  # a silent run costs no slot
             self.queue.finish(group, "no_reply")
             feed.finish("done", "No reply needed")
+            self._log_perf(timings, group, "no_reply")
             self.publish_status()
             return
         reply_to = None
@@ -332,14 +347,20 @@ class AgentRunner:
             last = delivery.triggers[-1].message
             reply_to = {"id": last.id, "from": last.from_,
                         "body": (last.body or "")[:200]}
+        timings.start("post")
         posted = self.mesh.post(chat_id, body, reply_to=reply_to,
                                 files=self._attach(chat_id, reply.files))
+        timings.stop()
         self.queue.finish(group, posted.id)
+        # the timing line rides the Message-info task doc — owner-visible
+        # profiling with no new UI (R30)
         record_tasks(self.mesh.tx, chat_id, posted.id, self.agent,
-                     reply.steps or feed.tasks)
+                     (reply.steps or feed.tasks)
+                     + [{"text": f"⏱ {timings.summary()}", "ts": utcnow_iso()}])
         note = "Reply posted" + (f" (+{len(timer_ids)} timer(s))"
                                  if timer_ids else "")
-        feed.finish("done", note)
+        feed.finish("done", f"{note} · {timings.summary()}")
+        self._log_perf(timings, group, "posted")
         self.publish_status()  # new timers become owner-visible immediately
 
     def _run_failed(self, group: WorkGroup, feed: RunFeed,
