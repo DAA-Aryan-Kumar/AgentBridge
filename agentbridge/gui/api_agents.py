@@ -152,6 +152,40 @@ def agent_stop(app, req, mesh) -> dict:
 
 
 @authed
+def agent_start(app, req, mesh) -> dict:
+    """Start a STOPPED agent's runner (R54/V26). Owner-gated; the agent must
+    be hosted on THIS machine with a real adapter. Spawns the same
+    supervised child AgentHarness.pyw would — the per-agent single-instance
+    lock makes a duplicate stand aside (rc 3), so pressing twice is safe.
+    The runner's presence heartbeat is what flips the GUI's Runner row."""
+    import os
+    import subprocess
+    import sys
+
+    name = (req.data.get("agent") or "").strip().lower()
+    acc = mesh.directory.get(name)
+    if not (acc and acc.agent):
+        return {"error": f"@{name} is not an agent"}
+    if acc.agent.owner != mesh.user:
+        return {"error": "only the agent's responsible member can start it"}
+    if acc.agent.machine != app.machine:
+        return {"error": f"@{name} runs on {acc.agent.machine or 'another machine'} "
+                         f"— start it from there"}
+    if str(acc.agent.harness.get("adapter") or "") == "none":
+        return {"error": f"@{name} is MCP-only — it has no runner to start"}
+    cmd = [sys.executable, "-m", "agentbridge.harness", name, "--supervise",
+           "--root", str(app.root), "--home", str(app.home),
+           "--machine", app.machine]
+    flags = 0
+    if os.name == "nt":  # no console window popping over the app
+        flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+    subprocess.Popen(cmd, creationflags=flags, close_fds=True,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL)
+    return {"ok": True, "agent": name}
+
+
+@authed
 def asks(app, req, mesh) -> dict:
     """Pending permission asks + questions AND scheduled wake-up timers
     across MY agents (owner-only, R18/R19.5) — the chat view polls this to
@@ -282,6 +316,7 @@ POST = {
     "/api/mesh/adopt_agent": adopt_agent,
     "/api/mesh/answer_ask": answer_ask,
     "/api/mesh/agent_stop": agent_stop,
+    "/api/mesh/agent_start": agent_start,
     "/api/mesh/stand_down": stand_down,
     "/api/mesh/pause": pause,
 }

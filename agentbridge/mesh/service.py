@@ -200,8 +200,18 @@ class Mesh:
         3. Same for legacy UNSIGNED pins and reaction files (R31 signs both)
            and per-user state docs (R31.5): re-sign the ones authored by
            locally-keyed identities so they keep counting; anything else is
-           ignored by readers, not deleted."""
+           ignored by readers, not deleted.
+        4. R54 (V31): key pins whose private bundle lives on this machine
+           mark themselves Verified — this box minted/adopted those keys,
+           so there is nothing to compare out-of-band (an owner's agents
+           stop asking for the fingerprint ceremony)."""
+        from ..crypto import identity_pubs
         from .overlays import ChatOverlays
+
+        try:
+            self.key_pins.auto_verify_local(self.keystore.load, identity_pubs)
+        except Exception:  # noqa: BLE001 — trust polish never blocks a login
+            pass
 
         for chat_id in list(self.tx.list_chat_ids()):
             try:

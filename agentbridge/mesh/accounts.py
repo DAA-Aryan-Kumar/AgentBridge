@@ -135,6 +135,11 @@ class AccountsService:
         self.tx.put_doc(P.user(name), doc)
         self.keystore.save(name, bundle)
         self.directory.pin_keys(name, sign_pub, agree_pub)  # R27
+        # R54 (V31): this box just minted the keys — nothing to compare
+        # out-of-band, so the pin is born Verified (harden_startup backfills
+        # pre-R54 agents the same way)
+        if self.directory.pins is not None:
+            self.directory.pins.mark_verified(name)
         return Account.from_dict(doc)
 
     def _require_free(self, name: str) -> None:
@@ -392,6 +397,9 @@ class AccountsService:
             self.directory.patch(target, mint)
             self.keystore.save(target, bundle)
             self.directory.pin_keys(target, sign_pub, agree_pub)  # R27
+            # R54 (V31): keys minted here — the pin is born Verified
+            if self.directory.pins is not None:
+                self.directory.pins.mark_verified(target)
         return self.directory.patch(
             target, lambda doc: doc.setdefault("agent", {}).update(
                 machine=self.machine)

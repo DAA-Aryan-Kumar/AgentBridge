@@ -1456,6 +1456,28 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       submit refusal, external-login dismissal); check_name unit-tested;
       405 tests green. BACKEND change → the fleet GUI restarts at merge.
 
+- [x] **R54 — agent lifecycle + trust. DONE 2026-07-14 (v0.24.129).**
+      BACKLOG V26 + V31 + V30. **V31 (own agents auto-verify):**
+      `KeyPinStore.auto_verify_local` — a pin whose PRIVATE bundle lives
+      on this machine (and matches exactly) marks itself Verified; wired
+      at create_agent/adopt_agent (born Verified) + harden_startup
+      (backfill each sign-in). A stale/foreign bundle marks nothing.
+      **V26 (start a stopped agent):** the My-agents card's new Runner
+      row (presence-derived Running/Stopped; hidden for MCP-only) gains a
+      Start button on this machine → `/api/mesh/agent_start` spawns the
+      supervised child (owner/machine/adapter-gated; the single-instance
+      lock absorbs duplicates); `supervise_all` re-scans the roster every
+      30s (new/adopted agents join a running fleet; stand-aside exits
+      retry on a 300s leash). **V30 (edits raise attention):** verified
+      in code — edits re-trigger with reason="edit", ledger keyed
+      msg_id@edit_ns — and the ONE gap fixed: the answered-guard's
+      transcript leg (msg_id-only) swallowed edits to already-answered
+      messages; edit items now skip that leg. Rig-verified: agent born
+      key_verified; Stopped→Start→Running in 6.9s; scratbot2 supervised
+      within one scan of creation; cooldown retried at ~5min. 406 tests
+      green. BACKEND + HARNESS change → full fleet restart at merge; the
+      live V30 @claude check runs after it.
+
 | Backlog item (source) | Covered in |
 |---|---|
 | Settings overhaul: messaging-permission model (HANDOFF #1) | R6 |

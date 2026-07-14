@@ -53,6 +53,26 @@ def keypair():
 
 # ================================ KeyPinStore units =========================
 
+def test_auto_verify_local_marks_only_matching_bundles(tmp_path):
+    """R54 (V31): a pin whose PRIVATE bundle lives here (and matches) marks
+    itself Verified; a foreign pin and a stale bundle mark nothing."""
+    store = KeyPinStore(tmp_path, "rootX")
+    a_bundle, a_sign, a_agree = keypair()
+    b_bundle, b_sign, b_agree = keypair()
+    _, c_sign, c_agree = keypair()
+    store.trusted("mine", a_sign, a_agree)      # local bundle matches
+    store.trusted("theirs", b_sign, b_agree)    # bundle lives elsewhere
+    store.trusted("stale", c_sign, c_agree)     # local bundle != pinned keys
+    bundles = {"mine": a_bundle, "stale": b_bundle}
+    marked = store.auto_verify_local(bundles.get, crypto.identity_pubs)
+    assert marked == ["mine"]
+    assert store.verified("mine")
+    assert not store.verified("theirs")
+    assert not store.verified("stale")
+    # idempotent: a second sweep marks nothing new
+    assert store.auto_verify_local(bundles.get, crypto.identity_pubs) == []
+
+
 def test_first_sight_pins_and_persists(tmp_path):
     store = KeyPinStore(tmp_path, "rootX")
     _, sign, agree = keypair()

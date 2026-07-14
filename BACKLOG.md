@@ -576,8 +576,20 @@ keep the code organized and extensible (packaging comes later).
   popped, re-clamped correctly); read-more works and survives; rename
   kept scroll flat with draft/caret intact; delete-for-everyone swapped
   just the tombstone. Zero console errors.
-- [ ] **V26 Start a stopped agent** — GUI option to start an agent that is
-  stopped (runner not running). → agent lifecycle round.
+- [x] **V26 Start a stopped agent** (R54) — the My-agents card gains a
+  "Runner" row (Running via the presence heartbeat / "Stopped · last seen
+  X"; hidden for MCP-only agents — nothing to run) with a **Start** button
+  when the agent is hosted on THIS machine: `/api/mesh/agent_start`
+  (owner-gated, machine-checked, adapter-checked) spawns the same
+  supervised child AgentHarness.pyw would — the per-agent single-instance
+  lock makes duplicates stand aside, so it's safe to press twice. ALSO:
+  `supervise_all` now RE-SCANS the roster every 30s — an agent created or
+  adopted while the fleet is up gets its supervisor within a scan (used to
+  need a relaunch); an exited supervisor respawns while its agent stays
+  hosted; stand-aside exits retry on a 300s leash. Live-verified on a rig:
+  Stopped + Start → click → Running in 6.9s (presence + the R51 live-sync
+  repaint); a second agent created under a running --all fleet got its
+  supervisor within one scan; the stand-aside cooldown retried at ~5min.
 - [x] **V27 Reaction popup, tabbed by reaction** (R50) — clicking the badge
   opens the popup: "N reactions" title, "All N" + per-emoji tabs, rows =
   (member, their emoji) with avatar, me first with "Click to remove" as the
@@ -596,14 +608,28 @@ keep the code organized and extensible (packaging comes later).
   pair pops its badge post-swap — reacts and switches animate, removals
   just shrink. Live-verified: quick-react add popped, arriving cross-user
   switch popped, popup remove didn't.
-- [ ] **V30 Verify: edited messages raise agent attention** — an edit to a
-  message should wake the agent, which then decides whether to reply to the
-  new content. Verify live; fix if the trigger path ignores edits.
-  → agent lifecycle round.
-- [ ] **V31 Own agents' fingerprints auto-verify** — for agents owned by the
-  signed-in user the two fingerprints are locally comparable; compare them
-  automatically instead of asking the owner to mark-verify by hand.
-  → agent lifecycle round.
+- [~] **V30 Verify: edited messages raise agent attention** (R54 code; live
+  leg after the fleet restart) — VERIFIED IN CODE: a human edit whose
+  revision advances the `hedit` cursor re-triggers (`triggers.extract`
+  reason="edit"), `should_reply` re-checks the NEW text, and the ledger
+  keys `msg_id@edit_ns` so each revision fires at most once. ONE real gap
+  found + fixed: the answered-guard's transcript leg matched on msg_id
+  alone, so editing a message the agent had ALREADY replied to could never
+  re-fire — an edit item (edit_ns > 0) now skips that leg (the ledger leg
+  still dedupes per revision; the transcript leg keeps covering plain
+  messages after a lost ledger). **Ticks after the live @claude check on
+  the restarted fleet.**
+- [x] **V31 Own agents' fingerprints auto-verify** (R54) — a pin whose
+  PRIVATE bundle lives on this machine verifies itself: the ceremony
+  guards against a substituted directory record, and a box that minted
+  (or adopted) the keys has nothing to compare by hand.
+  `KeyPinStore.auto_verify_local` marks ONLY when the bundle's public
+  halves match the pin exactly (a stale bundle after a key change marks
+  nothing — the key-change alert owns that); wired at THREE points:
+  create_agent + adopt_agent (the pin is born Verified) and
+  harden_startup (backfills pre-R54 agents at every sign-in).
+  Unit-tested (match/foreign/stale/idempotent); live-verified: a rig
+  agent showed `key_verified` immediately at creation.
 - [x] **V32 Unread badge while the chat is open + active** (R51) — the
   cursor DID advance on every hadNew render, but the badge painted from
   the stale state fetch and lingered until the next one (≥20s under SSE);
@@ -675,4 +701,4 @@ keep the code organized and extensible (packaging comes later).
 | live updates everywhere (R51, done) | V32, V23, V25-pages |
 | hot transcript (R52, done) | V25-transcript (keyed row reuse, struct-rebuild scroll/caret keep) |
 | sign-in page (R53, done) | V34, V24 |
-| agent lifecycle + trust (R54) | V26, V31, V30 |
+| agent lifecycle + trust (R54, done) | V26, V31, V30 (live leg post-restart) |

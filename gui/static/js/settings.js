@@ -62,14 +62,16 @@ let liveData = null;        // sliced view of what the current render shows
 let settingsPollId = null;
 
 // what the page can display, sliced for change detection: me + my agents
-// only. presence is deliberately excluded — heartbeats would repaint the
-// page every ~30s for a line it doesn't even show.
+// only. presence timestamps are deliberately excluded (heartbeats would
+// repaint every ~30s for nothing) — but the ONLINE bit rides along, since
+// the Runner row (R54) flips on it.
 function liveSlice(ms, me) {
   const mine = Object.entries(ms?.users || {})
     .filter(([n, u]) => n === ms.user
       || (u.kind === "agent" && (u.owners || []).includes(ms.user)))
     .map(([n, u]) => [n, u.display, u.status, u.active,
-                      u.avatar && u.avatar.sha256, u.settings]);
+                      u.avatar && u.avatar.sha256, u.settings,
+                      !!(u.presence && u.presence.online)]);
   return { mine, me: me ?? null, harness: {} };
 }
 const harnessSlice = (r) =>
@@ -390,6 +392,14 @@ async function renderSettings() {
               ${CATS.map(routeRow(a, st)).join("")}</dd>
             <dt>Runs on</dt><dd class="ag-machine" data-agent="${esc(a.username)}">
               <span class="mono">${esc(a.machine || "unknown")}</span></dd>
+            ${(st.adapter || "") === "none" ? "" : `
+            <dt>Runner</dt><dd class="ag-runner" data-agent="${esc(a.username)}"
+              data-machine="${esc(a.machine || "")}">
+              ${a.presence?.online
+                ? '<span class="pres-online">Running</span>'
+                : `<span class="hint">Stopped${a.presence?.last_seen
+                    ? " · last seen " + esc(fmtTime(a.presence.last_seen)) : ""}</span>`}
+            </dd>`}
             <dt>Owner</dt><dd>${(a.owners || []).map((o) => esc("@" + o)).join(", ")}</dd>
             <dt>Peer access</dt><dd><span class="csel-slot ag-peer"
               data-agent="${esc(a.username)}" data-value="${esc(st.peer_access || "off")}"></span></dd>
@@ -844,6 +854,25 @@ async function renderSettings() {
           toast(`@${agent} now runs on this machine`);
           await V.refreshState?.();
           renderSettings();
+        });
+        dd.appendChild(b);
+      });
+      // R54 (V26): a STOPPED runner hosted on THIS machine gets a Start
+      // button — it spawns the same supervised child AgentHarness.pyw
+      // would (the single-instance lock makes duplicates stand aside);
+      // the runner's presence heartbeat flips the row to Running on a
+      // later live-sync pass
+      document.querySelectorAll(".ag-runner").forEach((dd) => {
+        if (!ho.machine || dd.dataset.machine !== ho.machine
+            || dd.querySelector(".pres-online")) return;
+        const b = document.createElement("button");
+        b.textContent = "Start";
+        b.style.marginLeft = "10px";
+        b.addEventListener("click", async () => {
+          b.disabled = true;
+          const r = await api("/api/mesh/agent_start", { agent: dd.dataset.agent });
+          if (r.error) { toast(r.error, true); b.disabled = false; return; }
+          toast(`Starting @${dd.dataset.agent}…`, { check: true });
         });
         dd.appendChild(b);
       });

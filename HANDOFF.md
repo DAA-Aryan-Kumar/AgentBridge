@@ -17,8 +17,13 @@ retrieval, peer harness access + repair mutations, the Supabase cloud transport,
 a stress/soak pass with a 40× read-latency fix, and the R25 security review.
 
 - **Version:** `agentbridge/__init__.py` `__version__` (moved here from
-  `gui/__init__.py` in R26). Currently **v0.24.128**. Recent rounds (full
+  `gui/__init__.py` in R26). Currently **v0.24.129**. Recent rounds (full
   detail per round in REWRITE_PLAN.md; item-level status in BACKLOG.md):
+  R54 agent lifecycle + trust (own agents' key pins auto-verify — born
+  Verified at create/adopt, backfilled at sign-in; the My-agents Runner
+  row + Start button spawns a supervised runner; supervise_all re-scans
+  so new agents join a running fleet; edits to already-answered messages
+  re-trigger the agent);
   R53 sign-in page (auth.js = the dedicated full-page signed-out surface
   riding the boot identity — the setup pages start here; live username
   checking via the new pre-auth /api/mesh/check_name);

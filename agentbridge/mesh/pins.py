@@ -180,6 +180,34 @@ class KeyPinStore:
 
             self._mutate(apply)
 
+    def auto_verify_local(self, load_bundle, pubs_of) -> list[str]:
+        """R54 (V31): pins whose PRIVATE bundle lives on this machine verify
+        themselves. The out-of-band ceremony guards against a substituted
+        directory record — but a box holding the identity's own bundle
+        minted (or adopted) those keys, so there is nothing to compare by
+        hand; an owner's agents show Verified without the manual step.
+        Marks ONLY when the bundle's public halves match the pin exactly;
+        a stale bundle after a key change marks nothing (the key-change
+        alert path owns that story). Returns the names marked."""
+        with self._lock:
+            names = [n for n, p in self._pins.items() if not p.get("verified")]
+        marked = []
+        for name in names:
+            bundle = load_bundle(name)
+            if not bundle:
+                continue
+            try:
+                sign_pub, agree_pub = pubs_of(bundle)
+            except Exception:  # noqa: BLE001 — an unreadable bundle proves nothing
+                continue
+            with self._lock:
+                pin = dict(self._pins.get(name) or {})
+            if pin and pin.get("sign_pub") == sign_pub \
+                    and pin.get("agree_pub") == agree_pub:
+                self.mark_verified(name)
+                marked.append(name)
+        return marked
+
     def alerts(self, *, unacked_only: bool = False) -> list[dict]:
         with self._lock:
             return [

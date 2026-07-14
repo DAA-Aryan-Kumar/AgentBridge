@@ -287,9 +287,14 @@ class AgentRunner:
             transcript = self.mesh.messages_for(chat_id)
             if group.kind == "message":
                 # second guard leg: my own visible reply already answers it
-                # (covers a lost local ledger) — resolve those, keep the rest
+                # (covers a lost local ledger) — resolve those, keep the rest.
+                # R54 (V30): an EDIT revision (edit_ns > 0) skips this leg —
+                # a reply to the PRE-edit text must not swallow the fresh
+                # attention; the ledger leg still keys msg_id@edit_ns, so
+                # each revision fires at most once.
                 done = [it for it in group.items
-                        if self.queue.answered_in_transcript(transcript, it.msg_id)]
+                        if not it.edit_ns
+                        and self.queue.answered_in_transcript(transcript, it.msg_id)]
                 if done:
                     self.queue.finish(WorkGroup(chat_id, group.sender, done),
                                       "answered-in-transcript")
@@ -643,28 +648,52 @@ def hosted_agents(root, machine: str) -> list[str]:
     return out
 
 
-def supervise_all(root, machine: str, argv: list[str]) -> int:
+def supervise_all(root, machine: str, argv: list[str],
+                  *, rescan_s: float = 30.0) -> int:
     """One supervised runner per hosted agent (AgentHarness.pyw's engine).
     Each child holds its own single-instance lock; a second launcher's
-    children simply stand aside (rc 3)."""
-    agents = hosted_agents(root, machine)
-    if not agents:
-        print(f"no agents are hosted on this machine ({machine}) — "
-              f"adopt or create one in Settings, then relaunch")
-        return 0
-    passthru = [a for a in argv if a not in ("--all",)]
-    children = [
-        subprocess.Popen([sys.executable, "-m", "agentbridge.harness",
-                          name, "--supervise", *passthru])
-        for name in agents
-    ]
-    print(f"[harness] supervising {len(children)} agent(s): "
-          + ", ".join(f"@{a}" for a in agents))
+    children simply stand aside (rc 3).
+
+    R54 (V26): the roster is RE-SCANNED every ``rescan_s`` — an agent
+    created or adopted while the fleet is up gets its supervisor within a
+    scan (it used to take a relaunch), and a supervisor that exited is
+    respawned as long as its agent is still hosted here. A stand-aside
+    exit (another instance owns the agent, e.g. a GUI-started runner)
+    retries on a slow leash instead of hot-looping."""
+    passthru = [a for a in argv if a != "--all"]
+    children: dict[str, subprocess.Popen] = {}
+    cooldown: dict[str, float] = {}      # name -> not-before (monotonic)
+    first = True
     try:
-        for c in children:
-            c.wait()
+        while True:
+            agents = hosted_agents(root, machine)
+            if first and not agents:
+                print(f"no agents are hosted on this machine ({machine}) — "
+                      f"create or adopt one in Settings; this launcher "
+                      f"picks it up within {rescan_s:.0f}s", flush=True)
+            now = time.monotonic()
+            for name in list(children):
+                c = children[name]
+                if c.poll() is None:
+                    continue
+                if c.returncode == EXIT_ALREADY_RUNNING:
+                    cooldown[name] = now + 300.0
+                children.pop(name)
+            spawned = []
+            for name in agents:
+                if name in children or now < cooldown.get(name, 0.0):
+                    continue
+                children[name] = subprocess.Popen(
+                    [sys.executable, "-m", "agentbridge.harness",
+                     name, "--supervise", *passthru])
+                spawned.append(name)
+            if spawned:
+                print(f"[harness] supervising {len(children)} agent(s): "
+                      + ", ".join(f"@{a}" for a in sorted(children)), flush=True)
+            first = False
+            time.sleep(rescan_s)
     except KeyboardInterrupt:
-        for c in children:
+        for c in children.values():
             c.terminate()
     return 0
 
