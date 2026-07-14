@@ -9,8 +9,10 @@ import { pickerRow, pickerSection } from "./picker.js";
 import { V } from "./views.js";
 
 // Profile + Account merged into one "Account" section (task 2, 2026-07-11).
+// Privacy became its own section in R40 (Q23) — it outgrew the Account card.
 const SETTINGS_SECTIONS = [
   { id: "account", label: "Account", desc: "Photo, name, sign out", icon: ICONS.user },
+  { id: "privacy", label: "Privacy", desc: "Who sees what, blocked", icon: ICONS.key },
   { id: "chats", label: "Chats", desc: "Theme, sending", icon: ICONS.chat },
   { id: "agents", label: "My agents", desc: "Models, reply rules", icon: ICONS.bot },
   { id: "connection", label: "Connection", desc: "Status, performance", icon: ICONS.plug },

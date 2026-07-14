@@ -316,9 +316,13 @@ async function renderMeshChat(force) {
     (m.edited ? "e" + (m.edited.ns || "") : "") + (m.deleted ? "d" : "")
     + Object.entries(m.reactions || {}).map(([e, us]) => e + us.join(",")).join("")
   ).join("|");
+  // M11: a DM peer's deactivation shows an info pill + grey styling — fold
+  // the flag in so the repaint rides the partial path
+  const goneSig = Object.values(ms.users || {})
+    .filter((u) => u.active === false).map((u) => u.username).join(",");
   const key = JSON.stringify([data.messages.length, data.messages.at(-1)?.id,
     meta.archived, (meta.members || []).length,
-    pinsSig, (data.starred || []).join(","), receiptSig, mutSig,
+    pinsSig, (data.starred || []).join(","), receiptSig, mutSig, goneSig,
     feeds.map((f) => [f.agent, f.turns, f.activity, (f.draft || "").length])]);
   // structural signature — drives the FULL rebuild (incl. the header). name
   // rides here so a rename (local or from another client) repaints the header;
@@ -430,6 +434,9 @@ async function renderMeshChat(force) {
     const showSender = !isDm && !msg.mine && msg.from !== prevFrom;
     prevFrom = msg.from;
     const kindTag = msg.kind === "agent" ? `<span class="kind-tag">agent</span>` : "";
+    // M11: a departed (deleted) member's messages grey out — name and
+    // words remain, nothing else of them does
+    const departed = ms.users?.[msg.from]?.active === false ? " departed" : "";
     // time + star (+ read receipt for my own) ride at the bubble's bottom-right,
     // WhatsApp-style — inside the bubble, on every message
     const starred = starredSet.has(msg.id);
@@ -447,7 +454,7 @@ async function renderMeshChat(force) {
          ${esc(e)}${users.length > 1 ? `<span class="rx-n">${users.length}</span>` : ""}</button>`)
       .join("")}</div>` : "";
     parts.push(`
-      <div class="msg ${msg.mine ? "mine" : ""}" data-mid="${esc(msg.id || "")}">
+      <div class="msg ${msg.mine ? "mine" : ""}${departed}" data-mid="${esc(msg.id || "")}">
         <span class="msg-check" aria-hidden="true">${ICONS.check}</span>
         ${showSender ? `<span class="msg-avatar">${meshAvatarInner(msg.from)}</span>` : ""}
         <div class="bubble">
@@ -457,6 +464,14 @@ async function renderMeshChat(force) {
           ${msg.reply_to && msg.reply_to.quote !== false ? replyQuote(msg.reply_to, isDm, ms) : ""}
           <div class="msg-body">${md(msg.body || "")}</div>${files}${rxRow}${metaRow}</div>
       </div>`);
+  }
+  // M11: DMing a deleted account — say so in the transcript (info text, at
+  // the end); sends still post but will never show Delivered (no one fetches)
+  if (isDm && meta.kind === "dm") {
+    const dmPeer = (meta.members || []).find((u) => u !== ms.user);
+    if (dmPeer && ms.users?.[dmPeer]?.active === false) {
+      parts.push('<div class="info-pill">This account was deleted</div>');
+    }
   }
   // live presence: agents working (dots + label + forming draft) and
   // humans typing (dots only). Styled like a regular incoming message —

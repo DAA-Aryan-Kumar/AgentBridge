@@ -1211,6 +1211,18 @@ button.enc-pill { cursor: pointer; font: inherit; font-size: 11.5px; }
 /* the edit bar reuses the reply bar; the pencil rides the name line */
 #reply-area .rq-name svg { width: 12px; height: 12px; vertical-align: -1.5px; }
 
+/* M11: a departed (deleted) member's messages grey out — name + words stay */
+.msg.departed .bubble { opacity: .72; }
+.msg.departed .sender { color: var(--text-dim); }
+.msg.departed .msg-avatar { opacity: .55; filter: grayscale(1); }
+
+/* red-tinted action button (delete account / delete agent, R40) */
+button.danger {
+  color: var(--bad); border-color: var(--bad);
+  background: transparent;
+}
+button.danger:hover { background: rgba(217, 58, 58, .08); }
+
 /* ---- select-messages mode ------------------------------------------------
    .selecting rides on #content so the transcript's poll re-render can't drop
    it. The composer slides down/out; #select-pane slides up into its place;

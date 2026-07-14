@@ -58,10 +58,14 @@ by-design (documented where).
   admins, permissions visible to everyone (R5/D12). **Verify: agents grouped
   under their owner in the frontend roster.** Channels = v3 (config shaped
   for it).
-- [~] **M11 Account deletion** — backend deactivation + DM refusal shipped
-  (R7). **OPEN: deletion options surfaced in GUI (member + agent); verify
-  departed-member display (grey/messages-kept, "account deleted" info text in
-  DM, fields disabled).** → rounds "settings + model config" / "parity sweep".
+- [x] **M11 Account deletion** (R40 close) — backend deactivation + DM
+  refusal shipped R7; the GUI now has both delete buttons (Q20) AND the
+  departed-member display the brief specified: a deleted member's messages
+  grey out (name + words stay), the DM shows "This account was deleted" as
+  info text (sends still post and simply never turn Delivered), and the
+  details identity shows "Account deleted" with status/about/gates gone.
+  Live-verified end-to-end with a throwaway agent (created → messaged →
+  deleted → all three surfaces checked).
 
 ### Agent harness (§H)
 
@@ -188,8 +192,11 @@ Ticked = shipped + verified. Rounds named for open items.
   consistent (both call `clearChatDialog` → `/api/mesh/clear_chat` with the
   same `keep_starred`); live-confirmed R37 (sidebar right-click opens the
   identical dialog: title, keep-starred checkbox, same endpoint).
-- [ ] **Q20 Account deletion options missing in GUI (member + agent)** →
-  round "settings + model config".
+- [x] **Q20 Account deletion in GUI** (R40) — Settings → Account gains a
+  "Delete account" card (password-confirmed modal → soft delete → signed
+  out; wrong password refused, live-verified); each agent card gains
+  "Delete agent" (confirm → leaves every room + deactivates). See M11 for
+  the departed-member display.
 - [x] **Q21 MCP-only agents** (R39) — "Runs with" gains "No runs — MCP only":
   the harness spawns no runner for such agents (`hosted_agents` filter), a
   live runner stands down cleanly on the next tick (rc 0 → the supervisor
@@ -200,8 +207,12 @@ Ticked = shipped + verified. Rounds named for open items.
   hosted_agents skip).
 - [D] **Q22 Adopt-agent transports memories too** — deferred by Aryan
   ("will need some planning").
-- [ ] **Q23 Move privacy settings to their own Settings group** → round
-  "settings + model config".
+- [x] **Q23 Privacy = its own Settings group** (R40) — new nav section
+  ("Who sees what, blocked"): the matrix + read-receipts moved out of
+  Account, plus a Blocked list with Unblock (the block feature had NO GUI
+  at all — a Block/Unblock row now also lives in the DM details danger
+  card, confirm-gated, never announced to the other side). Live-verified
+  the full loop: block from DM details → listed in Privacy → unblock.
 - [x] **Q24 Reactions surface in GUI** (R37) — Telegram-style chips inside
   the bubble (count when >1, mine accent-ringed, tooltip names reactors);
   quick-react emoji bar tops the message menu (WhatsApp); click toggles

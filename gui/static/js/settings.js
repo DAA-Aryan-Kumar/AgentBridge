@@ -6,7 +6,7 @@ import { $, esc, toast, fmtTime, setThemePref, themePref, enterToSend,
 import { ICONS } from "./icons.js";
 import { api } from "./api.js";
 import { csel, mountCsels } from "./csel.js";
-import { openModal, closeModal, swapModal, openPhotoViewer } from "./modal.js";
+import { openModal, closeModal, swapModal, openPhotoViewer, confirmModal } from "./modal.js";
 import { App, Mesh, Settings, RULE_LABELS, meshDn, meshAvatar, meshAvatarInner, chatDisplay, renderChrome } from "./state.js";
 import { renderSidebar } from "./sidebar.js";
 import { V } from "./views.js";
@@ -76,9 +76,9 @@ async function renderSettings() {
   // stutter-sensitive chat switch). v1 has no /api/mesh/me → me stays null and
   // the v2-only surfaces below are simply skipped.
   let me = null;
-  if (section === "account" || section === "agents") {
+  if (section === "account" || section === "agents" || section === "privacy") {
     // agents section needs the owner-only my_agents view too (raw privacy
-    // matrix per agent, R36)
+    // matrix per agent, R36); privacy needs the matrix + blocked list (R40)
     const r = await api("/api/mesh/me");
     if (!r.error) me = r;
   }
@@ -125,19 +125,6 @@ async function renderSettings() {
             <button class="primary" id="acct-status-save" style="margin-top:6px">Save status</button></dd>
         </dl>
       </div>
-      <div class="card" id="privacy-card">
-        <h2>Privacy</h2>
-        <dl class="kv" style="grid-template-columns:minmax(120px,180px) 1fr">
-          ${PRIVACY_FIELDS.map(([k, label]) =>
-            `<dt>${label}</dt><dd><span class="csel-slot pv-aud" data-field="${k}" data-value="${esc(me.privacy?.[k] || "everyone")}"></span></dd>`).join("")}
-        </dl>
-        <div class="row" style="margin-top:6px"><label class="switch">
-          <input type="checkbox" id="pv-read-receipts" ${me.privacy?.read_receipts !== false ? "checked" : ""}>
-          <span class="slider"></span></label>
-          <span><b>Read receipts</b> — send and see the blue ticks</span></div>
-        <p class="hint" style="margin-bottom:0">"Members" means people you share a
-        chat with. Turning read receipts off hides them both ways.</p>
-      </div>
       <div class="card">
         <h2>Security</h2>
         <div class="row"><button id="acct-password">Change password</button></div>
@@ -156,7 +143,42 @@ async function renderSettings() {
         folder — it works from any machine that syncs it, and your photo, name and
         settings follow you.</p>
       </div>
+      <div class="card">
+        <h2>Delete account</h2>
+        <div class="row"><button class="danger" id="acct-delete">Delete my account</button></div>
+        <p class="hint" style="margin-bottom:0">Leaves every chat and deactivates
+        you and your agents. Your past messages stay, greyed under your name;
+        nothing else remains reachable. This can't be undone from the app.</p>
+      </div>
       <input type="file" id="pf-file" accept="image/*" hidden>`;
+  } else if (section === "privacy") {
+    // Q23: privacy got its own section — the matrix, read receipts, and the
+    // blocked list (which had no GUI at all before R40)
+    html = `${back}<h1>Privacy</h1>
+      ${me ? `
+      <div class="card" id="privacy-card">
+        <h2>Who sees what</h2>
+        <dl class="kv" style="grid-template-columns:minmax(120px,180px) 1fr">
+          ${PRIVACY_FIELDS.map(([k, label]) =>
+            `<dt>${label}</dt><dd><span class="csel-slot pv-aud" data-field="${k}" data-value="${esc(me.privacy?.[k] || "everyone")}"></span></dd>`).join("")}
+        </dl>
+        <div class="row" style="margin-top:6px"><label class="switch">
+          <input type="checkbox" id="pv-read-receipts" ${me.privacy?.read_receipts !== false ? "checked" : ""}>
+          <span class="slider"></span></label>
+          <span><b>Read receipts</b> — send and see the blue ticks</span></div>
+        <p class="hint" style="margin-bottom:0">"My chats" means people you share a
+        chat with. "Who can message me" and "Who can add me to groups" are visible
+        to everyone by design, so no one has to find out by being refused.
+        Turning read receipts off hides them both ways.</p>
+      </div>
+      <div class="card">
+        <h2>Blocked</h2>
+        ${(me.blocked || []).length ? (me.blocked || []).map((b) => `
+          <div class="row" style="justify-content:space-between">
+            <span>${esc(meshDn(b))} <span class="hint">@${esc(b)}</span></span>
+            <button class="pv-unblock" data-user="${esc(b)}">Unblock</button>
+          </div>`).join("") : '<p class="hint" style="margin-bottom:0">No one is blocked. Block someone from their chat info page.</p>'}
+      </div>` : ""}`;
   } else if (section === "chats") {
     html = `${back}<h1>Chats</h1>
       <div class="card">
@@ -309,7 +331,10 @@ async function renderSettings() {
           models below kick in when it's left on the family default. Per-chat
           rules and models live in each chat's info page — a chat's own pick
           wins over everything here.</p>
-          <div class="row"><button class="primary ag-save" data-agent="${esc(a.username)}">Save</button></div>
+          <div class="row" style="justify-content:space-between">
+            <button class="primary ag-save" data-agent="${esc(a.username)}">Save</button>
+            <button class="danger ag-delete" data-agent="${esc(a.username)}">Delete agent</button>
+          </div>
         </div>`;
       }).join("") || ""}
       <div class="card">
@@ -391,6 +416,19 @@ async function renderSettings() {
   if (logout) logout.addEventListener("click", async () => {
     await api("/api/mesh/logout", {});
     location.hash = "#/chats";
+  });
+  // delete account (Q20/M11): password-confirmed soft delete — leaves every
+  // chat, deactivates you and your agents, then signs out
+  const acctDelete = $("#acct-delete");
+  if (acctDelete) acctDelete.addEventListener("click", () => openDeleteAccountModal());
+  // unblock from the Privacy section's blocked list (R40)
+  document.querySelectorAll(".pv-unblock").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const r = await api("/api/mesh/unblock", { username: btn.dataset.user });
+      if (r.error) { toast(r.error, true); return; }
+      toast(`@${btn.dataset.user} unblocked`, { check: true });
+      renderSettings();
+    });
   });
   // edit display name inline (username is fixed — the identity key). The ✎ swaps
   // the name line for an input + Save/Cancel; Enter saves, Escape cancels.
@@ -689,6 +727,23 @@ async function renderSettings() {
       toast(`@${agent}'s About updated`, { check: true });
     });
   });
+  // owner deletes an agent (Q20/M11): soft — it leaves every room and its
+  // account deactivates; past messages stay greyed under its name
+  document.querySelectorAll(".ag-delete").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const agent = btn.dataset.agent;
+      if (!(await confirmModal({
+        title: `Delete @${agent}?`,
+        body: "It leaves every chat and stops running. Its past messages stay, greyed under its name. This can't be undone from the app.",
+        action: "Delete agent",
+      }))) return;
+      const r = await api("/api/mesh/delete_agent", { agent });
+      if (r.error) { toast(r.error, true); return; }
+      toast(`@${agent} deleted`, { check: true });
+      Mesh.state = await api("/api/mesh/state");
+      renderSettings();
+    });
+  });
   // owner stops the agent's in-flight run (R36) — all chats
   document.querySelectorAll(".ag-stop").forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -901,6 +956,36 @@ function wireAccountEditors(ms) {
   // Change password — a small modal (current + new + confirm)
   const pw = $("#acct-password");
   if (pw) pw.addEventListener("click", () => openPasswordModal());
+}
+
+// Delete account (Q20/M11): the password is the confirmation — soft delete
+// on the server (messages stay greyed under the name), then the session ends.
+function openDeleteAccountModal() {
+  const box = openModal(`
+    <div class="cf-title">Delete your account?</div>
+    <div class="cf-sub">You leave every chat and your agents stop. Messages
+      you sent stay visible, greyed under your name. This can't be undone
+      from the app. Enter your password to confirm.</div>
+    <dl class="kv" style="grid-template-columns:120px 1fr;margin:12px 0">
+      <dt>Password</dt><dd><input type="password" id="del-pw" autocomplete="current-password"></dd>
+    </dl>
+    <div class="cf-actions cf-col">
+      <button class="cf-del" id="del-go">Delete my account</button>
+      <button class="cf-cancel" id="del-cancel">Cancel</button>
+    </div>`);
+  box.classList.add("confirm");
+  box.parentElement.classList.add("confirm-scrim");
+  box.querySelector("#del-cancel").addEventListener("click", closeModal);
+  box.querySelector("#del-go").addEventListener("click", async () => {
+    const pw = box.querySelector("#del-pw").value;
+    if (!pw) { toast("Your password confirms the deletion", true); return; }
+    const r = await api("/api/mesh/delete_account", { password: pw });
+    if (r.error) { toast(r.error, true); return; }
+    closeModal();
+    location.hash = "#/setup";
+    location.reload();
+  });
+  box.querySelector("#del-pw").focus();
 }
 
 function openPasswordModal() {

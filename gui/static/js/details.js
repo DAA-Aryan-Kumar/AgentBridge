@@ -136,7 +136,8 @@ async function renderChatDetails() {
   const dKey = JSON.stringify([meta, media.length, (data.links || []).length,
     (data.starred || []).length, myAgentsHere.map((a) => a.settings),
     dmPeerRec ? [dmPeerRec.status, dmPeerRec.presence, dmPeerRec.key_verified,
-                 dmPeerRec.about, dmPeerRec.messaging, dmPeerRec.add_to_group] : 0,
+                 dmPeerRec.about, dmPeerRec.messaging, dmPeerRec.add_to_group,
+                 dmPeerRec.active] : 0,
     !!Mesh.searchView, !!Mesh.mediaView, Mesh.mediaTab, !!Mesh.agentsView,
     !!Mesh.starredPane]);
   if (dKey === Mesh.detailsKey && App.page === "chats") return;
@@ -210,6 +211,11 @@ async function renderChatDetails() {
         // PR, last seen today 04:49 AM" — each part only when shared.
         if (!isDm || isSelf) return "";
         const peer = ms.users[dmOther(meta, ms.user)] || {};
+        // M11: a deleted account keeps its name/username; everything else
+        // (status, about, gates) is gone and the fields don't render
+        if (peer.active === false) {
+          return '<div class="ci-status" style="color:var(--text-dim)">Account deleted</div>';
+        }
         const st = peer.status || {};
         const bits = [];
         if ((st.state && st.state !== "available") || st.text) {
@@ -320,6 +326,9 @@ async function renderChatDetails() {
         ${ICONS.archive} ${meta.archived ? `Unarchive ${noun}` : `Archive ${noun}`}</button>` : ""}
       ${isMember && !isOwner && !isDm ? `<button class="danger-row" id="dg-exit">
         ${ICONS.exit} Exit group</button>` : ""}
+      ${isDm && !isSelf ? `<button class="danger-row" id="dg-block"
+        data-peer="${esc(dmOther(meta, ms.user))}">
+        ${ICONS.banned} Block @${esc(dmOther(meta, ms.user))}</button>` : ""}
       ${isOwner ? `<button class="danger-row" id="dg-delete">
         ${ICONS.trash} Delete ${noun}</button>` : ""}
     </div>
@@ -327,6 +336,32 @@ async function renderChatDetails() {
       esc(meshDn(meta.created_by))}, ${esc(fmtTime(meta.created))}</div>`}`;
 
   $("#cd-close").addEventListener("click", () => { location.hash = `#/chats/${chatId}`; });
+  // Block / Unblock (R40 — the R6 backend had no GUI): label reflects the
+  // current state once the own-account view arrives; the toggle asks first
+  const blockBtn = $("#dg-block");
+  if (blockBtn) {
+    const peer = blockBtn.dataset.peer;
+    api("/api/mesh/me").then((r) => {
+      if (!r.error && (r.blocked || []).includes(peer)) {
+        blockBtn.dataset.blocked = "1";
+        blockBtn.innerHTML = `${ICONS.banned} Unblock @${esc(peer)}`;
+      }
+    });
+    blockBtn.addEventListener("click", async () => {
+      const blocking = blockBtn.dataset.blocked !== "1";
+      if (blocking && !(await confirmModal({
+        title: `Block @${peer}?`,
+        body: "You won't receive their messages and they won't receive yours — this DM goes quiet both ways. Groups you share are unaffected. They are never told.",
+        action: "Block",
+      }))) return;
+      const r = await api(`/api/mesh/${blocking ? "block" : "unblock"}`,
+                          { username: peer });
+      if (r.error) { toast(r.error, true); return; }
+      toast(blocking ? `@${peer} blocked` : `@${peer} unblocked`, { check: true });
+      Mesh.detailsKey = "";
+      renderChatDetails();
+    });
+  }
   const encVerify = $("#enc-verify");
   if (encVerify) encVerify.addEventListener("click", async () => {
     if (await markKeyVerified(dmOther(meta, ms.user))) {
