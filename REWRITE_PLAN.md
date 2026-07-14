@@ -1096,6 +1096,34 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       status+last-seen share one comma-separated line; lowercase
       "today"/"yesterday" via fmtTimeLower. All live-verified on the rig.
 
+- [x] **R37 — composer + transcript bug bash. DONE 2026-07-14 (v0.24.111,
+      388 tests).** BACKLOG Q16/Q19/Q24/Q25/Q27/Q29/Q31 + V7.
+      (1) **Files fixed end-to-end (Q27)** — the frontend spoke v1
+      (`a.path` attachments, `?id=<chat>&path=` serving, `data-path`
+      clicks) against the v2 backend (upload token, `?chat=&id=`,
+      `{chat_id, id}`): a human's attachment was silently DROPPED at post
+      (no chip at all) while an agent's chip rendered but never opened —
+      the two halves of the user report. Unified on v2 across composer/
+      files/api/chat/details/media incl. bulk save. (2) **Reactions render
+      (Q24)** — in-bubble chips (count, mine highlighted, reactor tooltip),
+      quick-react bar atop the message menu, click-to-toggle; a `mutSig`
+      folds edits/redactions/reactions into the content key so in-place
+      mutations repaint on the partial path (they froze before — latent for
+      R34 edits too). (3) **Delete chat = real delete-for-me (Q25)** — the
+      `deleted` flag stores the deletion ns; read model hides ≤ it,
+      sidebar filters `c.hidden`, a new message resurrects the chat with
+      only post-delete history, undo restores everything
+      (`delete_chat_for_me`, membership-gated, tested). (4) **Edit in the
+      composer (Q31)** — edit bar + check-to-save + Escape cancel + draft
+      restore; the edit window retired. (5) **Send disabled when empty
+      (Q16)**; (6) **clamp cuts on the straddling child's own line grid**
+      (code blocks/lists no longer sliced mid-line) + symmetric transcript
+      padding (Q29); (7) **clear-chat consistency live-confirmed (Q19)**;
+      (8) **V7**: mountCsels made idempotent — the R36 agents-page sweep
+      stacked a reply-rule dropdown under every privacy row. All
+      live-verified on the rig (real composer file-input drive, second
+      identity for reactions/reappear).
+
 | Backlog item (source) | Covered in |
 |---|---|
 | Settings overhaul: messaging-permission model (HANDOFF #1) | R6 |

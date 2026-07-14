@@ -220,12 +220,24 @@ export function clampLong(scope, store, lines = 10) {
 }
 
 // where to cut a clamped body so the last visible line/element is whole:
-// walk the children, keeping those that fit entirely; a straddling text
-// block is cut on a whole-line multiple, a straddling table/pre is left out
-// (cut at the previous boundary) rather than sliced.
+// walk the children, keeping those that fit entirely; a straddling block is
+// cut on ITS OWN line grid (a code block's 12px mono lines and a heading's
+// taller boxes don't share the body's 20.25px grid — cutting on the body
+// grid sliced their lines in half, Q29), lists keep whole items, tables
+// whole rows. The cut returns un-rounded: Math.round used to open a
+// half-pixel sliver of the next line.
 function cleanCut(body, budget, lh) {
   const top = body.getBoundingClientRect().top;
   const lineCut = Math.floor(budget / lh) * lh;   // whole body-lines within budget
+  // cut inside `child` on its own computed line grid (top padding/border
+  // offsets the first line box)
+  const gridCut = (child, cTop) => {
+    const cs = getComputedStyle(child);
+    const clh = parseFloat(cs.lineHeight) || lh;
+    const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.borderTopWidth) || 0);
+    const n = Math.floor((budget - cTop - pad) / clh);
+    return n >= 1 ? cTop + pad + n * clh : 0;
+  };
   let cut = 0;
   for (const child of body.children) {
     if (child.classList.contains("read-more")) continue;
@@ -233,9 +245,19 @@ function cleanCut(body, budget, lh) {
     const cTop = r.top - top, cBot = r.bottom - top;
     if (cBot <= budget) { cut = cBot; continue; }   // whole child fits
     if (cTop >= budget) break;                       // child starts past budget
-    if (/^(P|LI|UL|OL|H1|H2|H3|H4|DIV|BLOCKQUOTE)$/.test(child.tagName)) {
-      const n = Math.floor((budget - cTop) / lh);    // whole lines within a text block
-      if (n >= 1) cut = cTop + n * lh;
+    if (/^(P|H1|H2|H3|H4|DIV|BLOCKQUOTE|PRE)$/.test(child.tagName)) {
+      cut = Math.max(cut, gridCut(child, cTop));
+    } else if (/^(UL|OL)$/.test(child.tagName)) {
+      // whole list items (their 2px margins break any uniform grid); a
+      // first item taller than the budget line-cuts within itself
+      let liCut = 0, firstLi = null;
+      child.querySelectorAll(":scope > li").forEach((li) => {
+        if (!firstLi) firstLi = li;
+        const lb = li.getBoundingClientRect().bottom - top;
+        if (lb <= budget) liCut = lb;
+      });
+      if (liCut > cut) cut = liCut;
+      else if (firstLi) cut = Math.max(cut, gridCut(firstLi, firstLi.getBoundingClientRect().top - top));
     } else if (child.tagName === "TABLE") {
       // show only WHOLE rows so a table is never sliced mid-row
       let rowCut = 0;
@@ -246,14 +268,14 @@ function cleanCut(body, budget, lh) {
       if (rowCut > cut) cut = rowCut;
       else if (budget - cut > 1.5 * lh) cut = Math.max(cut, lineCut);  // even row 1 too tall
     } else if (budget - cut > 1.5 * lh) {
-      // pre / other non-sliceable taller than the budget: slice on a whole
+      // other non-sliceable taller than the budget: slice on a whole
       // body-line so each Read-more click keeps revealing more (no freeze)
       cut = Math.max(cut, lineCut);
     }   // else: element starts near the budget — snap cleanly before it
     break;
   }
   if (cut < lh) cut = Math.max(lh, lineCut);   // fallback
-  return Math.round(cut);
+  return cut;
 }
 
 // theme: the stored preference is "system" | "dark" | "light". "system" tracks

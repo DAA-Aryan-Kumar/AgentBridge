@@ -52,9 +52,13 @@ export function csel({ options, value, onChange, disabled = false }) {
   return root;
 }
 
-// mount a csel into every placeholder <div class="csel-slot" …>
+// mount a csel into every placeholder <div class="csel-slot" …>. A slot
+// that already holds a csel is SKIPPED — the agents-page sweep runs after
+// the privacy rows were mounted with their own audience options, and its
+// fallthrough used to stack a second (reply-rule) dropdown under each one.
 export function mountCsels(scope, options, onChange) {
   scope.querySelectorAll(".csel-slot").forEach((slot) => {
+    if (slot.querySelector(".csel")) return;
     const el = csel({
       options: typeof options === "function" ? options(slot) : options,
       value: slot.dataset.value || "",

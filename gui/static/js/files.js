@@ -5,12 +5,15 @@ import { extIcon } from "./icons.js";
 
 export const IMG_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
 export const isImg = (name) => IMG_EXTS.has((name || "").split(".").pop().toLowerCase());
-export const fileUrl = (chatId, path) =>
-  `/api/mesh/file?id=${encodeURIComponent(chatId)}&path=${encodeURIComponent(path)}`;
+// v2 file records are {id, name, bytes, sha256} — the id is the sealed blob
+// id; the serving endpoint speaks ?chat=&id= (the v1 ?id=<chat>&path= spelling
+// broke every attachment click after the cutover)
+export const fileUrl = (chatId, fileId) =>
+  `/api/mesh/file?chat=${encodeURIComponent(chatId)}&id=${encodeURIComponent(fileId)}`;
 
 export function mediaThumb(chatId, f) {
   return isImg(f.name)
-    ? `<span class="media-tile"><img src="${fileUrl(chatId, f.path)}" alt="" loading="lazy"></span>`
+    ? `<span class="media-tile"><img src="${fileUrl(chatId, f.id)}" alt="" loading="lazy"></span>`
     : `<span class="media-tile file"><span style="font-size:19px">${extIcon(f.name)}</span>
        <span class="mt-ext">${esc((f.name.split(".").pop() || "").toUpperCase().slice(0, 5))}</span></span>`;
 }

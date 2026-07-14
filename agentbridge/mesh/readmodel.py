@@ -74,6 +74,12 @@ def build_messages(
     cleared = state.get("cleared") or {}
     cut_ns = int(cleared.get("ns", 0))
     keep_starred = bool(cleared.get("keep_starred"))
+    # delete-for-me of the whole chat (WhatsApp "Delete chat"): the flag holds
+    # the deletion-moment ns; everything at or before it is invisible to this
+    # viewer, with NO starred exemption (the chat "starts over"). A legacy
+    # boolean flag carries no cut. Undo drops the flag and everything returns.
+    del_flag = state.get("deleted")
+    del_ns = int(del_flag) if isinstance(del_flag, int) and not isinstance(del_flag, bool) else 0
 
     out: list[Message] = []
     honored: set[str] = set()   # redactions that verified — reply-quotes follow
@@ -138,6 +144,8 @@ def build_messages(
         if env.id in hidden:
             continue
         if cut_ns and env.ns <= cut_ns and not (keep_starred and env.id in starred):
+            continue
+        if del_ns and env.ns <= del_ns:
             continue
 
         out.append(msg)

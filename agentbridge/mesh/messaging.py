@@ -252,6 +252,18 @@ class MessagingService:
         self._require_member(chat_id)
         self._state(chat_id).set_flag(name, value)
 
+    def delete_chat_for_me(self, chat_id: str) -> None:
+        """WhatsApp "Delete chat": per-user only. The ``deleted`` flag stores
+        the deletion-moment ns — the read model hides everything at or before
+        it, the sidebar hides the row while nothing newer exists, and a new
+        message brings the chat back (post-cut messages only). Undo
+        (``set_chat_flag('deleted', False)``) restores everything — the cut
+        never touches shared state."""
+        self._require_member(chat_id)
+        msgs = self.store.messages(chat_id)
+        cut = max((m.get("ns", 0) for m in msgs), default=0) or next_ns()
+        self._state(chat_id).set_flag("deleted", int(cut))
+
     # ------------------------------------------------------------------- read
     def messages_for(self, chat_id: str) -> list[Message]:
         """THE read choke-point: membership + every overlay applied."""
@@ -354,8 +366,10 @@ class MessagingService:
             "archived": bool(state.get("archived")),
             "pinned": bool(state.get("pinned")),
             "mute": state.get("mute", False),
-            # delete-for-me of the WHOLE chat (hidden from my list, undoable)
-            "deleted": bool(state.get("deleted")),
+            # delete-for-me of the WHOLE chat (undoable). The row hides only
+            # while nothing survives the cut — a new message (msgs is already
+            # cut-filtered) brings the chat back, WhatsApp-style.
+            "deleted": bool(state.get("deleted")) and last is None,
         }
 
     def my_state(self, chat_id: str) -> dict:

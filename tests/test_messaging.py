@@ -168,6 +168,35 @@ def test_clear_chat_keep_starred(world):
     assert later.id in [m.id for m in bob.messages_for(CHAT)]
 
 
+def test_delete_chat_for_me_hides_then_reappears(world):
+    """WhatsApp 'Delete chat' (Q25): the transcript empties for me only, the
+    sidebar row hides, a NEW message brings the chat back (new messages only),
+    and undo restores everything."""
+    ann, bob = world["ann"], world["bob"]
+    ann.post(CHAT, "before the delete")
+    flush_and_sync(ann, bob)
+
+    bob.delete_chat_for_me(CHAT)
+    assert bob.messages_for(CHAT) == []                       # empty for me
+    assert bob.chat_overview(CHAT)["deleted"] is True         # row hides
+    assert len(ann.messages_for(CHAT)) == 1                   # per-user only
+    assert ann.chat_overview(CHAT)["deleted"] is False
+
+    later = ann.post(CHAT, "after the delete")
+    flush_and_sync(ann, bob)
+    # the chat reappears with ONLY the new message
+    assert [m.id for m in bob.messages_for(CHAT)] == [later.id]
+    assert bob.chat_overview(CHAT)["deleted"] is False
+
+    bob.set_chat_flag(CHAT, "deleted", False)                 # undo
+    assert len(bob.messages_for(CHAT)) == 2                   # everything back
+
+
+def test_delete_chat_for_me_is_membership_gated(world):
+    with pytest.raises(NotAMember):
+        world["eve"].delete_chat_for_me(CHAT)
+
+
 def test_starred_resolves_live_not_snapshot(world):
     ann, bob = world["ann"], world["bob"]
     env = ann.post(CHAT, "the secret number is 42")

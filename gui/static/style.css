@@ -634,7 +634,9 @@ select, textarea {
 #transcript {
   display: flex; flex-direction: column; gap: 5px;
   flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0;
-  padding: 12px 20px 12px 18px;
+  /* symmetric: the old 18px left showed up in DMs, where the avatar gutter
+     is reclaimed and incoming bubbles hug the edge (Q29) */
+  padding: 12px 20px;
 }
 /* day / info pills keep a little breathing room the tighter gap removes */
 #transcript .day-sep, #transcript .info-pill { margin: 4px 0; }
@@ -1173,6 +1175,41 @@ button.enc-pill { cursor: pointer; font: inherit; font-size: 11.5px; }
   display: grid; place-items: center;
 }
 #composer .send-icon svg { display: block; margin-left: 2px; }
+/* nothing to send: greyed, inert (Q16) */
+#composer .send-icon:disabled {
+  opacity: .45; cursor: default; filter: grayscale(.4);
+}
+
+/* ---- reactions (Q24) ------------------------------------------------------
+   Telegram-style pills inside the bubble; mine gets the accent ring. The
+   quick-react bar tops the message context menu (WhatsApp). */
+.rx-row { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px; }
+.rx-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--bg-alt); padding: 1px 7px 2px;
+  font-size: 13px; line-height: 1.5; cursor: pointer;
+}
+.rx-chip:hover { border-color: var(--accent); }
+.rx-chip.mine { border-color: var(--accent); background: var(--accent-soft); }
+.rx-chip .rx-n { font-size: 11.5px; color: var(--text-dim); font-weight: 600; }
+.msg.mine .rx-chip { background: rgba(255,255,255,.65); }
+.msg.mine .rx-chip.mine { background: rgba(255,255,255,.9); }
+.menu .rx-bar {
+  display: flex; gap: 2px; padding: 4px 6px 6px;
+  border-bottom: 1px solid var(--border); margin-bottom: 4px;
+}
+.menu .rx-bar .rx-pick {
+  width: 32px; height: 32px; padding: 0; border: none; border-radius: 50%;
+  background: none; font-size: 18px; line-height: 1; cursor: pointer;
+  display: grid; place-items: center;
+  transition: transform .08s ease, background .08s ease;
+}
+.menu .rx-bar .rx-pick:hover { transform: scale(1.18); background: var(--bg-alt); }
+.menu .rx-bar .rx-pick.sel { background: var(--accent-soft); }
+
+/* the edit bar reuses the reply bar; the pencil rides the name line */
+#reply-area .rq-name svg { width: 12px; height: 12px; vertical-align: -1.5px; }
 
 /* ---- select-messages mode ------------------------------------------------
    .selecting rides on #content so the transcript's poll re-render can't drop

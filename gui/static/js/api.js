@@ -19,15 +19,14 @@ export async function openTarget(target) {
 }
 window.openTarget = openTarget;  // inline onclick= handlers in templates
 
-// shared binder: any element carrying data-path opens its chat file
+// shared binder: any element carrying data-id (blob id) opens its chat file
 export function bindOpenFile(scope, chatId, selector) {
   scope.querySelectorAll(selector).forEach((b) => {
     b.addEventListener("click", async () => {
       // the OS handoff can lag on a synced folder — a brief toast confirms
       // the click landed and the file is opening in its default app
-      const name = (b.dataset.path || "").split("/").pop() || "file";
-      toast(`Opening ${name}…`);
-      const r = await api("/api/mesh/open_file", { chat_id: chatId, path: b.dataset.path });
+      toast(`Opening ${b.dataset.name || "file"}…`);
+      const r = await api("/api/mesh/open_file", { chat_id: chatId, id: b.dataset.id });
       if (r.error) toast(r.error, true);
     });
   });

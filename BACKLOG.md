@@ -158,8 +158,9 @@ Ticked = shipped + verified. Rounds named for open items.
   messages for everyone (`delete_message` tool, R34). **OPEN: owner-only Undo
   (for me / for everyone) inside the tombstone; groups keep showing the
   original sender** → round "agent message ops — owner side".
-- [ ] **Q16 Send button disabled when composer empty** → round "composer +
-  transcript bug bash".
+- [x] **Q16 Send button disabled when composer empty** (R37) — greyed/inert
+  with no text AND no attachment; an attachment alone enables it. Live-
+  verified both directions.
 - [x] **Q17 Message info broken — show delivered + seen timings** — the
   dialog showed only "Sent" (client gated on a `mine` field the backend never
   sent). `message_info` now returns `mine`/`kind` + per-member Delivered/Read
@@ -171,10 +172,10 @@ Ticked = shipped + verified. Rounds named for open items.
   the right-click menu of their agent's messages** (an authorization +
   crypto-authorship change — the owner acts AS the co-hosted agent's identity;
   its own security-reviewed round) → round "agent message ops — owner side".
-- [~] **Q19 Clear-chat: sidebar right-click vs in-chat menu same logic** —
-  AUDIT: already consistent (both call `clearChatDialog` → `/api/mesh/
-  clear_chat` with the same `keep_starred`). Just needs a live confirm in the
-  parity sweep. → round "composer + transcript bug bash" (verify only).
+- [x] **Q19 Clear-chat: sidebar right-click vs in-chat menu same logic** —
+  consistent (both call `clearChatDialog` → `/api/mesh/clear_chat` with the
+  same `keep_starred`); live-confirmed R37 (sidebar right-click opens the
+  identical dialog: title, keep-starred checkbox, same endpoint).
 - [ ] **Q20 Account deletion options missing in GUI (member + agent)** →
   round "settings + model config".
 - [ ] **Q21 MCP-only agents** — "no runs" option (agent connects via mesh-cli
@@ -184,37 +185,56 @@ Ticked = shipped + verified. Rounds named for open items.
   ("will need some planning").
 - [ ] **Q23 Move privacy settings to their own Settings group** → round
   "settings + model config".
-- [ ] **Q24 Reactions don't surface in GUI** — AUDIT: no render path at all;
-  backend serializes `msg.reactions` (serialize.py:38) but chat.js never
-  renders chips, no "React" menu item / picker, and the partial-refresh `key`
-  omits reactions. Fix: chips at chat.js:428, React item in openMsgMenu,
-  reactions in the `key`. → round "composer + transcript bug bash".
-- [ ] **Q25 Delete chat = delete-for-me of all messages** — AUDIT: worse than
-  archive-like — `hide_chat` sets only a per-user `deleted` flag that the
-  sidebar never reads (chat isn't hidden), messages aren't cleared, and no
-  reappear path exists; the dialog copy already promises the intended
-  behavior. Fix: hide_chat also advances the clear cursor, sidebar filters
-  `c.hidden`, reappear on next incoming ns. → round "composer + transcript".
+- [x] **Q24 Reactions surface in GUI** (R37) — Telegram-style chips inside
+  the bubble (count when >1, mine accent-ringed, tooltip names reactors);
+  quick-react emoji bar tops the message menu (WhatsApp); click toggles
+  (mine again = remove, other emoji = switch). A `mutSig` in the content key
+  repaints edits/redactions/reactions on the partial path — they froze
+  before. Live-verified: my react, nutsy's arriving on the poll (chip "👍2",
+  tooltip "Nutsy, Scrat"), toggle-off leaving only hers.
+- [x] **Q25 Delete chat = delete-for-me of all messages** (R37) — the
+  `deleted` flag now stores the deletion-moment ns; the read model hides
+  everything ≤ it (per-user, shared state untouched), the sidebar filters
+  `c.hidden`, a new message brings the chat back showing ONLY post-delete
+  messages, and undo restores the full history (the cut lives in the flag —
+  nothing is destroyed). Membership-gated `delete_chat_for_me` + tests.
+  Live-verified the full loop: row gone → berry posts → row back with one
+  message → undo → all four back.
 - [ ] **Q26 Notification support (GUI)** — new message + added-to-group;
   respects mute + read state → round "notifications". (CLI hook = M3.)
-- [ ] **Q27 Files shared by an agent don't open in chat** — AUDIT: NEEDS LIVE
-  REPRO. v2 emits `id`-only file records for BOTH human + agent
-  (serialize.py:28, runner.py:425) but the frontend speaks the v1 `path`
-  spelling (files.js:8, api.js:30) — which would break both equally, yet
-  humans reportedly work. Resolve live first (is the click sending `path` vs
-  the endpoint wanting `id`?), then unify the spelling. → round "composer +
-  transcript bug bash".
+- [x] **Q27 Files don't open in chat** (R37) — RESOLVED: the whole file
+  feature spoke v1 in the frontend while the backend spoke v2. Humans and
+  agents were broken DIFFERENTLY, which explains the report: a human's
+  composer sent `attachments: [a.path]` (undefined — upload returns `token`),
+  so seal_attachments silently dropped the file and the message posted with
+  no chip at all ("looked fine"); an agent's runner posts real file records,
+  so its chips rendered but clicks sent `path` where open_file wants `id`
+  ("don't open"). Unified everything on v2: upload token → post; `?chat=&id=`
+  serving; `data-id` in chat/details/media; open_file/save `{chat_id, id(s)}`.
+  Live-verified BOTH paths: a runner-shaped sealed file record opens + serves
+  its decrypted bytes, and a real composer-input upload stages → chip →
+  send-by-attachment → renders → serves.
 - [ ] **Q28 Permission popup overhaul** — Claude-Code-style options instead
   of a text field → round "docs tool + ask cards".
-- [ ] **Q29 Read More clamp cuts a line in half; DM bubble edge padding
-  differs from groups** (avatar gutter) → round "composer + transcript bug
-  bash".
+- [x] **Q29 Read More clamp + DM padding** (R37) — the clamp sliced
+  straddling blocks on the BODY's 20.25px grid: a code block's 17.4px mono
+  lines and a list's 2px item margins landed mid-line (the "cut in half").
+  cleanCut now cuts on the straddling child's OWN line grid (pre/heading/
+  blockquote), keeps whole list items (like table rows), and returns the
+  exact fractional px (Math.round used to open a half-pixel sliver of the
+  next line). Padding: `#transcript` was `12px 20px 12px 18px` — the 18px
+  left showed only in DMs where the avatar gutter is reclaimed; now
+  symmetric 20px. Live-verified: a 24-line code block clamps at exactly
+  9.000 pre-lines and the reveal schedule still grows (→ 15 lines).
 - [ ] **Q30 Per-chat context depth** (owner sets how many days a model
   retrieves; default auto) **+ per-chat global-memory prohibition toggle** →
   round "settings + model config".
-- [ ] **Q31 Edit in the composer** — editing opens the message in the
-  composer (WhatsApp), not the current window → round "composer + transcript
-  bug bash".
+- [x] **Q31 Edit in the composer** (R37) — menu Edit opens the message IN
+  the composer: an edit bar (pencil + original preview) above the box, the
+  send button becomes a check, Enter/check saves, Escape/X cancels, and the
+  interrupted draft text is restored afterwards. The old edit window
+  retired. Live-verified the full loop incl. draft restore and the "edited"
+  marker repainting via the new mutSig.
 - [x] **Q32 read_status tool + status/last-seen surfacing in GUI** (R35): a
   `read_status` bridge tool (privacy-gated) lets an agent check a member's
   availability on demand; the DM chat-info Encryption... er, identity block
@@ -251,6 +271,30 @@ Ticked = shipped + verified. Rounds named for open items.
   (`fmtTimeLower`); chat-details status + last seen share ONE comma-separated
   line ("Busy · reviewing the PR, last seen today 04:49 AM"). Live-verified.
 
+### Verbal asks (2026-07-14, composer-round kickoff)
+
+- [ ] **V5 About for agents** — surface + edit About in the agents page
+  (backend field exists, M7). → round "agent profile + permissions".
+- [ ] **V6 Agent self-profile tools** — bridge tools to set its own status
+  (state + what-it's-working-on text) and about; BOTH owner and agent may
+  edit, most recent write wins; the prompt pack encourages the agent to keep
+  status/working-on current. → round "agent profile + permissions".
+- [x] **V7 pv-aud double-mount regression (R36)** (R37) — each privacy entry
+  in the agent card showed a stray REPLY-RULE dropdown under the audience
+  select: `wireAccountEditors` mounted the audience csel, then the
+  agents-section `mountCsels` sweep re-hit the same slot and its fallthrough
+  returned ruleOpts. mountCsels now skips already-mounted slots (idempotent).
+  Live-verified: all 7 rows exactly one dropdown, audience labels.
+- [ ] **V8 Surface the PUBLIC gates in GUI** — the brief (§M6) makes
+  messaging + add-to-group audiences public by design ("so an agent can know
+  this beforehand"); backend ships them in `visible_profile`/`public_gates`
+  but no GUI shows them. Show on the member/agent profile surfaces. → round
+  "agent profile + permissions".
+- [ ] **V9 Agent permission-reading tools** — a bridge tool to read (a) its
+  OWN owner-set permissions (privacy matrix + outbound agent_rules) and
+  (b) any member's public gates (+ whatever profile its privacy shares).
+  → round "agent profile + permissions".
+
 ---
 
 ## C. Standing deferred / future sessions
@@ -274,7 +318,8 @@ Ticked = shipped + verified. Rounds named for open items.
 | agent message ops — owner side | Q18-owner, Q15-owner (owner edits/deletes agent msg + undo) |
 | status surfacing | Q32 (M7 close) |
 | run UX | Q9, Q10, Q11, Q12 |
-| composer + transcript bug bash | Q16, Q19, Q24, Q25, Q27, Q29, Q31 |
+| composer + transcript bug bash (R37, done) | Q16, Q19, Q24, Q25, Q27, Q29, Q31, V7 |
+| agent profile + permissions | V5, V6, V8, V9 |
 | settings + model config | Q13, Q14, Q20, Q21, Q23, Q30, M11-GUI, H6, H8, H9 |
 | notifications | Q26, M3-remainder |
 | docs tool + ask cards | Q7, Q28 (H2 close) |

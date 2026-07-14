@@ -31,15 +31,44 @@ export function renderMeshPending(chatId) {
       renderMeshPending(chatId);
     });
   });
+  syncSendState(chatId);
 }
 
-// the reply being composed — a quote bar directly above the composer,
+// Send is live only when there is something to send: text or an attachment
+// (or a non-empty edit). Kept in sync on input, attach/remove, edit
+// start/cancel and after a send.
+export function syncSendState(chatId) {
+  const btn = $("#mesh-send-btn");
+  const body = $("#mesh-body");
+  if (!btn || !body) return;
+  const draft = meshDraft(chatId);
+  btn.disabled = draft.editing
+    ? !body.value.trim()                                  // an edit needs text
+    : !body.value.trim() && !draft.atts.length;
+  btn.innerHTML = draft.editing ? ICONS.check : ICONS.send;
+  btn.title = draft.editing ? "Save the edit" : "Send";
+}
+
+// the reply OR edit being composed — a quote bar directly above the composer,
 // WhatsApp-style; X (or Escape in the textarea) cancels. Lives on the
 // per-chat draft, so it survives re-renders and chat switches.
 export function renderReplyArea(chatId) {
   const area = $("#reply-area");
   if (!area) return;
   const draft = meshDraft(chatId);
+  if (draft.editing) {
+    const preview = stripMd(draft.editing.body || "").replace(/\s+/g, " ").trim();
+    area.innerHTML = `
+      <div class="reply-bar">
+        <div class="reply-quote in-bar">
+          <div class="rq-name">${ICONS.pencil} Edit message</div>
+          <div class="rq-body">${esc(preview)}</div>
+        </div>
+        <button class="icon-btn" id="reply-cancel" title="Cancel edit">${ICONS.close}</button>
+      </div>`;
+    $("#reply-cancel").addEventListener("click", () => cancelEdit(chatId));
+    return;
+  }
   const r = draft.reply;
   if (!r) { area.innerHTML = ""; return; }
   const ms = Mesh.state;
@@ -64,9 +93,49 @@ export function renderReplyArea(chatId) {
 // put the caret in the box
 export function startReply(chatId, msg) {
   const draft = meshDraft(chatId);
+  draft.editing = null;   // reply replaces an edit-in-progress
   draft.reply = { id: msg.id, from: msg.from, body: msg.body || "" };
   renderReplyArea(chatId);
+  syncSendState(chatId);
   $("#mesh-body")?.focus();
+}
+
+// menu "Edit" lands here (WhatsApp): the message opens IN the composer with
+// an edit bar above it; the send button becomes a check that saves. The
+// interrupted draft text is remembered and restored after save/cancel. The
+// composer may not exist yet (menu opened from a covering pane) — the draft
+// carries everything and the next render picks it up.
+export function startEdit(chatId, msg) {
+  const draft = meshDraft(chatId);
+  draft.reply = null;
+  draft.editing = { id: msg.id, body: msg.body || "", prev: draft.body || "" };
+  draft.body = msg.body || "";
+  saveDraft(chatId);
+  const body = $("#mesh-body");
+  if (body) {
+    body.value = draft.body;
+    body.dispatchEvent(new Event("input"));   // autosize + highlight redraw
+    body.focus();
+    body.setSelectionRange(body.value.length, body.value.length);
+  }
+  renderReplyArea(chatId);
+  syncSendState(chatId);
+}
+
+function cancelEdit(chatId) {
+  const draft = meshDraft(chatId);
+  const prev = draft.editing ? draft.editing.prev : "";
+  draft.editing = null;
+  draft.body = prev;
+  saveDraft(chatId);
+  const body = $("#mesh-body");
+  if (body) {
+    body.value = prev;
+    body.dispatchEvent(new Event("input"));
+    body.focus();
+  }
+  renderReplyArea(chatId);
+  syncSendState(chatId);
 }
 
 export function initComposer(chatId, members) {
@@ -134,11 +203,13 @@ export function initComposer(chatId, members) {
     draft.body = e.target.value;
     saveDraft(chatId);   // persist per device so it survives a reload/restart
     autosize();
+    syncSendState(chatId);
     if (body.value && Date.now() - lastTyping > 3000) {
       lastTyping = Date.now();
       api("/api/mesh/typing", { chat_id: chatId });
     }
   });
+  syncSendState(chatId);   // initial: an empty composer can't send
 
   // @tag autofill: chat members, keyboard + mouse. @all (Everyone) leads the
   // list in a group (2+ others) — it tags every member at once (round 11).
@@ -191,7 +262,9 @@ export function initComposer(chatId, members) {
   });
   body.addEventListener("keydown", (e) => {
     if (!tagCtx) {
-      if (e.key === "Escape" && draft.reply) {   // cancel the reply-in-progress
+      if (e.key === "Escape" && draft.editing) {   // cancel the edit-in-progress
+        cancelEdit(chatId);
+      } else if (e.key === "Escape" && draft.reply) {   // cancel the reply
         draft.reply = null;
         renderReplyArea(chatId);
       }
@@ -205,11 +278,25 @@ export function initComposer(chatId, members) {
   body.addEventListener("blur", () => setTimeout(closePop, 150));
 
   const doSend = async () => {
+    // an edit-in-progress: the send button saves the new body instead
+    if (draft.editing) {
+      const newBody = body.value.trim();
+      if (!newBody) return;
+      const editing = draft.editing;
+      if (newBody !== (editing.body || "").trim()) {
+        const r = await api("/api/mesh/edit_message",
+          { chat_id: chatId, msg_id: editing.id, body: newBody });
+        if (r.error) { toast(r.error, true); return; }
+      }
+      cancelEdit(chatId);   // restores the interrupted draft + send icon
+      V.renderChats(true);
+      return;
+    }
     if (!body.value.trim() && !draft.atts.length) return;
     $("#mesh-send-btn").disabled = true;
     const r = await api("/api/mesh/post", {
       chat_id: chatId, body: body.value.trim(),
-      attachments: draft.atts.map((a) => a.path),
+      attachments: draft.atts.map((a) => a.token),
       reply_to: draft.reply || null,
     });
     $("#mesh-send-btn").disabled = false;
@@ -224,7 +311,7 @@ export function initComposer(chatId, members) {
     draft.reply = null;
     body.value = "";
     autosize();
-    renderMeshPending(chatId);
+    renderMeshPending(chatId);   // also re-syncs the send button
     renderReplyArea(chatId);
     // renderChats (not renderMeshChat): a local post fires no SSE event
     // (only synced-IN records do), so the transcript AND the sidebar row

@@ -212,7 +212,8 @@ async function renderChatDetails() {
       </button>
       ${media.length ? `<div class="media-strip">
         ${media.slice(-6).reverse().map((f) => `
-          <button class="media-tile-btn cd-file" data-path="${esc(f.path)}">
+          <button class="media-tile-btn cd-file" data-id="${esc(f.id)}"
+                  data-name="${esc(f.name)}">
             ${mediaThumb(chatId, f)}</button>`).join("")}
       </div>` : ""}
     </div>

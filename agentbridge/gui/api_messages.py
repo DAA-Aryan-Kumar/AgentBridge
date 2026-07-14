@@ -163,10 +163,15 @@ def pin_chat(app, req, mesh) -> dict:
 @authed
 def hide_chat(app, req, mesh) -> dict:
     """Delete-for-me of a whole chat (undo=true restores) — per-user flag,
-    nothing shared changes. Distinct from the admin-only delete_chat."""
-    val = not req.data.get("undo")
-    mesh.set_chat_flag(req.data.get("chat_id") or "", "deleted", val)
-    return {"ok": True, "deleted": val}
+    nothing shared changes. Distinct from the admin-only delete_chat. The
+    flag stores the deletion ns so the transcript empties for me and the
+    chat reappears (new messages only) when someone posts again."""
+    chat_id = req.data.get("chat_id") or ""
+    if req.data.get("undo"):
+        mesh.set_chat_flag(chat_id, "deleted", False)
+        return {"ok": True, "deleted": False}
+    mesh.delete_chat_for_me(chat_id)
+    return {"ok": True, "deleted": True}
 
 
 @authed

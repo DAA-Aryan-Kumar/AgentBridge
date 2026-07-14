@@ -9,7 +9,7 @@ import { api, bindOpenFile } from "./api.js";
 import { md, stripMd, setTaggable } from "./markdown.js";
 import { App, Mesh, meshDn, chatDisplay, renderChrome, isDmLike, dmOther, meshAvatarInner, meshChatAvatarInner, meshIsAdmin } from "./state.js";
 import { renderSidebar, renderSideLoading, syncAskDots } from "./sidebar.js";
-import { initComposer, renderMeshPending, renderReplyArea, startReply } from "./composer.js";
+import { initComposer, renderMeshPending, renderReplyArea, startReply, startEdit } from "./composer.js";
 import { openModal, closeModal } from "./modal.js";
 import { V } from "./views.js";
 
@@ -309,9 +309,16 @@ async function renderMeshChat(force) {
   const receiptSig = data.messages
     .filter((m) => m.mine && m.receipt)
     .map((m) => m.id + m.receipt.state).join(",");
+  // in-place mutations (edit / delete-for-everyone / reactions) change no
+  // count and no last-id — without this signature they froze until the next
+  // structural change (Q24: reactions never surfaced on the partial path)
+  const mutSig = data.messages.map((m) =>
+    (m.edited ? "e" + (m.edited.ns || "") : "") + (m.deleted ? "d" : "")
+    + Object.entries(m.reactions || {}).map(([e, us]) => e + us.join(",")).join("")
+  ).join("|");
   const key = JSON.stringify([data.messages.length, data.messages.at(-1)?.id,
     meta.archived, (meta.members || []).length,
-    pinsSig, (data.starred || []).join(","), receiptSig,
+    pinsSig, (data.starred || []).join(","), receiptSig, mutSig,
     feeds.map((f) => [f.agent, f.turns, f.activity, (f.draft || "").length])]);
   // structural signature — drives the FULL rebuild (incl. the header). name
   // rides here so a rename (local or from another client) repaints the header;
@@ -404,12 +411,13 @@ async function renderMeshChat(force) {
       continue;
     }
     // image attachments show an inline thumbnail (WhatsApp); everything else
-    // keeps the file chip. Both open the file on click (.mesh-att).
+    // keeps the file chip. Both open the file on click (.mesh-att). File
+    // records are v2 {id, name, bytes} — the blob id rides data-id.
     const files = (msg.files || []).map((f) => isImg(f.name)
-      ? `<button class="msg-img mesh-att" data-path="${esc(f.path)}"
-             title="${esc(f.name)}">
-           <img src="${fileUrl(chatId, f.path)}" alt="${esc(f.name)}" loading="lazy"></button>`
-      : `<button class="att-btn mesh-att" data-path="${esc(f.path)}">
+      ? `<button class="msg-img mesh-att" data-id="${esc(f.id)}"
+             data-name="${esc(f.name)}" title="${esc(f.name)}">
+           <img src="${fileUrl(chatId, f.id)}" alt="${esc(f.name)}" loading="lazy"></button>`
+      : `<button class="att-btn mesh-att" data-id="${esc(f.id)}" data-name="${esc(f.name)}">
            <span class="att-icon">${extIcon(f.name)}</span>
            <span style="min-width:0">
              <div class="att-name">${esc(f.name)}</div>
@@ -430,6 +438,14 @@ async function renderMeshChat(force) {
     }${
       starred ? '<span class="star-mini">★</span>' : ""
     }<span class="meta-time">${esc(timeOnly(msg.ts))}</span>${receiptTicks(msg, isDm)}</span>`;
+    // reaction chips (Telegram-style, inside the bubble): one pill per emoji
+    // with a count when >1; mine is highlighted and a click toggles it
+    const rxEntries = Object.entries(msg.reactions || {});
+    const rxRow = rxEntries.length ? `<div class="rx-row">${rxEntries.map(([e, users]) =>
+      `<button class="rx-chip ${users.includes(ms.user) ? "mine" : ""}"
+         data-emoji="${esc(e)}" title="${esc(users.map(meshDn).join(", "))}">
+         ${esc(e)}${users.length > 1 ? `<span class="rx-n">${users.length}</span>` : ""}</button>`)
+      .join("")}</div>` : "";
     parts.push(`
       <div class="msg ${msg.mine ? "mine" : ""}" data-mid="${esc(msg.id || "")}">
         <span class="msg-check" aria-hidden="true">${ICONS.check}</span>
@@ -439,7 +455,7 @@ async function renderMeshChat(force) {
           ${showSender ? `<div class="sender">${esc(meshDn(msg.from))} ${kindTag}</div>` : ""}
           ${msg.fwd ? `<div class="fwd-tag">${ICONS.forward} Forwarded from ${esc(meshDn(msg.fwd.from))}</div>` : ""}
           ${msg.reply_to && msg.reply_to.quote !== false ? replyQuote(msg.reply_to, isDm, ms) : ""}
-          <div class="msg-body">${md(msg.body || "")}</div>${files}${metaRow}</div>
+          <div class="msg-body">${md(msg.body || "")}</div>${files}${rxRow}${metaRow}</div>
       </div>`);
   }
   // live presence: agents working (dots + label + forming draft) and
@@ -920,6 +936,20 @@ function bindTranscript(tr, chatId, data, ctx) {
         });
       return;
     }
+    // reaction chip: clicking my own reaction removes it, any other emoji
+    // switches to it (one reaction per user — WhatsApp)
+    const rx = e.target.closest(".rx-chip");
+    if (rx) {
+      const mid = rx.closest(".msg[data-mid]")?.dataset.mid;
+      const emoji = rx.dataset.emoji;
+      if (!mid || !emoji) return;
+      const mine = (tr._msgs.get(mid)?.reactions?.[emoji] || [])
+        .includes(Mesh.state?.user);
+      api("/api/mesh/react", { chat_id: chatId, msg_id: mid,
+                               emoji: mine ? null : emoji })
+        .then((r) => { if (r.error) toast(r.error, true); else refreshChat(); });
+      return;
+    }
     const rm = e.target.closest(".read-more");
     if (rm) {
       // progressive reveal (+10, +15, +25, then all); remembered across re-renders
@@ -1000,19 +1030,28 @@ function openFeedMenu(x, y, agent, steps) {
     "click", () => menu.remove(), { once: true }));
 }
 
-// the message context menu. Reply / Message X / Copy / Forward / Edit / Pin /
-// Star all work; Delete (for-me / for-everyone) is the danger row.
+// the message context menu. A quick-react emoji bar leads (WhatsApp), then
+// Reply / Message X / Copy / Forward / Edit / Pin / Star; Delete (for-me /
+// for-everyone) is the danger row.
+const RX_QUICK = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+
 function openMsgMenu(rect, msg, chatId, ctx) {
   closeMenus();
   const menu = document.createElement("div");
   menu.className = "menu msg-menu";
   const isPinned = !!(ctx.pins || []).some((p) => p.id === msg.id);
   const isStarred = !!(ctx.starred && ctx.starred.has(msg.id));
+  const me = Mesh.state?.user;
+  const myRx = Object.entries(msg.reactions || {})
+    .find(([, users]) => users.includes(me))?.[0] || "";
   if (msg.deleted) {
     // the tombstone's lone control: remove the trace for me (silent)
     menu.innerHTML = `<button data-act="del-trace" class="danger-item">${ICONS.trash} Delete</button>`;
   } else {
     menu.innerHTML = [
+      msg.kind !== "info" && ctx.canReply ? `<div class="rx-bar">${RX_QUICK.map((e) =>
+        `<button class="rx-pick ${myRx === e ? "sel" : ""}" data-emoji="${e}"
+           title="React ${e}">${e}</button>`).join("")}</div>` : "",
       `<button data-act="info">${ICONS.info} Message info</button>`,
       ctx.canReply ? `<button data-act="reply">${ICONS.reply} Reply</button>` : "",
       !msg.mine && !ctx.isDm
@@ -1043,6 +1082,15 @@ function openMsgMenu(rect, msg, chatId, ctx) {
   menu.addEventListener("click", async (e) => {
     const b = e.target.closest("button");
     if (!b) return;
+    // quick-react: same toggle as the chips (mine again = remove, else switch)
+    if (b.classList.contains("rx-pick")) {
+      close();
+      const emoji = b.dataset.emoji;
+      const r = await api("/api/mesh/react", { chat_id: chatId, msg_id: msg.id,
+        emoji: myRx === emoji ? null : emoji });
+      if (r.error) toast(r.error, true); else refreshChat();
+      return;
+    }
     const act = b.dataset.act;
     close();
     if (act === "del-trace") {
@@ -1101,7 +1149,11 @@ function openMsgMenu(rect, msg, chatId, ctx) {
       // already ticked (like forward mode); the flow fires from the trash.
       enterSelect(chatId, { mode: "delete", preselect: [msg.id] });
     } else if (act === "edit") {
-      editDialog(chatId, msg);
+      // WhatsApp: the message opens in the composer (edit bar + check button),
+      // not a separate window. A covering pane closes first — the edit rides
+      // the draft and the chat render picks it up.
+      startEdit(chatId, msg);
+      if (ctx.fromPane && paneCoversChat()) location.hash = `#/chats/${chatId}`;
     } else if (act === "info") {
       messageInfoDialog(chatId, msg);
     }
@@ -1490,12 +1542,12 @@ async function bulkStar(chatId) {
 }
 
 async function bulkSave(chatId) {
-  const ids = [...Mesh.select.ids];
+  const sel = [...Mesh.select.ids];
   const msgs = $("#transcript")?._msgs;
-  const paths = [];
-  for (const id of ids) for (const f of (msgs?.get(id)?.files || [])) paths.push(f.path);
-  if (!paths.length) return;
-  const r = await api("/api/mesh/save", { chat_id: chatId, paths });
+  const ids = [];   // blob ids — the v2 save endpoint's spelling
+  for (const id of sel) for (const f of (msgs?.get(id)?.files || [])) ids.push(f.id);
+  if (!ids.length) return;
+  const r = await api("/api/mesh/save", { chat_id: chatId, ids });
   if (r.error) { toast(r.error, true); return; }
   if (r.cancelled) return;   // backed out of the picker — stay in select mode
   exitSelect();
@@ -1679,52 +1731,6 @@ function patchChatName(chatId, name) {
 V.patchChatName = patchChatName;
 
 // ---- edit message -----------------------------------------------------------
-// WhatsApp-style edit: a small window with the current text prefilled. Save
-// writes a chat-level edits.json overlay (author-only, server-enforced) and the
-// bubble re-renders with an "edited" marker. Ctrl/Cmd+Enter saves. No time
-// limit for now (WhatsApp caps at 15 min — can add later).
-function editDialog(chatId, msg) {
-  const box = openModal(`
-    <button class="cf-expand" id="edit-expand" title="Expand" aria-label="Expand">${ICONS.expand}</button>
-    <div class="cf-title">Edit message</div>
-    <textarea id="edit-body" class="edit-ta" rows="4"></textarea>
-    <div class="cf-actions">
-      <button class="cf-cancel" id="edit-cancel">Cancel</button>
-      <button class="cf-pill" id="edit-save">Save</button>
-    </div>`);
-  box.classList.add("confirm", "edit-modal");
-  box.parentElement.classList.add("confirm-scrim");
-  const ta = box.querySelector("#edit-body");
-  const save = box.querySelector("#edit-save");
-  // expand toggle (top-right): grow the window for long messages, with a size
-  // transition (task 3). The larger textarea keeps the caret + selection.
-  const expandBtn = box.querySelector("#edit-expand");
-  expandBtn.addEventListener("click", () => {
-    const on = box.classList.toggle("expanded");
-    expandBtn.innerHTML = on ? ICONS.collapse : ICONS.expand;
-    expandBtn.title = on ? "Shrink" : "Expand";
-    ta.focus();
-  });
-  ta.value = msg.body || "";
-  ta.focus();
-  ta.setSelectionRange(ta.value.length, ta.value.length);
-  const sync = () => { save.disabled = !ta.value.trim(); };
-  ta.addEventListener("input", sync); sync();
-  const doSave = async () => {
-    const body = ta.value.trim();
-    if (!body) return;
-    if (body === (msg.body || "").trim()) { closeModal(); return; }   // no change
-    save.disabled = true;
-    const r = await api("/api/mesh/edit_message",
-                        { chat_id: chatId, msg_id: msg.id, body });
-    if (r.error) { toast(r.error, true); save.disabled = false; return; }
-    closeModal();
-    refreshChat();
-    toast("Message edited", { check: true });
-  };
-  ta.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); doSave(); }
-  });
-  box.querySelector("#edit-cancel").addEventListener("click", closeModal);
-  save.addEventListener("click", doSave);
-}
+// Editing happens IN the composer (composer.js startEdit, WhatsApp-style):
+// the message opens with an edit bar above the box, the send button becomes
+// a check, Escape cancels. The old edit-window dialog retired with Q31.

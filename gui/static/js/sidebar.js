@@ -230,7 +230,9 @@ function renderChatListSidebar() {
       !ms?.available ? "Mesh not started yet" : "Sign in to see your chats"}</div>`);
     return;
   }
-  const chats = ms.chats || [];
+  // a chat deleted-for-me (c.hidden) leaves the list entirely — the server
+  // flips hidden back off when a new message survives the cut (Q25)
+  const chats = (ms.chats || []).filter((c) => !c.hidden);
   const archived = chats.filter((c) => c.archived);
   const listed = Mesh.showArchived ? archived : chats.filter((c) => !c.archived);
   // WhatsApp order: pinned chats first, then most recent activity first —
