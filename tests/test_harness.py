@@ -585,3 +585,141 @@ def test_model_precedence_most_specific_wins():
     acc.agent.harness.pop("model")
     s = HarnessSettings.from_account(acc)
     assert s.model_for("humans", "c2") == "route-pick"  # then the audience
+
+
+# ------------------------------------------------- R55: the V35/V36 bug bash
+
+def test_cannot_post_group_resolves_without_model_run(hrig):
+    """V35 (live loop): a group's send_messages flipped to admins-only while
+    the agent stayed a plain member — every mention then ran the model and
+    died at post, retrying forever. Claim-time can_send now resolves the
+    trigger through the ledger without burning a run."""
+    snap = hrig.owner.create_chat("Locked", members=["helper"])
+    hrig.owner.membership.set_permissions(snap.id, {"send_messages": "admins"})
+    trigger = hrig.owner.post(snap.id, "hey @helper, anyone home?")
+    responder = Scripted()
+    runner = hrig.make_runner(responder)
+    ripple(hrig, runner, snap.id)
+
+    for _ in range(3):
+        turn(hrig, runner, snap.id)
+
+    assert responder.calls == []                      # no model run burnt
+    assert agent_msgs(hrig.owner, snap.id) == []
+    assert runner.queue.answered(snap.id, trigger.id)  # never re-fires
+    assert runner.queue._pending() == {}
+    feed = runner.mesh.tx.get_doc("status/helper_run.json")
+    assert feed["state"] == "done" and "restricted" in feed["activity"]
+
+
+def test_post_failure_is_terminal_not_a_loop(hrig):
+    """V35 defense-in-depth: a post that fails mid-run (permissions flipped
+    between claim and deliver) resolves via _run_failed — ledger written,
+    exactly one model run, no silent 20s retry loop."""
+    snap = hrig.owner.create_chat("FlipMidRun", members=["helper"])
+    hrig.owner.membership.set_permissions(snap.id, {"send_messages": "admins"})
+    trigger = hrig.owner.post(snap.id, "hey @helper, race me")
+    responder = Scripted()
+    runner = hrig.make_runner(responder)
+    runner._can_post = lambda chat_id: True   # simulate the mid-run flip
+    ripple(hrig, runner, snap.id)
+
+    for _ in range(3):
+        turn(hrig, runner, snap.id)
+
+    assert len(responder.calls) == 1                  # ran once, not forever
+    assert agent_msgs(hrig.owner, snap.id) == []      # nothing ever posted
+    assert runner.queue.answered(snap.id, trigger.id)
+    assert runner.queue._pending() == {}
+
+
+def test_repeated_pre_model_failure_gives_up(hrig):
+    """V35: an exception before the model (context build) retries on a
+    bounded budget, refunds its rate slot each lap, then resolves as an
+    error instead of looping forever."""
+    snap = hrig.owner.create_chat("Poisoned", members=["helper"])
+    trigger = hrig.owner.post(snap.id, "hey @helper, choke on this")
+    responder = Scripted()
+    runner = hrig.make_runner(responder)
+
+    def boom(*a, **k):
+        raise RuntimeError("poisoned context")
+
+    runner.conversation.build = boom
+    ripple(hrig, runner, snap.id)
+
+    for _ in range(4):                       # 3 failures = the full budget
+        turn(hrig, runner, snap.id)
+        time.sleep(0.85)                     # let the retry backoff expire
+
+    assert responder.calls == []
+    assert runner.queue._pending() == {}
+    led = runner.queue._ledger(snap.id)
+    assert led.get(f"{trigger.id}@0") == "error:gave-up"
+    rate = runner.queue.store.cached_doc("harness/rate", default={}) or {}
+    assert not rate.get(snap.id)             # every slot was refunded
+
+
+def test_attachment_sync_barrier_defers_until_blob_lands(hrig):
+    """V36: the message line can sync ahead of its attachment blob. The run
+    defers (slot-free) until the blob is fetchable, then answers — the CLI
+    never sees a transcript advertising a file that isn't on disk."""
+    snap = hrig.owner.create_chat("Files", members=["helper"])
+    rec = {"id": "fx1.bin", "name": "report.bin", "bytes": 5}
+    hrig.owner.post(snap.id, "hey @helper, read the file", files=[rec])
+    responder = Scripted()
+    runner = hrig.make_runner(responder)
+    ripple(hrig, runner, snap.id)
+
+    turn(hrig, runner, snap.id)
+    assert responder.calls == []                      # deferred, not run
+    assert runner.queue._pending()                    # still queued
+
+    sealed = hrig.owner.sealer.seal_blob(snap.id, "fx1.bin", b"hello")
+    hrig.owner.tx.put_blob(f"chats/{snap.id}/files/fx1.bin", sealed)
+    time.sleep(0.65)                                  # the defer backoff
+    turn(hrig, runner, snap.id)
+
+    assert len(responder.calls) == 1
+    assert len(agent_msgs(hrig.owner, snap.id)) == 1
+
+
+def test_attachment_barrier_grace_expires(hrig, monkeypatch):
+    """V36: a blob that never syncs must not wedge the chat — past the grace
+    window the run proceeds with the bare filename (v1 semantics)."""
+    import agentbridge.harness.runner as runner_mod
+
+    snap = hrig.owner.create_chat("LostBlob", members=["helper"])
+    rec = {"id": "fx2.bin", "name": "gone.bin", "bytes": 5}
+    hrig.owner.post(snap.id, "hey @helper, the file is lost", files=[rec])
+    responder = Scripted()
+    runner = hrig.make_runner(responder)
+    ripple(hrig, runner, snap.id)
+
+    monkeypatch.setattr(runner_mod, "BLOB_GRACE_S", 0.0)
+    turn(hrig, runner, snap.id)
+
+    assert len(responder.calls) == 1                  # ran despite the blob
+    assert len(agent_msgs(hrig.owner, snap.id)) == 1
+
+
+def test_claim_time_stop_doc_consumed(hrig):
+    """V35 ('won't even stop'): a Stop pressed while nothing was running
+    used to evaporate — the in-run poller was its only consumer. A fresh
+    stop doc now resolves the next claimed group as stopped-by-owner."""
+    snap = hrig.owner.create_chat("StopMe", members=["helper"])
+    trigger = hrig.owner.post(snap.id, "hey @helper, don't answer")
+    hrig.owner.tx.put_doc("status/helper_stop.json", {
+        "ns": time.time_ns(), "by": "aryan", "chat_id": ""})
+    responder = Scripted()
+    runner = hrig.make_runner(responder)
+    ripple(hrig, runner, snap.id)
+
+    turn(hrig, runner, snap.id)
+
+    assert responder.calls == []
+    assert agent_msgs(hrig.owner, snap.id) == []
+    assert runner.queue.answered(snap.id, trigger.id)
+    assert runner.mesh.tx.get_doc("status/helper_stop.json") is None
+    runs = runner.mesh.tx.get_doc("status/helper_runs.json")
+    assert runs["runs"][-1]["state"] == "stopped"

@@ -52,6 +52,7 @@ class WorkItem:
     next_ns: int = 0    # earliest dispatch time (rate-cap backoff)
     lease_ns: int = 0
     enqueued_ns: int = 0
+    attempts: int = 0   # FAILURE releases only (retry_or_fail); never legit defers
 
     def to_dict(self) -> dict:
         return self.__dict__.copy()
@@ -150,6 +151,31 @@ class WorkQueue:
                 if retry_in_s is not None:
                     d["next_ns"] = time.time_ns() + int(retry_in_s * 1e9)
             self._save_pending(items)
+
+    def retry_or_fail(self, group: WorkGroup, *, max_attempts: int = 3,
+                      retry_in_s: float = 20.0) -> bool:
+        """A FAILURE release (R55): bump each item's attempt count and put the
+        group back for one more try — until any item has failed
+        ``max_attempts`` times, when the whole group resolves as an error
+        (ledger written, so it never re-fires). Legit deferrals (stand-down,
+        rate cap, sync barrier) use plain ``release`` and never count.
+        Returns True when released for retry, False when given up."""
+        with self._lock:
+            items = self._pending()
+            give_up = False
+            for it in group.items:
+                d = items.get(it.key)
+                if d is None:
+                    continue
+                d["attempts"] = int(d.get("attempts", 0)) + 1
+                if d["attempts"] >= max_attempts:
+                    give_up = True
+            self._save_pending(items)
+            if give_up:
+                self.finish(group, "error:gave-up")
+                return False
+            self.release(group, retry_in_s=retry_in_s)
+            return True
 
     def finish(self, group: WorkGroup, result: str) -> None:
         """Resolve a claimed group: drop from pending, write the ledger."""

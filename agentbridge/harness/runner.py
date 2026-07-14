@@ -20,6 +20,7 @@ backlog under the catch-up policy instead of dropping it.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import platform
 import subprocess
@@ -31,6 +32,7 @@ from pathlib import Path
 
 from ..core.config import DEFAULT_HOME, load_app_config
 from ..core.models import ChatKind, UserKind
+from ..mesh import authz
 from ..core.timekit import new_id, utcnow_iso
 from ..mesh.sealer import E2EESealer
 from ..mesh.service import Mesh
@@ -50,6 +52,8 @@ __all__ = ["AgentRunner", "SingleInstance", "supervise", "main",
 EXIT_ALREADY_RUNNING = 3
 MAX_WORKERS = 8          # hard ceiling; the owner-set concurrency gates below
 RATE_RETRY_S = 600.0     # capped chat: revisit in this many seconds
+BLOB_GRACE_S = 600.0     # v1 value: a lost attachment must not wedge a chat
+STOP_FRESH_S = 600.0     # a claim-time stop doc older than this is stale
 NOTICE = ("@{agent}'s harness could not produce a reply here "
           "({err}). Its responsible member can check the harness on "
           "{machine}.")
@@ -96,6 +100,7 @@ class AgentRunner:
         self._stop = threading.Event()
         self._started_ns = time.time_ns()
         self._last_doc: tuple | None = None
+        self._blobs_ok: set[str] = set()  # sync-barrier verified blob ids
 
     # ------------------------------------------------------------ identity
     def verify_identity(self) -> list[str]:
@@ -280,12 +285,34 @@ class AgentRunner:
         chat_id = group.chat_id
         # response-time profile (R30): pickup = trigger posted -> claimed here
         timings = RunTimings(max((it.ns for it in group.items), default=0))
+        slot = False  # a rate slot is held (the failure paths must refund it)
         try:
             if self.standing_down():
                 self.queue.release(group, retry_in_s=self.poll_s * 2)
                 return
+            if self._owner_stop_requested(chat_id):
+                # R55 (V35): a Stop pressed while nothing was running used to
+                # evaporate — the in-run poller was the only consumer. Honor
+                # it at claim time: the owner already refused this run.
+                self.queue.finish(group, "stopped-by-owner")
+                RunFeed(self.mesh.tx, self.agent, chat_id).finish(
+                    "stopped", "Stopped by your member")
+                self.publish_status()
+                return
             transcript = self.mesh.messages_for(chat_id)
             if group.kind == "message":
+                if not self._can_post(chat_id):
+                    # R55 (V35): an agent that cannot post here must not burn
+                    # a model run — resolve through the ledger (never re-fires)
+                    # and say why in the runs list. The live loop: a group's
+                    # send_messages flipped to admins-only while the agents
+                    # stayed plain members; every run then died at post.
+                    self.queue.finish(group, "skipped:cannot-post")
+                    self._log_perf(timings, group, "cannot-post")
+                    RunFeed(self.mesh.tx, self.agent, chat_id).finish(
+                        "done", "Can't reply — sending is restricted in this chat")
+                    self.publish_status()
+                    return
                 # second guard leg: my own visible reply already answers it
                 # (covers a lost local ledger) — resolve those, keep the rest.
                 # R54 (V30): an EDIT revision (edit_ns > 0) skips this leg —
@@ -301,11 +328,20 @@ class AgentRunner:
                 group.items = [it for it in group.items if it not in done]
                 if not group.items:
                     return
+            # R55 (V36): the v1 sync barrier, restored — a message line can
+            # sync ahead of its attachment blob, and running then hands the
+            # CLI a transcript advertising a file that is not on disk yet.
+            # Defer (slot-free) while a recent blob is still syncing.
+            waiting = self._blob_syncing(chat_id, transcript)
+            if waiting:
+                self.queue.release(group, retry_in_s=self.poll_s * 3)
+                return
             # the reply slot is claimed ATOMICALLY before the run (parallel
             # groups can't both pass a cap of one); non-posting outcomes refund
             if not self.queue.rate_acquire(chat_id, settings.max_replies_per_hour):
                 self.queue.release(group, retry_in_s=RATE_RETRY_S)
                 return
+            slot = True
             timings.start("context")
             delivery = self.conversation.build(group, transcript, settings)
             timings.stop()
@@ -337,9 +373,80 @@ class AgentRunner:
                 self._run_failed(group, feed, settings, delivery, e)
                 return
             timings.stop()
-            self._deliver_reply(group, delivery, reply, feed, timings)
+            try:
+                self._deliver_reply(group, delivery, reply, feed, timings)
+            except Exception as e:  # noqa: BLE001 — a failed POST is terminal
+                # R55 (V35): before this, a post-phase exception fell through
+                # to the blanket release below — a silent 20s retry loop that
+                # re-ran the model forever and leaked a rate slot per lap.
+                # Resolving through _run_failed writes the ledger and stops it.
+                self._log_perf(timings, group, f"error:post:{type(e).__name__}")
+                self._run_failed(group, feed, settings, delivery, e)
         except Exception:  # noqa: BLE001 — never kill the pool thread
-            self.queue.release(group, retry_in_s=self.poll_s * 4)
+            if slot:
+                self.queue.rate_refund(chat_id)
+            # R55 (V35): bounded — a group that keeps failing before the model
+            # resolves as an error instead of retrying forever
+            if not self.queue.retry_or_fail(group, retry_in_s=self.poll_s * 4):
+                with contextlib.suppress(Exception):
+                    RunFeed(self.mesh.tx, self.agent, chat_id).finish(
+                        "error", "Run failed repeatedly — giving up on this trigger")
+                    self.publish_status()
+
+    # ------------------------------------------------- claim-time guards (R55)
+    def _can_post(self, chat_id: str) -> bool:
+        """May this agent send in the chat right now? Unsure = run — the post
+        path still enforces, and its failure is terminal (not a retry loop)."""
+        try:
+            snap = self.mesh.messaging.snapshot(chat_id)
+            return authz.can_send(snap, self.agent)
+        except Exception:  # noqa: BLE001
+            return True
+
+    def _owner_stop_requested(self, chat_id: str) -> bool:
+        """A fresh stop doc for this agent (global or naming this chat) that
+        no live run consumed. Consumed here exactly once; stale docs are
+        ignored so a leftover can't eat runs hours later."""
+        path = f"status/{self.agent}_stop.json"
+        try:
+            doc = self.mesh.tx.get_doc(path)
+            if not isinstance(doc, dict):
+                return False
+            if doc.get("chat_id") and doc.get("chat_id") != chat_id:
+                return False
+            if int(doc.get("ns", 0)) < time.time_ns() - int(STOP_FRESH_S * 1e9):
+                return False
+            with contextlib.suppress(Exception):
+                self.mesh.tx.delete_doc(path)
+            return True
+        except Exception:  # noqa: BLE001 — a transport blip never stops a run
+            return False
+
+    def _blob_syncing(self, chat_id: str, transcript) -> str | None:
+        """The name of a RECENT attachment whose blob is not fetchable yet
+        (line synced ahead of its bytes), or None. Messages older than the
+        grace window never defer — a lost blob must not wedge the chat; the
+        run then proceeds with the bare filename (v1 semantics)."""
+        horizon = time.time_ns() - int(BLOB_GRACE_S * 1e9)
+        for m in reversed(transcript):
+            if getattr(m, "ns", 0) < horizon:
+                break
+            for f in m.files or []:
+                blob_id, name = f.get("id"), f.get("name", "")
+                if not blob_id or blob_id in self._blobs_ok:
+                    continue
+                try:
+                    raw = self.mesh.tx.get_blob(f"chats/{chat_id}/files/{blob_id}")
+                    if raw is None:
+                        return name or blob_id
+                    data = self.mesh.sealer.open_blob(chat_id, blob_id, raw)
+                    if data is None or (f.get("bytes") is not None
+                                        and len(data) != f["bytes"]):
+                        return name or blob_id
+                except Exception:  # noqa: BLE001 — a blip = not fetchable yet
+                    return name or blob_id
+                self._blobs_ok.add(blob_id)
+        return None
 
     def _log_perf(self, timings: RunTimings, group: WorkGroup,
                   outcome: str) -> None:

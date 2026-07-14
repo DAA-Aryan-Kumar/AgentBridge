@@ -663,6 +663,65 @@ keep the code organized and extensible (packaging comes later).
   Live-verified: signed-out boot lands on the page (focused username),
   wrong-credentials submit surfaces the server refusal, external sign-in
   dismisses to the app.
+- [ ] **V35 Claude harness loops forever in a new group** (Aryan live QA,
+  2026-07-14 post-R54) — a simple test ask in a fresh group made claude
+  run "forever": looping over and over WITHOUT producing a response, never
+  stopping, the completed-runs list growing continuously. Same for
+  claudemcp. Root-cause + fix (prime suspect: the R54 edit-attention
+  done-filter change in runner._process_group, or new-group trigger
+  extraction with no ledger dedupe).
+- [ ] **V36 Coco harness "cannot produce a response" on an available file**
+  (Aryan) — coco's harness logs a file as unavailable and reports coco
+  cannot produce a response, yet coco DOES respond after reading that same
+  file. Root-cause the adapter's file handoff (AVD machine).
+- [ ] **V37 Agent departures missing from info events** (Aryan) — when an
+  agent's owner leaves a group the owned agents leave too, but their
+  leaving is never recorded in the chat's info events. Record them like
+  any other departure.
+- [ ] **V38 Removing a member is janky + forces a reload** (Aryan) — the
+  roster remove flow must hot-update the details pane (R52 discipline),
+  no full reload.
+- [ ] **V39 Signup with a taken username fails silently at submit**
+  (Aryan) — the live checker works but the actual create-account submit
+  swallows the server refusal; nothing surfaces in the GUI. Surface it.
+- [ ] **V40 Sign-out→sign-in jank + stray "setup page"** (Aryan) — the
+  sign-out/sign-in transition is janky, and Aryan landed on a
+  setup-looking page of unknown origin. If it's a pre-rewrite artifact,
+  REMOVE it — setup gets its own dedicated session written from scratch
+  (many of its options would simply fail today), and it must be a
+  dedicated page, not inside the main app.
+- [ ] **V41 Question: does delete-for-everyone free a file's server
+  space?** (Aryan) — answer honestly from the code (attachment blob
+  lifecycle vs redaction tombstones); deliverable = a definitive answer
+  (+ doc note / follow-up item if the answer is no).
+- [ ] **V42 File-open spinner misaligned** (Aryan) — the R51 att-loading
+  ring is off-center at least on Aryan's screen. Fix the centering.
+- [ ] **V43 Composer focused by default** (Aryan) — with a chat open,
+  typing a printable key anywhere should land in the composer (WhatsApp
+  behaviour) unless a real input/modal/menu has focus.
+- [ ] **V44 Notification options parity (WhatsApp screenshots)** (Aryan) —
+  add the relevant options: per-category Messages / Groups settings
+  (show notifications, show reaction notifications, play sound), global
+  Show previews. Ship only what actually works (standing rule: an
+  unavailable feature never surfaces).
+- [ ] **V45 Connections settings page → "About" + updates** (Aryan) —
+  rename the connections settings page to About; add an auto-update
+  checkbox + a "Check for updates" button that converts to "Download now"
+  when an update exists (GitHub releases or app-to-app communication).
+- [ ] **V46 Deliverable: GUI-only surface list** (Aryan) — a complete list
+  of every info/option available via the GUI but NOT to an agent; should
+  ideally be very few. Produce + hand over the inventory.
+- [ ] **V47 Inline edit pencils + tick/cross** (Aryan) — the username and
+  about edit pencils sit on the same line as the value; Save/Cancel become
+  tick/cross with the tick at the pencil's exact position. Same for the
+  status save.
+- [ ] **V48 Agents page autosaves** (Aryan) — remove the Save button from
+  the agents settings page; every change autosaves.
+- [ ] **V49 Delete agent doesn't delete** (Aryan) — the toast claims
+  success but the agent stays in the agents list AND still appears in
+  create-group / add-members / new-chat pickers, failing only when
+  chatting. Fix the deletion end-to-end + validate every picker filters
+  departed users.
 
 ---
 
@@ -707,3 +766,8 @@ keep the code organized and extensible (packaging comes later).
 | hot transcript (R52, done) | V25-transcript (keyed row reuse, struct-rebuild scroll/caret keep) |
 | sign-in page (R53, done) | V34, V24 |
 | agent lifecycle + trust (R54, done) | V26, V31, V30 |
+| harness bug bash (R55) | V35 (claude/claudemcp loop), V36 (coco file) |
+| account + agent lifecycle fixes (R56) | V49, V39, V40, V37 |
+| GUI polish (R57) | V38, V42, V43, V47, V48 |
+| notifications + about/updates (R58) | V44, V45 |
+| deliverables (with the rounds) | V41 (answer), V46 (parity list) |
