@@ -30,12 +30,45 @@ const PERM_FLAGS = [
 const STATUS_LABEL = { available: "Available", busy: "Busy",
   dnd: "Do not disturb", away: "Away" };
 
+// the PUBLIC gates (V8 / brief §M6): everyone's messaging + add-to-group
+// audiences are visible by design, so a member (or their agent) can check
+// before reaching out
+const GATE_LABEL = { everyone: "everyone", members: "members they chat with",
+                     agents: "agents only", nobody: "nobody" };
+
+// identity lines shared by the DM info block and the member-info page (R47):
+// status+presence one-liner, About, the public gates — each only when shared
+// (privacy-gated server-side; an absent field means hidden, never empty).
+function identityLines(rec) {
+  // M11: a deleted account keeps its name/username; everything else is gone
+  if (rec.active === false) {
+    return '<div class="ci-status" style="color:var(--text-dim)">Account deleted</div>';
+  }
+  const st = rec.status || {};
+  const bits = [];
+  if ((st.state && st.state !== "available") || st.text) {
+    bits.push(`${st.state && st.state !== "available"
+      ? `<span class="status-dot ${esc(st.state)}"></span>${esc(STATUS_LABEL[st.state] || st.state)}` : ""}${
+      st.text ? `${(st.state && st.state !== "available") ? " · " : ""}${esc(st.text)}` : ""}`);
+  }
+  const p = rec.presence || {};
+  if (p.online === true) bits.push("online");
+  else if (p.last_seen) bits.push(`last seen ${esc(fmtTimeLower(p.last_seen))}`);
+  const line = bits.length ? `<div class="ci-status">${bits.join(", ")}</div>` : "";
+  const about = (rec.about || "").trim();
+  const gates = rec.messaging
+    ? `<div class="ci-gates">Accepts messages from ${
+        esc(GATE_LABEL[rec.messaging] || rec.messaging)} · group adds from ${
+        esc(GATE_LABEL[rec.add_to_group] || rec.add_to_group)}</div>`
+    : "";
+  return line + (about ? `<div class="ci-about">${esc(about)}</div>` : "") + gates;
+}
+
 function permissionsCard(meta, isAdmin) {
   const p = meta.permissions || {};
   const dis = isAdmin ? "" : "disabled";
   return `
     <div class="card" id="perm-card">
-      <h2>Group permissions</h2>
       <dl class="kv" style="grid-template-columns:1fr minmax(120px,150px);align-items:center">
         ${PERM_LEVELS.map(([k, label]) =>
           `<dt>${label}</dt><dd><span class="csel-slot perm-lvl" data-field="${k}"
@@ -157,35 +190,39 @@ async function renderChatDetails() {
                  dmPeerRec.about, dmPeerRec.messaging, dmPeerRec.add_to_group,
                  dmPeerRec.active] : 0,
     !!Mesh.searchView, !!Mesh.mediaView, Mesh.mediaTab, !!Mesh.agentsView,
-    !!Mesh.starredPane]);
+    !!Mesh.starredPane, !!Mesh.permsView, Mesh.memberInfo || ""]);
   if (dKey === Mesh.detailsKey && App.page === "chats") return;
   Mesh.detailsKey = dKey;
 
-  // search / media / starred / agents pages slide in over chat info
+  // search / media / starred / agents / permissions / member-info pages
+  // slide in over chat info
   if (Mesh.searchView) return V.renderChatSearch();
   if (Mesh.mediaView) return V.renderChatMedia(data);
   if (Mesh.starredPane) return renderChatStarred(data);
   if (Mesh.agentsView) return renderChatAgents(myAgentsHere, meta);
+  if (Mesh.permsView) return renderChatPerms(meta);
+  if (Mesh.memberInfo) return renderMemberInfo(Mesh.memberInfo);
 
   const isMember = (meta.members || []).includes(ms.user);
   const memberRow = (u) => {
     const rec = ms.users[u] || {};
-    // an admin gets a per-member menu on everyone but themselves (promote/
-    // demote other humans, remove). The mesh re-checks every action, so the
-    // menu can be permissive; the fold is the real gate.
-    const actionable = isOwner && u !== ms.user;
+    // everyone gets a row menu (Member/Agent info); admin actions ride the
+    // same menu only for admins. The mesh re-checks every action, so the
+    // menu can be permissive; the fold is the real gate. Self keeps a GHOST
+    // chevron so the Admin chip sits at the same offset in every row (V17).
+    const actionable = u !== ms.user;
     return `
       <div class="mem-row">
         <span class="mem-avatar">${meshAvatarInner(u)}</span>
-        <span style="min-width:0">
-          <div class="mem-name">${esc(meshDn(u))}
-            ${rec.kind === "agent" ? '<span class="kind-tag">agent</span>' : ""}</div>
+        <span class="mem-main">
+          <div class="mem-name"><span class="nm">${esc(meshDn(u))}</span>${
+            rec.kind === "agent" ? '<span class="kind-tag">agent</span>' : ""}</div>
           <div class="mem-sub">@${esc(u)}</div>
         </span>
         ${admins.includes(u) ? '<span class="owner-chip">Admin</span>' : ""}
-        ${actionable ? `<button class="mem-chevron icon-btn" data-user="${esc(u)}"
-          data-admin="${admins.includes(u) ? 1 : 0}"
-          data-agent="${rec.kind === "agent" ? 1 : 0}">${ICONS.chevD}</button>` : ""}
+        <button class="mem-chevron icon-btn${actionable ? "" : " ghost"}"
+          data-user="${esc(u)}" data-admin="${admins.includes(u) ? 1 : 0}"
+          data-agent="${rec.kind === "agent" ? 1 : 0}">${ICONS.chevD}</button>
       </div>`;
   };
 
@@ -223,45 +260,11 @@ async function renderChatDetails() {
       <div class="ci-sub">${isSelf ? "Message yourself"
         : isDm ? "@" + esc(dmOther(meta, ms.user))
         : `Group · ${memberCount}`}</div>
-      ${(() => {
-        // Q32 + R36 polish: in a DM the peer's status and presence share ONE
-        // line below the @username, comma-separated — "Busy · reviewing the
-        // PR, last seen today 04:49 AM" — each part only when shared.
-        if (!isDm || isSelf) return "";
-        const peer = ms.users[dmOther(meta, ms.user)] || {};
-        // M11: a deleted account keeps its name/username; everything else
-        // (status, about, gates) is gone and the fields don't render
-        if (peer.active === false) {
-          return '<div class="ci-status" style="color:var(--text-dim)">Account deleted</div>';
-        }
-        const st = peer.status || {};
-        const bits = [];
-        if ((st.state && st.state !== "available") || st.text) {
-          bits.push(`${st.state && st.state !== "available"
-            ? `<span class="status-dot ${esc(st.state)}"></span>${esc(STATUS_LABEL[st.state] || st.state)}` : ""}${
-            st.text ? `${(st.state && st.state !== "available") ? " · " : ""}${esc(st.text)}` : ""}`);
-        }
-        const p = peer.presence || {};
-        if (p.online === true) bits.push("online");
-        else if (p.last_seen) bits.push(`last seen ${esc(fmtTimeLower(p.last_seen))}`);
-        const line = bits.length ? `<div class="ci-status">${bits.join(", ")}</div>` : "";
-        // the peer's About (privacy-gated server-side — absent means hidden);
-        // for an agent this is its "what I do" line (V5)
-        const about = (peer.about || "").trim();
-        // the PUBLIC gates (V8 / brief §M6): everyone's messaging +
-        // add-to-group audiences are visible by design, so a member (or
-        // their agent) can check before reaching out
-        const GATE_LABEL = { everyone: "everyone", members: "members they chat with",
-                             agents: "agents only", nobody: "nobody" };
-        const gates = peer.messaging
-          ? `<div class="ci-gates">Accepts messages from ${
-              esc(GATE_LABEL[peer.messaging] || peer.messaging)} · group adds from ${
-              esc(GATE_LABEL[peer.add_to_group] || peer.add_to_group)}</div>`
-          : "";
-        return line
-          + (about ? `<div class="ci-about">${esc(about)}</div>` : "")
-          + gates;
-      })()}
+      ${
+        // Q32 + R36 polish: in a DM the peer's status/presence/About/gates
+        // render below the @username — the shared identityLines recipe (R47)
+        isDm && !isSelf ? identityLines(ms.users[dmOther(meta, ms.user)] || {}) : ""
+      }
       <div class="ci-actions">
         ${isDm ? "" : `<button class="ci-act" id="ci-add">
           <span class="ci-act-circle">${ICONS.addUser}</span>Add</button>`}
@@ -338,7 +341,12 @@ async function renderChatDetails() {
       </button>` : ""}
       ${ordered.map(memberRow).join("")}
     </div>`}
-    ${isDm ? "" : permissionsCard(meta, isOwner)}
+    ${isDm ? "" : `
+    <div class="card" style="padding-top:8px;padding-bottom:8px">
+      <button class="sec-head" id="perms-sec">
+        ${ICONS.select}<span class="sec-label">Group permissions</span>
+      </button>
+    </div>`}
     <div class="card danger-card">
       ${isMember ? `<button class="danger-row neutral" id="dg-archive">
         ${ICONS.archive} ${meta.archived ? `Unarchive ${noun}` : `Archive ${noun}`}</button>` : ""}
@@ -532,8 +540,9 @@ async function renderChatDetails() {
     $("#ci-desc-save").addEventListener("click", save);
     inp.addEventListener("keydown", (e) => { if (e.key === "Enter") save(); });
   });
-  // owner-only remove: chevron appears on hover, opens a small menu
-  document.querySelectorAll(".mem-chevron").forEach((b) => {
+  // per-member menu: Member/Agent info for everyone; admin actions (promote/
+  // demote/remove) only for admins — chevron appears on hover
+  document.querySelectorAll(".mem-chevron:not(.ghost)").forEach((b) => {
     b.addEventListener("click", (e) => {
       e.stopPropagation();
       closeMenus();
@@ -544,12 +553,14 @@ async function renderChatDetails() {
       const menu = document.createElement("div");
       menu.className = "menu mem-menu";
       // agents can never be admins (D12) — no promote row for them
-      const adminRow = isAgent ? ""
+      const adminRow = !isOwner || isAgent ? ""
         : isAdminMember
           ? `<button data-act="revoke">${ICONS.close} Dismiss as admin</button>`
           : `<button data-act="grant">${ICONS.check} Make admin</button>`;
-      menu.innerHTML = `${adminRow}
-        <button class="danger-item" data-act="remove">${ICONS.close} Remove @${esc(user)}</button>`;
+      menu.innerHTML = `
+        <button data-act="info">${ICONS.info} ${isAgent ? "Agent info" : "Member info"}</button>
+        ${adminRow}
+        ${isOwner ? `<button class="danger-item" data-act="remove">${ICONS.close} Remove @${esc(user)}</button>` : ""}`;
       row.appendChild(menu);
       const run = async (path) => {
         menu.remove();
@@ -561,6 +572,12 @@ async function renderChatDetails() {
       menu.querySelectorAll("button").forEach((btn) => {
         btn.addEventListener("click", () => {
           const act = btn.dataset.act;
+          if (act === "info") {
+            menu.remove();
+            Mesh.memberInfo = user; Mesh.detailsKey = "";
+            renderChatDetails();
+            return;
+          }
           run(act === "grant" ? "/api/mesh/grant_admin"
             : act === "revoke" ? "/api/mesh/revoke_admin"
             : "/api/mesh/remove_member");
@@ -574,29 +591,11 @@ async function renderChatDetails() {
       });
     });
   });
-  // group permissions: level selects + flag switches (admins only; the mesh
-  // re-checks). Each change POSTs a single-field set_permissions patch.
-  document.querySelectorAll(".perm-lvl").forEach((slot) => {
-    const isAdmin = slot.dataset.admin === "1";
-    slot.appendChild(csel({
-      options: [{ v: "all", label: "Everyone" }, { v: "admins", label: "Admins only" }],
-      value: slot.dataset.value || "all",
-      disabled: !isAdmin,
-      onChange: async (v) => {
-        const r = await api("/api/mesh/set_permissions",
-          { chat_id: chatId, permissions: { [slot.dataset.field]: v } });
-        if (r.error) { toast(r.error, true); return; }
-        Mesh.detailsKey = "";
-      },
-    }));
-  });
-  document.querySelectorAll(".perm-flag").forEach((cb) => {
-    cb.addEventListener("change", async (e) => {
-      const r = await api("/api/mesh/set_permissions",
-        { chat_id: chatId, permissions: { [cb.dataset.field]: e.target.checked } });
-      if (r.error) { toast(r.error, true); e.target.checked = !e.target.checked; return; }
-      Mesh.detailsKey = "";
-    });
+  // group permissions moved to their own page (V16) — the row opens it
+  const permsSec = $("#perms-sec");
+  if (permsSec) permsSec.addEventListener("click", () => {
+    Mesh.permsView = true; Mesh.detailsKey = "";
+    renderChatDetails();
   });
   const dgArch = $("#dg-archive");
   if (dgArch) dgArch.addEventListener("click", async () => {
@@ -727,6 +726,88 @@ V.exitGroup = exitGroup;
 // media). Cards carry a LITERAL snapshot of the message — same markdown,
 // same bubble colors, same read-more clamp as the transcript — plus the
 // message context menu on right-click.
+// V16: group permissions on their own page — the card lived mid-scroll in
+// chat info; a dedicated page matches WhatsApp and gives the switches room.
+function renderChatPerms(meta) {
+  const chatId = Mesh.chatId;
+  const isAdmin = meshIsAdmin(meta);
+  $("#details-pane").innerHTML = `
+    <div class="pane-head">
+      <button class="icon-btn" id="cp-back">${ICONS.back}</button>
+      <span class="pane-title">Group permissions</span>
+    </div>
+    <div class="pane-view">${permissionsCard(meta, isAdmin)}</div>`;
+  $("#cp-back").addEventListener("click", () => {
+    Mesh.permsView = false; Mesh.detailsKey = "";
+    renderChatDetails();
+  });
+  // level selects + flag switches (admins only; the mesh re-checks). Each
+  // change POSTs a single-field set_permissions patch.
+  document.querySelectorAll(".perm-lvl").forEach((slot) => {
+    slot.appendChild(csel({
+      options: [{ v: "all", label: "Everyone" }, { v: "admins", label: "Admins only" }],
+      value: slot.dataset.value || "all",
+      disabled: slot.dataset.admin !== "1",
+      onChange: async (v) => {
+        const r = await api("/api/mesh/set_permissions",
+          { chat_id: chatId, permissions: { [slot.dataset.field]: v } });
+        if (r.error) { toast(r.error, true); return; }
+        Mesh.detailsKey = "";
+      },
+    }));
+  });
+  document.querySelectorAll(".perm-flag").forEach((cb) => {
+    cb.addEventListener("change", async (e) => {
+      const r = await api("/api/mesh/set_permissions",
+        { chat_id: chatId, permissions: { [cb.dataset.field]: e.target.checked } });
+      if (r.error) { toast(r.error, true); e.target.checked = !e.target.checked; return; }
+      Mesh.detailsKey = "";
+    });
+  });
+}
+
+// V19: a member's profile as THIS viewer sees it — the DM identity block
+// lifted into its own page, reachable from every roster row's menu. All the
+// data is already in the privacy-filtered state payload; chat-scoped cards
+// (media, encryption, permissions) deliberately don't apply to a person.
+function renderMemberInfo(u) {
+  const ms = Mesh.state;
+  const rec = ms.users[u] || {};
+  const isAgent = rec.kind === "agent";
+  const ownerRec = isAgent && rec.owner ? (ms.users[rec.owner] || {}) : null;
+  $("#details-pane").innerHTML = `
+    <div class="pane-head">
+      <button class="icon-btn" id="mi-back">${ICONS.back}</button>
+      <span class="pane-title">${isAgent ? "Agent info" : "Member info"}</span>
+    </div>
+    <div class="ci-identity">
+      <div class="ci-avatar-wrap"><div class="ci-avatar">${meshAvatarInner(u)}</div></div>
+      <div class="ci-name-row"><span class="ci-name">${esc(meshDn(u))}${
+        isAgent ? ' <span class="kind-tag">agent</span>' : ""}</span></div>
+      <div class="ci-sub">@${esc(u)}</div>
+      ${identityLines(rec)}
+      ${ownerRec ? `<div class="ci-gates">Responsible member: ${
+        esc(ownerRec.display || rec.owner)}</div>` : ""}
+      ${u !== ms.user && rec.active !== false ? `
+      <div class="ci-actions">
+        <button class="ci-act" id="mi-message">
+          <span class="ci-act-circle">${ICONS.msgUser}</span>Message</button>
+      </div>` : ""}
+    </div>`;
+  $("#mi-back").addEventListener("click", () => {
+    Mesh.memberInfo = null; Mesh.detailsKey = "";
+    renderChatDetails();
+  });
+  const msgBtn = $("#mi-message");
+  if (msgBtn) msgBtn.addEventListener("click", async () => {
+    // straight to a DM (created on first use, deduped by the mesh)
+    const r = await api("/api/mesh/create_dm", { username: u });
+    if (r.error) { toast(r.error, true); return; }
+    Mesh.memberInfo = null;
+    location.hash = `#/chats/${r.chat.id}`;
+  });
+}
+
 async function renderChatStarred(info) {
   const ms = Mesh.state;
   const chatId = Mesh.chatId;

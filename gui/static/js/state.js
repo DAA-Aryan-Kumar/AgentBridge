@@ -192,6 +192,8 @@ export function resetSubviews() {
   Mesh.agentsView = false;
   Mesh.agentsFromComposer = false;
   Mesh.starredPane = false;
+  Mesh.permsView = false;
+  Mesh.memberInfo = null;
   Mesh.searchQ = "";
   Mesh._mediaPrev = null;
   Mesh._inkLeft = null;

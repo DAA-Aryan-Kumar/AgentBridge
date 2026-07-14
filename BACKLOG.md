@@ -451,12 +451,20 @@ Ticked = shipped + verified. Rounds named for open items.
   chat_info rendered "Group created by , never". chat_info now derives both
   from the genesis event. Live-verified: "Group created by Scrat A,
   Today 11:39 AM".
-- [ ] **V16 Group permissions get their own dedicated page** (out of the
-  details scroll). → round "roster + member info".
-- [ ] **V17 Roster alignment + truncation** — admin tag misaligns because
-  the dropdown-arrow presence pushes it (sidebar has the same pattern);
-  member names must truncate gracefully; same alignment fix in the agent
-  permissions block of the details sidebar. → round "roster + member info".
+- [x] **V16 Group permissions get their own dedicated page** (R47) — the
+  card left the details scroll for a "Group permissions" sec-row →
+  `renderChatPerms` page (subview-flag pattern like agents/media; Back
+  returns to chat info); the level/flag wiring moved with it. Live-verified:
+  page renders (3 levels + 4 switches), a flag flip persists, Back works.
+- [x] **V17 Roster alignment + truncation** (R47) — `.owner-chip` and
+  `.mem-chevron` both carried `margin-left:auto`, so the chip's offset
+  depended on whether the row had an arrow. Now the name column is
+  `flex:1 min-width:0` and the chevron box is ALWAYS rendered (a ghost on
+  self) — chip and arrow sit at one constant x in every row (verified:
+  identical chevron left across rows). Names + @handles ellipsize
+  (`.mem-name .nm`), agent kind-tag never clips, `.ag-route-name`
+  (per-audience rows, details + settings) truncates too. Live-verified
+  with a 47-char display name.
 - [x] **V18 Admin-change info events render only for the affected member**
   (R46) — `meshInfoText` phrases admin_granted/revoked as "You're now an
   admin"/"You're no longer an admin" ONLY when `event.who === me`; every
@@ -465,10 +473,15 @@ Ticked = shipped + verified. Rounds named for open items.
   (`chat_overview` last + snippet kind/event) so a fresh group reads "You
   created this chat" instead of "No messages yet"; info events deliberately
   don't resurrect a deleted-for-me chat.
-- [ ] **V19 Member/Agent info page** — new roster-dropdown item ("Member
-  info"/"Agent info") opening the member's profile as seen by me: reuse the
-  DM-details identity pieces (avatar, status, about, public gates, last
-  seen), drop chat-scoped cards. → round "roster + member info".
+- [x] **V19 Member/Agent info page** (R47) — every roster row's menu (now
+  open to ALL members, not just admins — admin actions still gated) gains
+  "Member info"/"Agent info": a pane page with the identity block as THIS
+  viewer sees it — avatar, name, @handle, status + last seen, About, public
+  gates (one shared `identityLines()` now feeds the DM info block AND this
+  page), agents add a "Responsible member" line, plus a Message action
+  (create_dm + jump). Chat-scoped cards (media/encryption/permissions)
+  deliberately dropped. Live-verified: admin menu = info+promote+remove,
+  non-admin menu = info only, Message lands in the DM.
 - [ ] **V20 Boot theme flash** — orange (the old default accent) + light
   mode flash before the saved accent/dark theme applies; theme must apply
   before first paint. → round "boot experience".
@@ -506,6 +519,6 @@ Ticked = shipped + verified. Rounds named for open items.
 | docs tool + ask cards (R43, done) | Q7, Q28, Q11-remainder (H2 close) |
 | guard + AVD kit (R45, done) | V10, V11-kit |
 | group-management polish (R46, done) | V12, V13, V14, V15, V18 |
-| roster + member info | V16, V17, V19 |
+| roster + member info (R47, done) | V16, V17, V19 |
 | boot experience | V20, V21 |
 | parity sweep + stress | Q34, M10/M11 verifies, full-app regression |

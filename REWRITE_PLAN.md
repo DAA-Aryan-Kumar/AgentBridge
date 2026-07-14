@@ -1292,6 +1292,25 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       Renumber note: R45 was pushed as R44/v0.24.118 and renumbered after
       the parallel session's R44 landed first.
 
+- [x] **R47 — roster + member info. DONE 2026-07-14 (v0.24.122).** BACKLOG
+      V16 + V17 + V19. **Alignment (V17):** `.owner-chip` and `.mem-chevron`
+      both had `margin-left:auto`, so the Admin chip's position depended on
+      whether the row carried an arrow; the name column is now
+      `flex:1 min-width:0` and the chevron box always renders (ghost on
+      self) — one constant offset in every row; names/@handles/route labels
+      ellipsize. **Member info (V19):** the roster menu opens for EVERY
+      member now (admin actions still admin-gated) and leads with "Member
+      info"/"Agent info" — a pane page reusing the DM identity recipe via
+      the new shared `identityLines()` (status+presence line, About, public
+      gates; agents add a Responsible-member line) plus a Message action
+      (create_dm + jump). Chat-scoped cards deliberately dropped.
+      **Permissions page (V16):** the card left the details scroll for a
+      sec-row → `renderChatPerms` (same subview-flag pattern as
+      agents/media; wiring moved with it; `resetSubviews` clears both new
+      flags). Live-verified on a rig: constant chevron/chip x across rows,
+      47-char name truncates, admin vs non-admin menus, Message lands in a
+      real DM, flag flip persists, Back round-trips.
+
 | Backlog item (source) | Covered in |
 |---|---|
 | Settings overhaul: messaging-permission model (HANDOFF #1) | R6 |

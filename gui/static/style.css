@@ -1828,7 +1828,8 @@ pre.configdump {
 /* per-audience routing rows (R16): enable switch + model select per row */
 .ag-routes { display: flex; flex-direction: column; gap: 8px; }
 .ag-route { display: flex; align-items: center; gap: 10px; }
-.ag-route-name { min-width: 110px; font-size: 13px; }
+.ag-route-name { flex: 1; min-width: 60px; font-size: 13px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ag-route .csel { min-width: 170px; }
 .ag-machine button { font-size: 12.5px; }
 .ag-photo-menu { left: 0; transform: none; animation: menu-drop-l .14s ease; }   /* left-aligned, straight drop */
@@ -1886,9 +1887,11 @@ pre.configdump {
 .mem-row:hover { background: var(--hover); }
 .mem-chevron {
   width: 28px; height: 28px; flex: none;
-  visibility: hidden; margin-left: auto;   /* pin to the row's right end */
+  visibility: hidden;
 }
-.mem-row:hover .mem-chevron { visibility: visible; }
+/* the chevron box is ALWAYS in the row (a ghost on self) so the Admin chip
+   sits at one constant offset — its presence used to push the chip (V17) */
+.mem-row:hover .mem-chevron:not(.ghost) { visibility: visible; }
 .mem-menu {
   top: 100%; right: 0; min-width: 190px;
 }
@@ -1913,8 +1916,15 @@ pre.configdump {
   background: var(--accent); color: #fff; font-weight: 700; font-size: 14px;
   display: grid; place-items: center;
 }
-.mem-name { font-weight: 600; font-size: 13.5px; }
-.mem-sub { color: var(--text-dim); font-size: 11.5px; }
+/* the name + handle column takes all slack (so the chip/chevron never
+   drift) and long names ellipsize instead of overflowing (V17) */
+.mem-main { flex: 1; min-width: 0; }
+.mem-name { font-weight: 600; font-size: 13.5px;
+  display: flex; align-items: center; gap: 6px; min-width: 0; }
+.mem-name .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mem-name .kind-tag { flex: none; }
+.mem-sub { color: var(--text-dim); font-size: 11.5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .owner-chip {
   margin-left: auto; flex: none;
   font-size: 10.5px; font-weight: 600; color: var(--accent);
