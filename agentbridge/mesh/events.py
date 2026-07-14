@@ -40,6 +40,7 @@ __all__ = [
     "EV_ADMIN_GRANTED", "EV_ADMIN_REVOKED", "EV_RENAMED", "EV_DESCRIPTION",
     "EV_PERMISSIONS", "EV_AVATAR", "EV_DELETED", "EV_KEY_ROTATED",
     "Resolver", "fold", "signing_bytes", "redaction_signing_bytes",
+    "unredaction_signing_bytes",
     "reaction_signing_bytes", "pin_signing_bytes", "state_signing_bytes",
     "genesis_gid", "GID_LEN", "is_legacy_chat_id",
 ]
@@ -86,6 +87,20 @@ def redaction_signing_bytes(chat_id: str, msg_id: str, by: str, ns: int) -> byte
     (the read model verifies this before honoring a tombstone; unsigned/forged
     redactions are ignored and the message stays visible)."""
     return f"{chat_id}|redact|{msg_id}|{by}|{ns}".encode()
+
+
+def unredaction_signing_bytes(
+    chat_id: str, msg_id: str, red_ns: int, by: str, ns: int,
+) -> bytes:
+    """Canonical bytes an UNDO of a delete-for-everyone signs (R44). Binds
+    the chat, the target message, **the ns of the redaction it voids**
+    (a saved undo can't be replayed onto a later re-delete of the same
+    message), the actor and the undo's own ns. The undo is presence-based —
+    the redaction doc keeps its original signed record and gains a signed
+    ``void`` — so restoring never means deleting a doc (absence can't be
+    authenticated; a forged void just fails verification and the tombstone
+    stands)."""
+    return f"{chat_id}|unredact|{msg_id}|{red_ns}|{by}|{ns}".encode()
 
 
 def reaction_signing_bytes(chat_id: str, user: str, ns: int, mapping: dict) -> bytes:

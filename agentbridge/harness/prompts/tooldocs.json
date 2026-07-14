@@ -18,7 +18,7 @@
     "ask_member": {
       "ask": "ask you a question",
       "short": "Ask your responsible member one question mid-run",
-      "long": "ask_member(question, options?) - pauses the run and shows your responsible member a popup with your question. When the question has natural choices, pass 2-4 short options; your member taps one instead of typing (they can always type something else). Returns their answer, or tells you they did not answer in time - then decide reasonably yourself or say you'll follow up. One clear question at a time; don't ask what the conversation already answers."
+      "long": "ask_member(question, options?) - pauses the run and shows your responsible member a popup with your question. When the question has natural choices, pass 2-4 options - each a short string, or {\"label\": ..., \"description\": ...} when a line of detail helps them choose (e.g. label 'Excel', description 'one sheet per region, ~2 MB'). They tap one instead of typing (and can always type something else). Returns their answer, or tells you they did not answer in time - then decide reasonably yourself or say you'll follow up. One clear question at a time; don't ask what the conversation already answers."
     },
     "read_docs": {
       "short": "This manual - every tool and guide, on demand",

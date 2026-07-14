@@ -80,6 +80,19 @@ class ChatOverlays:
         # a redacted message can't stay pinned (v1 rule)
         self.tx.delete_doc(P.pin(self.chat_id, msg_id))
 
+    def void_redaction(self, msg_id: str, by: str, sig: str = "",
+                       ns: int | None = None) -> None:
+        """Undo a delete-for-everyone (R44): the redaction doc KEEPS its
+        original signed record and gains a signed ``void`` — presence-based
+        and verifiable, unlike deleting the doc (absence can't be
+        authenticated). A later re-delete overwrites the whole doc fresh."""
+        doc = self.tx.get_doc(P.redaction(self.chat_id, msg_id))
+        if not isinstance(doc, dict):
+            return  # nothing to void — the caller validated; races are benign
+        doc["void"] = {"by": by, "at": utcnow_iso(),
+                       "ns": ns if ns is not None else next_ns(), "sig": sig}
+        self.tx.put_doc(P.redaction(self.chat_id, msg_id), doc)
+
     def redactions(self) -> dict[str, dict]:
         out: dict[str, dict] = {}
         for path in self.tx.list_docs(P.redactions_prefix(self.chat_id)):

@@ -123,11 +123,15 @@ fail. `tenure` is built here as members join/leave (including `_heal` cascades).
 
 Per-message and per-user side-data that would churn the append-only log:
 - **Chat-level, one file per message** (concurrent actors never clobber):
-  `edits/` (author-only, the new body is sealed+signed so a forged edit fails
-  to open), `redactions/` (delete-for-everyone — **signed by the sender since
-  R25**, §5), `pins/` (**signed by the pinner since R31** over
-  `chat|pin|msg-id|by|ns|until_ns` — a dropped-in pin or a stretched expiry
-  doesn't verify).
+  `edits/` (the author or — R44 — the author's responsible member; the new
+  body is sealed+signed BY ITS EDITOR and the fold unseals with the edit's
+  `by`, so a doc claiming an actor who didn't seal it fails to open),
+  `redactions/` (delete-for-everyone — **signed since R25**, actor ∈
+  {sender, sender's owner} since R44, §5; an owner UNDO adds a signed
+  ``void`` bound to the redaction's ns — presence-based, so a forger can
+  neither resurrect nor replay a stale undo onto a re-delete), `pins/`
+  (**signed by the pinner since R31** over `chat|pin|msg-id|by|ns|until_ns`
+  — a dropped-in pin or a stretched expiry doesn't verify).
 - **Per-user** (`state/<user>.json`, read-**merge**-write — never overwrite, a
   clobber once wiped stars): `read_ns`/`read_ts`, `delivered_ns`/`delivered_ts`
   (R33 — advanced by the sync pump when this client fetches a message, so
@@ -200,10 +204,14 @@ See **docs/THREAT_MODEL.md** for the full statement; the mechanics:
 **R25 hardening (see THREAT_MODEL "CLOSED R25"):**
 - **Signed redactions.** Delete-for-everyone was applied on the mere *presence*
   of an overlay doc — any folder writer could censor any message. Redactions
-  now carry the sender's signature over `chat|redact|msg-id|by|ns`
+  now carry the actor's signature over `chat|redact|msg-id|by|ns`
   (`events.redaction_signing_bytes`); the read model honors one only if the sig
-  verifies against the sender AND `by` == the original sender. Forged/unsigned
-  → ignored (message stays). (Edits were already sig-protected via the sealer.)
+  verifies against `by` AND `by` ∈ {original sender, the sender's responsible
+  member (R44)}. Forged/unsigned → ignored (message stays). (Edits were already
+  sig-protected via the sealer.) R44 adds the reverse lever: a signed ``void``
+  (`events.unredaction_signing_bytes`, bound to the voided redaction's ns)
+  restores the message for everyone — same actor set, same fail-safe (an
+  invalid void leaves the tombstone standing).
 - **Tenure gate.** A removed member keeps the old epoch key, so they could
   seal+sign a *fresh* old-epoch envelope current members decrypt. The fold's
   `tenure` timeline lets `readmodel.build_messages` drop any MESSAGE sent

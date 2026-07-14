@@ -95,18 +95,30 @@ class BridgeServer:
             return json.dumps({"behavior": "deny", "message": message})
 
         @mcp.tool(structured_output=False)
-        def ask_member(question: str = "", options: list[str] | None = None) -> str:
+        def ask_member(question: str = "", options: list | None = None) -> str:
             """Ask your responsible member one question; returns their
             answer (or the fact that they did not answer in time). When the
-            question has natural choices, pass 2-4 short options — they tap
-            one instead of typing (and can still type something else)."""
+            question has natural choices, pass 2-4 options — each a short
+            string, or {"label": ..., "description": ...} where a line of
+            detail helps them choose. They tap one instead of typing (and
+            can still type something else)."""
             q = " ".join((question or "").split())[:500]
             if not q:
                 return "no question given"
-            # R43/Q28: sanitize agent-offered choices — strings only, short,
-            # at most four; anything unusable simply degrades to free text
-            opts = [" ".join(str(o).split())[:80]
-                    for o in (options or []) if str(o).strip()][:4]
+            # R43/R44: sanitize agent-offered choices into {label,
+            # description?} — at most four; junk degrades to free text
+            opts = []
+            for o in options or []:
+                if isinstance(o, dict):
+                    label = " ".join(str(o.get("label") or "").split())[:80]
+                    desc = " ".join(str(o.get("description") or "").split())[:160]
+                else:
+                    label, desc = " ".join(str(o).split())[:80], ""
+                if label:
+                    opts.append({"label": label, **({"description": desc}
+                                                    if desc else {})})
+                if len(opts) == 4:
+                    break
             verdict, text = self.broker.ask(
                 chat_id=self.chat_id, kind="question", tool="question",
                 detail=q, timeout_s=self.ask_timeout_s, options=opts)

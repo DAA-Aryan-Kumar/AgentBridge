@@ -201,10 +201,14 @@ Ticked = shipped + verified. Rounds named for open items.
   Claude-Code-style ask-card overhaul itself stays in the "docs tool + ask
   cards" round (Q28). Live-verified: two planted grants listed, one revoked,
   the other survived.
-- [~] **Q15 Agents can delete messages** — the AGENT can now delete its own
-  messages for everyone (`delete_message` tool, R34). **OPEN: owner-only Undo
-  (for me / for everyone) inside the tombstone; groups keep showing the
-  original sender** → round "agent message ops — owner side".
+- [x] **Q15 Agents can delete messages** — agent-side R34 (`delete_message`,
+  author-only). Owner side (R44): the responsible member deletes an agent's
+  message for everyone (owner-SIGNED tombstone, every fold verifies actor ∈
+  {author, author's owner}); the tombstone's menu gains **Undo delete** —
+  a signed `void` on the redaction doc, bound to the redaction's ns (no doc
+  deletion — absence can't be authenticated; a forged void can't resurrect,
+  a stale void can't replay onto a re-delete). Group tombstones now keep
+  the original sender's name. Live-verified cross-member on the rig.
 - [x] **Q16 Send button disabled when composer empty** (R37) — greyed/inert
   with no text AND no attachment; an attachment alone enables it. Live-
   verified both directions.
@@ -214,11 +218,17 @@ Ticked = shipped + verified. Rounds named for open items.
   timestamps; the dialog renders them (R33, live-verified: "Read Today 04:27
   AM / Delivered Today 04:27 AM"). Bubble ticks now three-state (grey single
   sent / grey double delivered / accent double read).
-- [~] **Q18 Agents can edit their messages** — DONE agent-side: `edit_message`
-  tool (author-only, R34). **OPEN: owner gets edit + delete-for-everyone in
-  the right-click menu of their agent's messages** (an authorization +
-  crypto-authorship change — the owner acts AS the co-hosted agent's identity;
-  its own security-reviewed round) → round "agent message ops — owner side".
+- [x] **Q18 Agents can edit their messages** — agent-side R34 (`edit_message`,
+  author-only). Owner side (R44): Edit + Delete-for-everyone in the
+  right-click menu of your agent's messages. The crypto turned out cleaner
+  than "act AS the agent": the owner acts AS THEMSELVES — an edit is sealed
+  by its editor (the AAD + signature bind the sealer) and the fold unseals
+  with the edit's `by`, accepting `by` ∈ {author, author's owner}; a doc
+  claiming an actor who didn't seal it simply refuses to open. Redactions
+  verify the same actor set. The bridge/CLI tools stay author-only (the
+  carve-out is GUI oversight, not new agent power). Live-verified: owner
+  edit under the agent's name with the edited mark, berry's fold shows it;
+  non-owner member forgeries (well-sealed but wrong actor) stay ignored.
 - [x] **Q19 Clear-chat: sidebar right-click vs in-chat menu same logic** —
   consistent (both call `clearChatDialog` → `/api/mesh/clear_chat` with the
   same `keep_starred`); live-confirmed R37 (sidebar right-click opens the
@@ -413,7 +423,7 @@ Ticked = shipped + verified. Rounds named for open items.
 |---|---|
 | receipts | Q8, Q17 |
 | agent message ops (R34, done) | Q33, Q18-agent, Q15-agent (self edit/delete + unpin ids) |
-| agent message ops — owner side | Q18-owner, Q15-owner (owner edits/deletes agent msg + undo) |
+| agent message ops — owner side (R44, done) | Q18-owner, Q15-owner (owner edits/deletes agent msg + undo) |
 | status surfacing | Q32 (M7 close) |
 | run UX | Q9, Q10, Q11, Q12 |
 | composer + transcript bug bash (R37, done) | Q16, Q19, Q24, Q25, Q27, Q29, Q31, V7 |

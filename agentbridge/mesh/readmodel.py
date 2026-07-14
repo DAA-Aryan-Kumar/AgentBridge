@@ -54,6 +54,7 @@ def build_messages(
     history_from_ns: int = 0,
     tenure: dict[str, list[list[int]]] | None = None,
     verify_redaction: Callable[[str, dict, str], bool] | None = None,
+    owner_of: Callable[[str], str | None] | None = None,
 ) -> list[Message]:
     edits = edits or {}
     redactions = redactions or {}
@@ -112,12 +113,18 @@ def build_messages(
             msg.reply_to, msg.files, msg.fwd = body.reply_to, body.files, body.fwd
 
             edit = edits.get(env.id)
-            if edit and edit.get("by") == env.from_:  # author-only, enforced on read too
-                # pseudo-envelope for the sealer: the edit was sealed binding
-                # (msg_id, edit_ns) with the AUTHOR as sender
+            # enforced on read too: the author, or — for an agent's message —
+            # the author's responsible member (R44). The edit body is SEALED
+            # AS its editor (AAD + signature bind the sealer), so unsealing
+            # with the claimed `by` is what authenticates the claim: a doc
+            # naming an actor who didn't seal it simply refuses to open.
+            edit_by = (edit or {}).get("by") or ""
+            if edit and (edit_by == env.from_ or (
+                    owner_of is not None and edit_by
+                    and owner_of(env.from_) == edit_by)):
                 eb = sealer.unseal(
                     chat_id,
-                    Envelope.from_dict({**edit, "id": env.id, "from": env.from_}),
+                    Envelope.from_dict({**edit, "id": env.id, "from": edit_by}),
                 )
                 if eb is not None:
                     msg.body, msg.tags = eb.body, eb.tags

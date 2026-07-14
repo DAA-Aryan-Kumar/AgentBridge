@@ -1217,6 +1217,31 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       round trip, option tap; switches persist + restore); read_docs and
       options tested over real MCP HTTP.
 
+- [x] **R44 — owner acts on the agent's messages + undo. DONE 2026-07-14
+      (v0.24.118, 402 tests).** BACKLOG Q15/Q18 owner side — the
+      security-reviewed round — plus the R43 ask-card polish. **The model:**
+      the owner acts AS THEMSELVES, never as the agent. An edit is sealed
+      by its editor (AAD + signature bind the sealer); the fold unseals
+      with the edit's `by` and accepts `by` ∈ {author, author's owner} —
+      a doc claiming an actor who didn't seal it refuses to open.
+      Redactions verify the same actor set (`messaging._acts_for`,
+      mesh-level + fold-level). **Undo:** `unredact` adds a SIGNED `void`
+      to the redaction doc, bound to the voided redaction's ns
+      (`unredaction_signing_bytes`) — presence-based (no doc deletion), a
+      forged void can't resurrect (falls back to the valid tombstone), a
+      stale void can't replay onto a re-delete. Bridge/CLI tools stay
+      author-only. **GUI:** Edit + Delete-for-everyone in the menu of your
+      agent's messages, "Undo delete" on their tombstones
+      (`/api/mesh/restore_message`), group tombstones keep the sender's
+      name (Q15). **Polish:** ask-card options render as a STACKED list,
+      each with an optional agent-provided description
+      (`{label, description}` through ask_member → broker → card).
+      Live-verified cross-member on the rig (owner edit/delete/undo seen
+      by berry; forged edit + forged/replayed void ignored — unit-level).
+      GOTCHA (rig-only): a long chat slug + the deep scratchpad path
+      pushed an overlay doc past MAX_PATH — "atomic write failed" on the
+      rig means path length, not a bug; real roots are short.
+
 | Backlog item (source) | Covered in |
 |---|---|
 | Settings overhaul: messaging-permission model (HANDOFF #1) | R6 |

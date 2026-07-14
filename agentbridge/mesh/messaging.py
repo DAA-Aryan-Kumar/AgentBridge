@@ -22,7 +22,8 @@ from ..store.db import Store
 from ..transport.base import Transport
 from . import authz
 from .events import pin_signing_bytes, reaction_signing_bytes, \
-    redaction_signing_bytes, signing_bytes, state_signing_bytes
+    redaction_signing_bytes, signing_bytes, state_signing_bytes, \
+    unredaction_signing_bytes
 from .overlays import ChatOverlays, UserState, fold_reactions, reaction_map
 from .paths import P
 from .readmodel import build_messages, parse_tags, unread_info
@@ -141,6 +142,16 @@ class MessagingService:
         )
         self._notify_outbox()
 
+    def _acts_for(self, author: str) -> bool:
+        """May I act on this author's message? Me, or my AGENT — the
+        responsible member edits/deletes/restores what their agent posted
+        (R44, Q15/Q18 owner side). Never another human's, never someone
+        else's agent's."""
+        if author == self.user:
+            return True
+        return bool(self.directory
+                    and self.directory.owner_of(author) == self.user)
+
     def edit(self, chat_id: str, msg_id: str, new_body: str) -> None:
         self._require_member(chat_id)
         if not (new_body or "").strip():
@@ -148,13 +159,18 @@ class MessagingService:
         original = self._cached(chat_id, msg_id)
         if original is None:
             raise ValidationError(f"unknown message {msg_id}")
-        if original.get("from") != self.user:
-            raise PermissionDenied("only the author may edit")
+        if not self._acts_for(original.get("from") or ""):
+            raise PermissionDenied(
+                "only the author (or their responsible member) may edit")
         if original.get("kind") != MsgKind.MESSAGE.value:
             raise ValidationError("info events cannot be edited")
-        if self.tx.get_doc(P.redaction(chat_id, msg_id)) is not None:
+        red = self.tx.get_doc(P.redaction(chat_id, msg_id))
+        if isinstance(red, dict) and not red.get("void"):
             raise ValidationError("a deleted message cannot be edited")
         edit_ns = next_ns()  # minted first: the seal binds (msg_id, edit_ns)
+        # sealed AS the editor (the AAD + sig bind self.user) — the read
+        # model unseals with the edit's `by`, so an owner-made edit
+        # authenticates exactly like an author-made one (R44)
         sealed = self.sealer.seal(
             chat_id, msg_id, edit_ns,
             BodyRecord(body=new_body, tags=parse_tags(new_body)),
@@ -162,22 +178,47 @@ class MessagingService:
         ChatOverlays(self.tx, chat_id).put_edit(msg_id, sealed, by=self.user, ns=edit_ns)
 
     def redact(self, chat_id: str, msg_ids: list[str]) -> None:
-        """Delete-for-everyone: SENDER-only, tombstoned in place (v1 rule).
-        The tombstone is Ed25519-SIGNED by the sender (R25) so a folder writer
+        """Delete-for-everyone: the sender — or their responsible member for
+        an agent's message (R44) — tombstoned in place (v1 rule). The
+        tombstone is Ed25519-SIGNED by the actor (R25) so a folder writer
         can't forge a redaction of someone else's message — the read model
-        verifies the signature before honoring it."""
+        verifies signature AND authorization before honoring it."""
         self._require_member(chat_id)
         ov = ChatOverlays(self.tx, chat_id)
         for msg_id in msg_ids:
             original = self._cached(chat_id, msg_id)
             if original is None:
                 raise ValidationError(f"unknown message {msg_id}")
-            if original.get("from") != self.user:
-                raise PermissionDenied("only the sender may delete for everyone")
+            if not self._acts_for(original.get("from") or ""):
+                raise PermissionDenied("only the sender (or their responsible "
+                                       "member) may delete for everyone")
             red_ns = next_ns()  # minted first: the signature binds it
             sig = self._sign_event(
                 redaction_signing_bytes(chat_id, msg_id, self.user, red_ns))
             ov.put_redaction(msg_id, by=self.user, sig=sig, ns=red_ns)
+
+    def unredact(self, chat_id: str, msg_id: str) -> None:
+        """Undo a delete-for-everyone (R44): the oversight lever — a run
+        that wrongly deleted its own message can be reversed by the
+        responsible member (or the author itself). The undo is a SIGNED
+        ``void`` added to the redaction doc, bound to the redaction's ns
+        (no doc deletion — absence can't be authenticated — and no replay
+        onto a later re-delete)."""
+        self._require_member(chat_id)
+        original = self._cached(chat_id, msg_id)
+        if original is None:
+            raise ValidationError(f"unknown message {msg_id}")
+        if not self._acts_for(original.get("from") or ""):
+            raise PermissionDenied("only the sender (or their responsible "
+                                   "member) may restore a deleted message")
+        red = self.tx.get_doc(P.redaction(chat_id, msg_id))
+        if not isinstance(red, dict) or red.get("void"):
+            raise ValidationError("this message isn't deleted")
+        void_ns = next_ns()
+        sig = self._sign_event(unredaction_signing_bytes(
+            chat_id, msg_id, int(red.get("ns", 0)), self.user, void_ns))
+        ChatOverlays(self.tx, chat_id).void_redaction(
+            msg_id, by=self.user, sig=sig, ns=void_ns)
 
     def react(self, chat_id: str, msg_id: str, emoji: str | None) -> None:
         self._require_member(chat_id)
@@ -286,6 +327,7 @@ class MessagingService:
             history_from_ns=history_from,
             tenure=snap.tenure,
             verify_redaction=self._redaction_verifier(chat_id),
+            owner_of=self.directory.owner_of if self.directory else None,
         )
 
     def _crypto_boundary(self) -> bool:
@@ -326,22 +368,41 @@ class MessagingService:
         """A callable ``(msg_id, redaction_doc, original_sender) -> bool`` for
         the read model, or None for a plaintext/dev mesh (no crypto boundary,
         so redactions stay presence-based there). A redaction counts only when
-        it is SIGNED by the message's original sender (delete-for-everyone is
-        sender-only) — a forged/unsigned overlay dropped on the shared folder
-        is ignored (R25)."""
+        it is SIGNED by an AUTHORIZED actor — the original sender, or the
+        sender's responsible member for an agent's message (R44) — a forged/
+        unsigned overlay dropped on the shared folder is ignored (R25).
+        A doc carrying a VALID signed ``void`` (bound to this redaction's ns,
+        same authorization) reads as not-deleted; an INVALID void is ignored
+        and the underlying redaction still tombstones — a forger can neither
+        delete nor resurrect."""
         if not self._crypto_boundary():
             return None
 
+        def authorized(actor: str, original_from: str) -> bool:
+            return actor == original_from or \
+                self.directory.owner_of(original_from) == actor
+
+        def signed(actor: str, sig: str, payload: bytes) -> bool:
+            pub = self.directory.sign_pub(actor)
+            return bool(pub and sig and crypto.verify(pub, sig, payload))
+
         def ok(msg_id: str, red: dict, original_from: str) -> bool:
-            by = red.get("by")
-            if not by or by != original_from:
-                return False  # only the original sender may delete for everyone
-            pub = self.directory.sign_pub(by)
-            sig = red.get("sig") or ""
-            if not pub or not sig:
+            void = red.get("void")
+            if isinstance(void, dict):
+                vby = void.get("by") or ""
+                if authorized(vby, original_from) and signed(
+                    vby, void.get("sig") or "",
+                    unredaction_signing_bytes(
+                        chat_id, msg_id, int(red.get("ns", 0)),
+                        vby, int(void.get("ns", 0))),
+                ):
+                    return False  # validly restored — no tombstone
+                # forged/misbound void: fall through, verify the redaction
+            by = red.get("by") or ""
+            if not authorized(by, original_from):
                 return False
-            return crypto.verify(
-                pub, sig,
+            return signed(
+                by, red.get("sig") or "",
                 redaction_signing_bytes(chat_id, msg_id, by, int(red.get("ns", 0))),
             )
 

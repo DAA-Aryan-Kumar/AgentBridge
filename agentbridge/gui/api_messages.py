@@ -71,8 +71,9 @@ def edit_message(app, req, mesh) -> dict:
 
 @authed
 def delete_messages(app, req, mesh) -> dict:
-    """scope 'me' = private hide (reversible); 'everyone' = redact
-    (sender-only, enforced in the mesh, irreversible)."""
+    """scope 'me' = private hide (reversible); 'everyone' = redact (the
+    sender, or their responsible member for an agent's message — enforced
+    in the mesh, R44)."""
     d = req.data
     chat_id = d.get("chat_id") or ""
     ids = [str(i) for i in (d.get("ids") or [])]
@@ -87,6 +88,16 @@ def delete_messages(app, req, mesh) -> dict:
 def undelete_messages(app, req, mesh) -> dict:
     mesh.unhide(req.data.get("chat_id") or "",
                 [str(i) for i in (req.data.get("ids") or [])])
+    return {"ok": True}
+
+
+@authed
+def restore_message(app, req, mesh) -> dict:
+    """Undo a delete-for-everyone (R44): oversight for the responsible
+    member — a wrongly deleted agent message comes back for every member.
+    The mesh enforces who may (author or their owner) and signs the void."""
+    mesh.unredact(req.data.get("chat_id") or "",
+                  str(req.data.get("msg_id") or ""))
     return {"ok": True}
 
 
@@ -324,6 +335,7 @@ POST = {
     "/api/mesh/edit_message": edit_message,
     "/api/mesh/delete_messages": delete_messages,
     "/api/mesh/undelete_messages": undelete_messages,
+    "/api/mesh/restore_message": restore_message,
     "/api/mesh/clear_chat": clear_chat,
     "/api/mesh/react": react,
     "/api/mesh/forward": forward,

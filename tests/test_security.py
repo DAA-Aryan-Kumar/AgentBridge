@@ -498,3 +498,86 @@ def test_keystore_garbage_reads_as_absent(tmp_path):
     assert ks.load("eve") is None
     (tmp_path / "keys" / "eve.key").write_text("dpapi1:AAAA", encoding="utf-8")
     assert ks.load("eve") is None              # a foreign/corrupt blob fails closed
+
+
+# ================= R44: the owner acts on their agent's messages =============
+
+def test_owner_acts_on_agents_message_and_undo(world):
+    """R44 (Q15/Q18 owner side): the responsible member edits, deletes and
+    RESTORES their agent's messages — signed as themselves, honored by every
+    member's fold. A non-owner stays refused, a forged edit/void changes
+    nothing, and a stale void can't replay onto a re-delete."""
+    from agentbridge.core.errors import PermissionDenied
+    from agentbridge.mesh.overlays import ChatOverlays
+
+    meshes, root = world
+    aryan, fable = meshes["aryan"], meshes["fable"]
+    aryan.accounts.create_agent("helper")
+    helper = Mesh(FolderTransport(root), "helper", "m1", encrypt=True,
+                  home=aryan.home)   # agents live on their owner's machine
+    try:
+        chat = aryan.create_chat("Oversight", members=["fable", "helper"])
+        ripple(aryan, chat.id, fable, helper)
+        env = helper.post(chat.id, "wrong numbers, sorry")
+        ripple(helper, chat.id, aryan, fable)
+
+        def fables_view():
+            return next(m for m in fable.messages_for(chat.id) if m.id == env.id)
+
+        # a NON-owner member's edit doc is ignored by the fold, even when
+        # correctly sealed (fable holds the chat key) — wrong actor
+        evil_ns = next_ns()
+        sealed = fable.sealer.seal(chat.id, env.id, evil_ns,
+                                   BodyRecord(body="evil edit"))
+        ChatOverlays(fable.tx, chat.id).put_edit(env.id, sealed,
+                                                 by="fable", ns=evil_ns)
+        assert fables_view().body == "wrong numbers, sorry"
+        # ...and the fold refuses a doc CLAIMING the owner but sealed by
+        # someone else (the AAD binds the sealer — it just won't open)
+        ChatOverlays(fable.tx, chat.id).put_edit(env.id, sealed,
+                                                 by="aryan", ns=evil_ns)
+        assert fables_view().body == "wrong numbers, sorry"
+
+        # the mesh-level verbs refuse a non-owner outright
+        with pytest.raises(PermissionDenied):
+            fable.edit(chat.id, env.id, "not yours")
+        with pytest.raises(PermissionDenied):
+            fable.redact(chat.id, [env.id])
+        with pytest.raises(PermissionDenied):
+            fable.unredact(chat.id, env.id)
+
+        # the OWNER edits: sealed as aryan, every fold shows it as edited
+        aryan.edit(chat.id, env.id, "corrected numbers")
+        v = fables_view()
+        assert v.body == "corrected numbers" and v.edited
+
+        # the OWNER deletes for everyone: owner-signed tombstone honored
+        aryan.redact(chat.id, [env.id])
+        assert fables_view().deleted
+
+        # a FORGED (unsigned) void cannot resurrect it
+        red = aryan.tx.get_doc(P.redaction(chat.id, env.id))
+        forged = dict(red)
+        forged["void"] = {"by": "aryan", "ns": next_ns(), "sig": ""}
+        fable.tx.put_doc(P.redaction(chat.id, env.id), forged)
+        assert fables_view().deleted
+        fable.tx.put_doc(P.redaction(chat.id, env.id), red)
+
+        # the OWNER undoes: a signed void — the message returns for everyone,
+        # with the owner's edit intact
+        aryan.unredact(chat.id, env.id)
+        v = fables_view()
+        assert not v.deleted and v.body == "corrected numbers"
+        saved_void = (aryan.tx.get_doc(P.redaction(chat.id, env.id)) or {})["void"]
+
+        # re-delete, then REPLAY the old (genuinely signed) void onto the
+        # fresh redaction — it binds the voided redaction's ns, so it fails
+        aryan.redact(chat.id, [env.id])
+        red2 = aryan.tx.get_doc(P.redaction(chat.id, env.id))
+        replayed = dict(red2)
+        replayed["void"] = saved_void
+        fable.tx.put_doc(P.redaction(chat.id, env.id), replayed)
+        assert fables_view().deleted   # the stale undo does not stick
+    finally:
+        helper.close()
+

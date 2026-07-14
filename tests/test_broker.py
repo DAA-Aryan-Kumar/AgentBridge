@@ -327,10 +327,14 @@ def test_bridge_question_options_and_read_docs_over_http(tmp_path):
         try:
             reply = call_tool(bridge.url, "ask_member", {
                 "question": "which color?",
-                # five options, one junk: sanitizes to the first four strings
-                "options": ["red", "blue", "  green ", "", "gold", "extra"]})
+                # strings and {label, description} mix; junk drops; caps at 4
+                "options": ["red", {"label": "blue", "description": "calm and cool"},
+                            "  green ", "", "gold", "extra"]})
             assert reply == "blue"
-            assert seen["options"] == ["red", "blue", "green", "gold"]
+            assert seen["options"] == [
+                {"label": "red"},
+                {"label": "blue", "description": "calm and cool"},
+                {"label": "green"}, {"label": "gold"}]
         finally:
             t.join()
 

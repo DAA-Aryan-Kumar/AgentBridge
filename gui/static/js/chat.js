@@ -397,16 +397,23 @@ async function renderMeshChat(force) {
       continue;
     }
     // a deleted-for-everyone tombstone: greyed, aligned to its sender, and
-    // "mostly non-interactable" — the chevron is its only live control (one
-    // option, Delete: a silent for-me removal of the trace).
+    // "mostly non-interactable" — the chevron is its only live control
+    // (Delete-the-trace, plus Undo delete for the sender's responsible
+    // member, R44). Groups keep showing WHO the tombstone belonged to
+    // (Q15) — accountability doesn't delete with the words.
     if (msg.deleted) {
       const label = msg.mine ? "You deleted this message"
                              : "This message was deleted";
+      const tombKindTag = ms.users?.[msg.from]?.kind === "agent"
+        ? ' <span class="kind-tag">agent</span>' : "";
+      const tombSender = !isDm && !msg.mine
+        ? `<div class="sender">${esc(meshDn(msg.from))}${tombKindTag}</div>` : "";
       parts.push(`
         <div class="msg ${msg.mine ? "mine" : ""} deleted" data-mid="${esc(msg.id || "")}">
           <span class="msg-check" aria-hidden="true">${ICONS.check}</span>
           <div class="bubble">
             <button class="msg-arrow" aria-label="Message menu">${ICONS.chevD}</button>
+            ${tombSender}
             <div class="msg-body tomb">${ICONS.banned}<span>${label}</span></div>
             <span class="meta"><span class="meta-time">${esc(timeOnly(msg.ts))}</span></span>
           </div>
@@ -819,9 +826,18 @@ function renderAskBar(chatId, asks, timers) {
     // a repair mutation ALWAYS asks — no "always allow" shortcut for it
     const always = repair ? "" :
       `<button class="ask-always">${peer ? "Always allow this peer" : "Always allow here"}</button>`;
-    // a question with agent-offered options renders them as one-tap pills
-    // (Claude-Code-style, Q28); "Other…" reveals the free-text escape
+    // a question with agent-offered options renders them as a STACKED list
+    // (Claude-Code-style, Q28/R44) — each row a label + optional description
+    // line; "Other…" reveals the free-text escape
     const opts = q && Array.isArray(a.options) && a.options.length;
+    const optRow = (o) => {
+      const lab = typeof o === "string" ? o : (o && o.label) || "";
+      const desc = (typeof o === "object" && o && o.description) || "";
+      return `<button class="ask-opt" data-opt="${esc(lab)}">
+        <span class="ask-opt-label">${esc(lab)}</span>
+        ${desc ? `<span class="ask-opt-desc">${esc(desc)}</span>` : ""}
+      </button>`;
+    };
     const answerUi = !q ? `
       <div class="ask-actions">
         <button class="primary ask-allow">Allow</button>
@@ -829,8 +845,8 @@ function renderAskBar(chatId, asks, timers) {
         <button class="danger-item ask-deny">Deny</button>
       </div>` : `
       ${opts ? `<div class="ask-opts">
-        ${a.options.map((o) => `<button class="ask-opt" data-opt="${esc(o)}">${esc(o)}</button>`).join("")}
-        <button class="ask-opt ask-other">Other…</button>
+        ${a.options.map(optRow).join("")}
+        <button class="ask-opt ask-other"><span class="ask-opt-label">Other…</span></button>
       </div>` : ""}
       <div class="ask-answer" ${opts ? "hidden" : ""}>
         <input type="text" placeholder="Your answer…" maxlength="2000">
@@ -1114,9 +1130,19 @@ function openMsgMenu(rect, msg, chatId, ctx) {
   const me = Mesh.state?.user;
   const myRx = Object.entries(msg.reactions || {})
     .find(([, users]) => users.includes(me))?.[0] || "";
+  // R44: the responsible member acts on their AGENT's messages — edit,
+  // delete for everyone, and undo a wrong delete (the mesh re-checks all
+  // three; this only decides what the menu offers)
+  const myAgentMsg = Mesh.state?.users?.[msg.from]?.kind === "agent"
+    && (Mesh.state.users[msg.from].owners || []).includes(me);
+  const actsFor = msg.mine || myAgentMsg;
   if (msg.deleted) {
-    // the tombstone's lone control: remove the trace for me (silent)
-    menu.innerHTML = `<button data-act="del-trace" class="danger-item">${ICONS.trash} Delete</button>`;
+    // the tombstone's controls: remove the trace for me (silent), and — for
+    // the agent's responsible member — restore it for everyone (R44)
+    menu.innerHTML = [
+      myAgentMsg ? `<button data-act="undelete">${ICONS.reply} Undo delete</button>` : "",
+      `<button data-act="del-trace" class="danger-item">${ICONS.trash} Delete</button>`,
+    ].filter(Boolean).join("");
   } else {
     menu.innerHTML = [
       msg.kind !== "info" && ctx.canReply ? `<div class="rx-bar">${RX_QUICK.map((e) =>
@@ -1127,7 +1153,7 @@ function openMsgMenu(rect, msg, chatId, ctx) {
       !msg.mine && !ctx.isDm
         ? `<button data-act="message">${ICONS.msgUser} Message ${esc(meshDn(msg.from))}</button>` : "",
       `<button data-act="copy">${ICONS.copy} Copy</button>`,
-      msg.mine ? `<button data-act="edit">${ICONS.pencil} Edit</button>` : "",
+      actsFor ? `<button data-act="edit">${ICONS.pencil} Edit</button>` : "",
       `<button data-act="forward">${ICONS.forward} Forward</button>`,
       `<button data-act="pin">${ICONS.pin} ${isPinned ? "Unpin" : "Pin"}</button>`,
       `<button data-act="star">${isStarred ? ICONS.starOff : ICONS.star} ${isStarred ? "Unstar" : "Star"}</button>`,
@@ -1165,6 +1191,13 @@ function openMsgMenu(rect, msg, chatId, ctx) {
     close();
     if (act === "del-trace") {
       hideSilently(chatId, [msg.id]);
+    } else if (act === "undelete") {
+      // R44: restore the agent's wrongly deleted message for EVERY member
+      const r = await api("/api/mesh/restore_message",
+                          { chat_id: chatId, msg_id: msg.id });
+      if (r.error) { toast(r.error, true); return; }
+      toast("Message restored for everyone", { check: true });
+      refreshChat();
     } else if (act === "reply") {
       startReply(chatId, msg);
       // replying needs the composer: a pane that COVERS the chat closes
@@ -1627,8 +1660,9 @@ async function bulkSave(chatId) {
 
 // ---- delete -----------------------------------------------------------------
 // The trash action ALWAYS opens the confirm dialog (consistent). Only whether
-// "Delete for everyone" appears varies: it needs every pick to be my own,
-// non-info, live message AND the chat not to be my own self-chat.
+// "Delete for everyone" appears varies: every pick must be my own message —
+// or my AGENT's (the responsible member acts for it, R44) — non-info, live,
+// AND the chat not my own self-chat.
 function bulkDelete(chatId) {
   const ids = selectedInOrder();
   if (!ids.length) return;
@@ -1636,9 +1670,12 @@ function bulkDelete(chatId) {
   const msgs = tr?._msgs;
   const me = Mesh.state?.user;
   const selfChat = !!tr?._ctx?.selfChat;
+  const actsFor = (m) => m.from === me
+    || (Mesh.state?.users?.[m.from]?.kind === "agent"
+        && (Mesh.state.users[m.from].owners || []).includes(me));
   const canEveryone = !selfChat && ids.every((id) => {
     const m = msgs?.get(id);
-    return m && m.from === me && m.kind !== "info" && !m.deleted;
+    return m && actsFor(m) && m.kind !== "info" && !m.deleted;
   });
   deleteDialog(chatId, ids, canEveryone);
 }

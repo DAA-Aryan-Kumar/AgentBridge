@@ -75,7 +75,7 @@ def _inside(target: str, workspace: Path) -> bool:
 class Ask:
     def __init__(self, agent: str, chat_id: str, kind: str, tool: str,
                  detail: str, input_hash: str, timeout_s: float,
-                 label: str = "", options: list[str] | None = None) -> None:
+                 label: str = "", options: list | None = None) -> None:
         self.id = new_id("ask")
         self.agent = agent
         self.chat_id = chat_id
@@ -149,7 +149,7 @@ class PermissionBroker:
     # ----------------------------------------------------------- the pipe
     def ask(self, *, chat_id: str, kind: str, tool: str, detail: str,
             input_hash: str = "", timeout_s: float = 120.0,
-            options: list[str] | None = None) -> tuple[str, str]:
+            options: list | None = None) -> tuple[str, str]:
         """Publish one ask and wait for the owner. Returns
         ``(verdict, text)`` — verdict allow|always|deny|timeout for
         permissions, answer|timeout for questions (text = the reply/reason).
