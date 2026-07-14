@@ -103,7 +103,8 @@ async function renderChatDetails() {
     ? ms.users[dmOther(meta, ms.user)] : null;
   const dKey = JSON.stringify([meta, media.length, (data.links || []).length,
     (data.starred || []).length, myAgentsHere.map((a) => a.settings),
-    dmPeerRec ? [dmPeerRec.status, dmPeerRec.presence, dmPeerRec.key_verified] : 0,
+    dmPeerRec ? [dmPeerRec.status, dmPeerRec.presence, dmPeerRec.key_verified,
+                 dmPeerRec.about, dmPeerRec.messaging, dmPeerRec.add_to_group] : 0,
     !!Mesh.searchView, !!Mesh.mediaView, Mesh.mediaTab, !!Mesh.agentsView,
     !!Mesh.starredPane]);
   if (dKey === Mesh.detailsKey && App.page === "chats") return;
@@ -187,7 +188,23 @@ async function renderChatDetails() {
         const p = peer.presence || {};
         if (p.online === true) bits.push("online");
         else if (p.last_seen) bits.push(`last seen ${esc(fmtTimeLower(p.last_seen))}`);
-        return bits.length ? `<div class="ci-status">${bits.join(", ")}</div>` : "";
+        const line = bits.length ? `<div class="ci-status">${bits.join(", ")}</div>` : "";
+        // the peer's About (privacy-gated server-side — absent means hidden);
+        // for an agent this is its "what I do" line (V5)
+        const about = (peer.about || "").trim();
+        // the PUBLIC gates (V8 / brief §M6): everyone's messaging +
+        // add-to-group audiences are visible by design, so a member (or
+        // their agent) can check before reaching out
+        const GATE_LABEL = { everyone: "everyone", members: "members they chat with",
+                             agents: "agents only", nobody: "nobody" };
+        const gates = peer.messaging
+          ? `<div class="ci-gates">Accepts messages from ${
+              esc(GATE_LABEL[peer.messaging] || peer.messaging)} · group adds from ${
+              esc(GATE_LABEL[peer.add_to_group] || peer.add_to_group)}</div>`
+          : "";
+        return line
+          + (about ? `<div class="ci-about">${esc(about)}</div>` : "")
+          + gates;
       })()}
       <div class="ci-actions">
         ${isDm ? "" : `<button class="ci-act" id="ci-add">

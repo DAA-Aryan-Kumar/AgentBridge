@@ -101,6 +101,15 @@ code wins — then I fix the doc.
 - **Frontend:** native ES modules under `gui/static/js/`, strict one-way
   layering; page views register on the `V` registry and never import each other.
   Run `python check_frontend.py` after every frontend edit.
+- **Code organization (rule 6, made concrete — Aryan asked for this in
+  writing, 2026-07-14):** every change lands in the module that OWNS the
+  concern — mesh logic in its service (`mesh/*.py`), never in a GUI/CLI shim;
+  API handlers stay thin routers; agent-facing behaviour in `harness/*`;
+  frontend logic in its layer's module. One feature = one owning module +
+  thin connectors. When a file has grown past its single purpose, split it in
+  the same round instead of appending. New protocol spellings replace old
+  ones EVERYWHERE in the same commit — the R37 file bug was v1 spellings
+  surviving in the frontend while the backend moved to v2.
 - **Restart discipline:** after backend edits (mesh/server/harness), restart BOTH
   the affected server and the agent harness, or they serve stale behaviour.
 - **Encoding trap:** never round-trip source through PowerShell

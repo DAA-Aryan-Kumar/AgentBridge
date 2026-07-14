@@ -293,15 +293,19 @@ class AccountsService:
         )
 
     def set_about(self, about: str, *, agent: str | None = None) -> Account:
-        target = self._writable_target(agent)
+        # R38: an agent MAY write its own About (owner and agent both edit;
+        # the account doc's last write wins) — see _writable_target
+        target = self._writable_target(agent, allow_self=True)
         return self.directory.patch(target, lambda doc: doc.update(about=about or ""))
 
     def set_status(self, state: str, text: str = "", *, agent: str | None = None) -> Account:
         """ONE logical status per account across all devices (account-model
         v2) — it lives on the account file, not in per-device presence.
         Suggested vocabulary: available / busy / dnd / away; agents read it
-        before deciding whether to disturb someone (matrix-gated, R6)."""
-        target = self._writable_target(agent)
+        before deciding whether to disturb someone (matrix-gated, R6).
+        R38: an agent keeps its OWN status current (state + what it's
+        working on) — owner and agent both edit, most recent wins."""
+        target = self._writable_target(agent, allow_self=True)
         state = (state or "").strip().lower()
         if not state or len(state) > 24:
             raise ValidationError("status state must be 1-24 characters")
@@ -475,12 +479,15 @@ class AccountsService:
                 out.append(doc["name"])
         return sorted(out)
 
-    def _writable_target(self, agent: str | None) -> str:
+    def _writable_target(self, agent: str | None, *, allow_self: bool = False) -> str:
         if agent is None:
-            # D19: an agent identity can NEVER self-manage its account —
-            # profile, status, privacy all belong to the responsible member
-            # (and only through the GUI; the CLI/MCP surface never offers them)
-            if self.directory.kind(self.user) is UserKind.AGENT:
+            # D19: an agent identity can't self-manage its account — profile,
+            # handle, privacy belong to the responsible member. R38 carves out
+            # exactly TWO surfaces (``allow_self``): status and about, which
+            # the agent is expected to keep current itself (the brief's M7 —
+            # status informs whether to disturb someone). Owner and agent
+            # write the same account field; the most recent write wins.
+            if self.directory.kind(self.user) is UserKind.AGENT and not allow_self:
                 raise PermissionDenied(
                     "an agent's account settings are managed by its responsible member"
                 )

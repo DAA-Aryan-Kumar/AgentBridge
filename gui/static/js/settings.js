@@ -40,10 +40,14 @@ const AUDIENCE_OPTS = [
   { v: "nobody", label: "Nobody" },
 ];
 // the brief's scope lines: photo is everyone/nobody only; messaging and
-// add-to-group audiences never ride the owner-member tier
+// add-to-group are STRICT gates — their "agents" tier has no owner
+// ride-along (R6 product decision), so the label must not promise one
+const GATE_OPTS = AUDIENCE_OPTS.map((o) =>
+  o.v === "agents" ? { v: "agents", label: "Agents only" } : o);
 const audienceOptsFor = (field) =>
   field === "photo"
     ? AUDIENCE_OPTS.filter((o) => o.v === "everyone" || o.v === "nobody")
+    : field === "messaging" || field === "add_to_group" ? GATE_OPTS
     : AUDIENCE_OPTS;
 
 async function renderSettings() {
@@ -240,7 +244,15 @@ async function renderSettings() {
                 placeholder="What it's working on (optional)" maxlength="80"
                 value="${esc((a.status && a.status.text) || "")}" style="margin-top:6px;width:100%">
               <button class="ag-status-save" data-agent="${esc(a.username)}" style="margin-top:6px">Set status</button>
-              <span class="hint">Its availability, shown to members per your privacy rules</span></dd>
+              <span class="hint">The agent keeps this current itself too — the
+              most recent update (yours or its own) wins</span></dd>
+            <dt>About</dt><dd>
+              <input type="text" class="ag-about" data-agent="${esc(a.username)}"
+                placeholder="What it does or knows" maxlength="140"
+                value="${esc(raw.about ?? a.about ?? "")}" style="width:100%">
+              <button class="ag-about-save" data-agent="${esc(a.username)}" style="margin-top:6px">Set about</button>
+              <span class="hint">Shown on its profile per its privacy rules;
+              the agent can update it too</span></dd>
             <dt>Default reply rule</dt><dd><span class="csel-slot ag-default"
               data-agent="${esc(a.username)}" data-value="${esc(st.default_rule || "tagged")}"></span></dd>
             <dt>Replies per hour</dt><dd><span class="csel-slot ag-rate"
@@ -280,6 +292,19 @@ async function renderSettings() {
               ${raw.privacy?.read_receipts !== false ? "checked" : ""}>
             <span class="slider"></span></label>
             <span><b>Read receipts</b> — this agent sends and sees them</span></div>
+          <h2 style="margin-top:14px">Reach</h2>
+          <dl class="kv" style="grid-template-columns:minmax(120px,180px) 1fr">
+            <dt>May message</dt><dd><span class="csel-slot ag-rule"
+              data-agent="${esc(a.username)}" data-rule="messaging"
+              data-value="${esc(raw.rules?.messaging || "everyone")}"></span></dd>
+            <dt>May add to groups</dt><dd><span class="csel-slot ag-rule"
+              data-agent="${esc(a.username)}" data-rule="add_to_group"
+              data-value="${esc(raw.rules?.add_to_group || "everyone")}"></span></dd>
+          </dl>
+          <p class="hint" style="margin:4px 0 0">Who this agent may reach out
+          to — your rules, applied on every send. (Everyone's own
+          "who can message me" and "who can add me" settings are public, so
+          agents can check before reaching out.)</p>
           <p class="hint">"Current model" applies everywhere; the per-audience
           models below kick in when it's left on the family default. Per-chat
           rules and models live in each chat's info page — a chat's own pick
@@ -480,6 +505,7 @@ async function renderSettings() {
         { v: "away", label: "🌙 Away" },
       ];
       mountCsels($(".settings-body"), (slot) => {
+        if (slot.classList.contains("ag-rule")) return GATE_OPTS;
         if (slot.classList.contains("ag-status-state")) return statusOpts;
         if (slot.classList.contains("ag-adapter")) return adapterOpts;
         if (slot.classList.contains("ag-model"))
@@ -496,6 +522,14 @@ async function renderSettings() {
           ? [rateOpts[0], { v: cur, label: `${cur} / hour` }, ...rateOpts.slice(1)]
           : rateOpts;
       }, (slot, v) => {
+        // outbound reach rules (owner-set, R38): POST immediately like the
+        // privacy matrix — the endpoint routes gate keys to set_agent_rules
+        if (slot.classList.contains("ag-rule")) {
+          api("/api/mesh/agent", { username: slot.dataset.agent,
+            patch: { [slot.dataset.rule]: v } })
+            .then((r) => { if (r.error) toast(r.error, true); });
+          return;
+        }
         if (slot.classList.contains("ag-adapter")) {
           // a family switch orphans the old family's model picks — clear them
           document.querySelectorAll(
@@ -618,6 +652,18 @@ async function renderSettings() {
       });
       if (r.error) { toast(r.error, true); return; }
       toast(`@${agent}'s status updated`, { check: true });
+    });
+  });
+  // owner sets the agent's About (V5) — same shared field the agent's own
+  // set_about tool writes; most recent wins
+  document.querySelectorAll(".ag-about-save").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const agent = btn.dataset.agent;
+      const inp = document.querySelector(`.ag-about[data-agent="${agent}"]`);
+      const r = await api("/api/mesh/set_about",
+        { agent, about: (inp?.value || "").trim() });
+      if (r.error) { toast(r.error, true); return; }
+      toast(`@${agent}'s About updated`, { check: true });
     });
   });
   // owner stops the agent's in-flight run (R36) — all chats

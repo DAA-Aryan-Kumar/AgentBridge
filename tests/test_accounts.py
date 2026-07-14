@@ -234,13 +234,15 @@ def test_forged_agent_removal_by_non_owner_ignored_in_fold(world):
 
 
 def test_agents_cannot_self_manage_account(world):
+    """D19 with the R38 carve-out: status + about are the agent's OWN to keep
+    current (owner and agent both write; most recent wins) — every other
+    account surface still refuses the agent identity."""
     meshes, mk = world
-    meshes["aryan"].accounts.create_agent("claude")
+    aryan = meshes["aryan"]
+    aryan.accounts.create_agent("claude")
     claude = mk("claude")
     try:
         for call in (
-            lambda: claude.accounts.set_status("busy"),
-            lambda: claude.accounts.set_about("self-written"),
             lambda: claude.accounts.set_display("Self Named"),
             lambda: claude.accounts.set_handle("sneaky"),
             lambda: claude.privacy.set_privacy({"messaging": "nobody"}),
@@ -248,6 +250,14 @@ def test_agents_cannot_self_manage_account(world):
         ):
             with pytest.raises(PermissionDenied):
                 call()
+        # the carve-out: its own status + about, last writer wins
+        claude.accounts.set_status("busy", "indexing the repo")
+        claude.accounts.set_about("Aryan's code helper")
+        acc = claude.directory.get("claude")
+        assert acc.status.state == "busy" and acc.status.text == "indexing the repo"
+        assert acc.about == "Aryan's code helper"
+        aryan.accounts.set_status("available", agent="claude")   # owner overwrites
+        assert aryan.directory.get("claude").status.state == "available"
     finally:
         claude.close()
 

@@ -1124,6 +1124,29 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       live-verified on the rig (real composer file-input drive, second
       identity for reactions/reappear).
 
+- [x] **R38 — agent profile + permissions. DONE 2026-07-14 (v0.24.112, 389
+      tests).** BACKLOG V5/V6/V8/V9. (1) **D19 carve-out** — status + about
+      are now the agent's OWN to keep current (`_writable_target
+      allow_self=True` on exactly those two setters; privacy/blocks/handle/
+      display/avatar still refuse the agent identity — test pins both
+      halves). Owner and agent write the same account field; most recent
+      wins. (2) **Bridge tools** — `set_status(state, working_on)`,
+      `set_about`, and `read_permissions` (no arg: its own owner-set privacy
+      matrix + outbound rules; a username: that member's PUBLIC gates only).
+      Prompt pack advertises them + nudges the agent to keep its status
+      current; activity labels added. (3) **GUI** — agent card gains About
+      (input + save) and a "Reach" section (May message / May add to groups
+      → `set_agent_rules`, which had no GUI); the DM details identity block
+      now shows the peer's About (previously rendered nowhere) and the
+      public gates line ("Accepts messages from … · group adds from …",
+      §M6's by-design-public settings). Gate pickers relabeled "Agents only"
+      (strict — the R36 label wrongly promised the owner ride-along tier).
+      (4) WORKING_AGREEMENT gains the code-organization standing convention
+      (owning-module rule + same-commit protocol-spelling sweeps). Verified
+      live: scratbot's real identity self-set status/about (privacy refused),
+      owner overwrite won, rules persisted, identity block shows all three
+      lines.
+
 | Backlog item (source) | Covered in |
 |---|---|
 | Settings overhaul: messaging-permission model (HANDOFF #1) | R6 |

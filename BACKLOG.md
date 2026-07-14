@@ -273,27 +273,40 @@ Ticked = shipped + verified. Rounds named for open items.
 
 ### Verbal asks (2026-07-14, composer-round kickoff)
 
-- [ ] **V5 About for agents** — surface + edit About in the agents page
-  (backend field exists, M7). → round "agent profile + permissions".
-- [ ] **V6 Agent self-profile tools** — bridge tools to set its own status
-  (state + what-it's-working-on text) and about; BOTH owner and agent may
-  edit, most recent write wins; the prompt pack encourages the agent to keep
-  status/working-on current. → round "agent profile + permissions".
+- [x] **V5 About for agents** (R38) — About row in each agent card (input +
+  "Set about", `/api/mesh/set_about agent=`); the DM details identity block
+  now also shows the peer's About (it was rendered NOWHERE before — for an
+  agent this is its "what I do" line). Live-verified incl. the owner
+  overwriting the agent's self-set value.
+- [x] **V6 Agent self-profile tools** (R38) — bridge tools `set_status`
+  (state + working-on) and `set_about`; the D19 "agents never self-manage"
+  rule got a documented carve-out for EXACTLY these two surfaces (privacy/
+  blocks/handle/display/avatar still refuse — test updated to pin both
+  halves). Owner and agent write the same account field; most recent wins.
+  Prompt pack: bridge para + etiquette nudge to keep status current
+  ("busy → available when done") + activity labels. Live-verified as
+  scratbot's real identity on the rig; real-HTTP tool test in the suite.
 - [x] **V7 pv-aud double-mount regression (R36)** (R37) — each privacy entry
   in the agent card showed a stray REPLY-RULE dropdown under the audience
   select: `wireAccountEditors` mounted the audience csel, then the
   agents-section `mountCsels` sweep re-hit the same slot and its fallthrough
   returned ruleOpts. mountCsels now skips already-mounted slots (idempotent).
   Live-verified: all 7 rows exactly one dropdown, audience labels.
-- [ ] **V8 Surface the PUBLIC gates in GUI** — the brief (§M6) makes
-  messaging + add-to-group audiences public by design ("so an agent can know
-  this beforehand"); backend ships them in `visible_profile`/`public_gates`
-  but no GUI shows them. Show on the member/agent profile surfaces. → round
-  "agent profile + permissions".
-- [ ] **V9 Agent permission-reading tools** — a bridge tool to read (a) its
-  OWN owner-set permissions (privacy matrix + outbound agent_rules) and
-  (b) any member's public gates (+ whatever profile its privacy shares).
-  → round "agent profile + permissions".
+- [x] **V8 Surface the PUBLIC gates in GUI** (R38) — (a) viewer side: the DM
+  details identity block shows "Accepts messages from … · group adds from …"
+  (public by design, brief §M6); (b) owner side: each agent card gains a
+  "Reach" section — the owner-set OUTBOUND rules (May message / May add to
+  groups, → `set_agent_rules`), which had NO GUI at all. Also fixed the gate
+  labels: the strict gates' agents tier now reads "Agents only" (the R36
+  pickers reused "Agents (+ their members)", which is wrong for gates — no
+  owner ride-along). Live-verified: rule change persisted (messaging:
+  members), identity block shows all three lines.
+- [x] **V9 Agent permission-reading tools** (R38) — bridge tool
+  `read_permissions`: no argument → its OWN owner-set view (privacy matrix +
+  outbound may_message/may_add_to_group); a username → that member's PUBLIC
+  gates only, with an explicit "other settings are hidden" note.
+  Real-HTTP-tested (own rules returned; another member leaks nothing beyond
+  the gates) + live on the rig as scratbot's identity.
 
 ---
 
@@ -319,7 +332,7 @@ Ticked = shipped + verified. Rounds named for open items.
 | status surfacing | Q32 (M7 close) |
 | run UX | Q9, Q10, Q11, Q12 |
 | composer + transcript bug bash (R37, done) | Q16, Q19, Q24, Q25, Q27, Q29, Q31, V7 |
-| agent profile + permissions | V5, V6, V8, V9 |
+| agent profile + permissions (R38, done) | V5, V6, V8, V9 |
 | settings + model config | Q13, Q14, Q20, Q21, Q23, Q30, M11-GUI, H6, H8, H9 |
 | notifications | Q26, M3-remainder |
 | docs tool + ask cards | Q7, Q28 (H2 close) |

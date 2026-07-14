@@ -312,6 +312,57 @@ def test_read_status_tool_is_privacy_gated(tmp_path):
         owner.close()
 
 
+def test_agent_profile_and_permission_tools(tmp_path):
+    """R38: set_status/set_about keep the agent's OWN profile current (owner
+    and agent both write, most recent wins), and read_permissions returns its
+    own owner-set rules — but only the PUBLIC gates for anyone else."""
+    root = tmp_path / "mesh2"
+    root.mkdir()
+    home = tmp_path / "home"
+    owner = Mesh(root, "aryan", "devbox", encrypt=True, home=home)
+    owner.accounts.create_human("aryan", "hunter2x")
+    owner.accounts.create_agent("helper")
+    agent = Mesh(root, "helper", "devbox", encrypt=True, home=home)
+    try:
+        owner.set_privacy({"messaging": "members"})       # aryan's public gate
+        owner.set_agent_rules("helper", {"messaging": "members"})
+        chat = owner.create_chat("Main", members=["helper"])
+        owner.outbox.flush_once()
+        agent.sync.sync_once([chat.id])
+
+        b = PermissionBroker(agent.tx, "helper")
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        with BridgeServer(b, chat_id=chat.id, workspace=ws, auto_allow=[],
+                          approvals=[], ask_timeout_s=0.3, mesh=agent) as bridge:
+            assert call_tool(bridge.url, "set_status", {
+                "state": "busy", "working_on": "indexing the repo",
+            }) == "status updated"
+            assert call_tool(bridge.url, "set_about", {
+                "about": "I run the nightly reports",
+            }) == "about updated"
+
+            own = json.loads(call_tool(bridge.url, "read_permissions", {}))
+            assert own["outbound"]["may_message"] == "members"
+            assert "privacy" in own and own["set_by"]
+
+            other = json.loads(call_tool(
+                bridge.url, "read_permissions", {"username": "aryan"}))
+            assert other["messaging"] == "members"          # public by design
+            assert "privacy" not in other                   # the rest hidden
+
+        acc = agent.directory.get("helper")
+        assert acc.status.state == "busy"
+        assert acc.status.text == "indexing the repo"
+        assert acc.about == "I run the nightly reports"
+        # most recent wins: the owner overwrites the agent's own status
+        owner.set_status("available", agent="helper")
+        assert owner.directory.get("helper").status.state == "available"
+    finally:
+        agent.close()
+        owner.close()
+
+
 def test_agent_edits_and_deletes_only_its_own_messages(tmp_path):
     """R33: an agent gets edit_message/delete_message over its OWN messages
     (author-only, like a human) — never over another member's."""

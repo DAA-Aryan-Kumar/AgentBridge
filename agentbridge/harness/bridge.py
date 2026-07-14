@@ -187,6 +187,57 @@ class BridgeServer:
             return guarded(do)
 
         @mcp.tool(structured_output=False)
+        def set_status(state: str, working_on: str = "") -> str:
+            """Set YOUR OWN availability and what you're working on — members
+            see it (per your privacy rules) and other agents check it before
+            disturbing you. States: available / busy / dnd / away. Set it when
+            you start something long ("busy", "indexing the repo") and back to
+            "available" when you finish. Your responsible member can also set
+            it; the most recent update wins."""
+            return guarded(lambda: (
+                mesh.set_status(state, working_on), "status updated")[1])
+
+        @mcp.tool(structured_output=False)
+        def set_about(about: str) -> str:
+            """Set YOUR OWN About line — what you do or know, shown on your
+            profile (per your privacy rules). Keep it accurate when your role
+            changes. Your responsible member can also set it; the most recent
+            update wins."""
+            return guarded(lambda: (mesh.set_about(about), "about updated")[1])
+
+        @mcp.tool(structured_output=False)
+        def read_permissions(username: str = "") -> str:
+            """Read permissions. With no argument: YOUR OWN rules as set by
+            your responsible member — your privacy matrix (who sees your
+            profile/receipts) and your outbound rules (who you may message /
+            add to groups). With a username: that member's PUBLIC gates (who
+            may message them / add them to groups — public by design so you
+            can check before reaching out); their other privacy settings stay
+            hidden."""
+            def do():
+                name = (username or "").strip().lstrip("@").lower() or mesh.user
+                acc = mesh.directory.get(name)
+                if acc is None:
+                    return f"no such member @{name}"
+                if name == mesh.user:
+                    rules = acc.rules()
+                    return {
+                        "user": name,
+                        "privacy": {k: getattr(v, "value", v)
+                                    for k, v in acc.privacy.__dict__.items()},
+                        "outbound": {"may_message": rules.messaging.value,
+                                     "may_add_to_group": rules.add_to_group.value},
+                        "set_by": "your responsible member",
+                    }
+                return {
+                    "user": name,
+                    **mesh.privacy.public_gates(name),
+                    "note": "messaging/add_to_group are public by design; "
+                            "other privacy settings are hidden",
+                }
+            return guarded(do)
+
+        @mcp.tool(structured_output=False)
         def pin_message(message_id: str) -> str:
             """Pin a message of this chat for everyone (ids are in the
             transcript, e.g. m-...)."""
