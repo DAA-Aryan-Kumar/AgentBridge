@@ -68,6 +68,10 @@ class BridgeServer:
         self.global_memory = global_memory
         self.docs = docs                 # ToolDocs (R43); None = no read_docs
         self._creates = 0
+        # V53 (leave_chat): the leave is DEFERRED — the tool only requests
+        # it (owner-approved); the runner executes it after the reply posts,
+        # so the agent's goodbye still lands while it is a member.
+        self.leave_requested = False
         self.port = 0
         self._server = None
         self._thread: threading.Thread | None = None
@@ -388,6 +392,115 @@ class BridgeServer:
                     mesh.post(snap.id, message[:2000])
                 return {"chat_id": snap.id, "members": sorted(snap.members)}
 
+            return guarded(do)
+
+        # ------------------------- chat-level member powers (V53, parity b)
+        @mcp.tool(structured_output=False)
+        def message_info(message_id: str) -> str:
+            """Delivery + read receipts for one of YOUR OWN messages in this
+            chat — who received it and who has read it. Members' receipt
+            privacy applies (someone who hides read receipts shows only
+            Delivered), exactly as a human sees ticks."""
+            if not mine(message_id):
+                return "receipts are for your own messages — ids are in the transcript"
+            return guarded(lambda: mesh.message_info(chat, message_id))
+
+        @mcp.tool(structured_output=False)
+        def mute_chat(duration: str = "8h") -> str:
+            """Quiet YOUR OWN notification lane for this chat: '8h', '1w',
+            'forever', or 'off' to unmute. Only your own pings are affected
+            (e.g. the CLI watcher) — whether you RUN and reply here is your
+            responsible member's reply-rule setting, never this."""
+            def do():
+                d = str(duration or "").lower().strip()
+                if d in ("off", "unmute"):
+                    mesh.set_chat_flag(chat, "mute", False)
+                    return "unmuted"
+                if d == "forever":
+                    mesh.set_chat_flag(chat, "mute", True)
+                    return "muted until you unmute"
+                hours = {"8h": 8.0, "1w": 168.0}.get(d)
+                if hours is None:
+                    return "duration must be one of 8h / 1w / forever / off"
+                mesh.set_chat_flag(chat, "mute",
+                                   time.time_ns() + int(hours * 3600 * 1e9))
+                return f"muted for {d}"
+            return guarded(do)
+
+        @mcp.tool(structured_output=False)
+        def archive_chat(archived: bool = True) -> str:
+            """Archive (or unarchive) this chat in YOUR OWN chat list —
+            nobody else sees your archive, and messages keep arriving."""
+            return guarded(lambda: (
+                mesh.set_chat_flag(chat, "archived", bool(archived)),
+                "archived (your list only)" if archived else "unarchived")[1])
+
+        @mcp.tool(structured_output=False)
+        def add_member(username: str) -> str:
+            """Add a member to THIS group, under the same rules as any
+            member: the group's permissions decide who may add, the person's
+            own privacy gate applies, and your responsible member's outbound
+            rules bind you. An added agent brings its responsible member."""
+            return guarded(lambda: (
+                mesh.add_members(
+                    chat, [str(username or "").strip().lstrip("@").lower()]),
+                "added")[1])
+
+        @mcp.tool(structured_output=False)
+        def rename_chat(name: str) -> str:
+            """Rename THIS group — allowed only when the group's settings
+            permission lets regular members edit (agents are never admins)."""
+            return guarded(lambda: (mesh.rename(chat, name), "renamed")[1])
+
+        @mcp.tool(structured_output=False)
+        def set_description(text: str) -> str:
+            """Set THIS group's description (same permission rule as
+            renaming)."""
+            return guarded(lambda: (
+                mesh.set_description(chat, text), "description updated")[1])
+
+        def _owner_approved(tool: str, detail: str) -> str | None:
+            """The owner-confirm gate the irreversible chat tools share —
+            None = approved, otherwise the refusal text to return."""
+            verdict, text = self.broker.ask(
+                chat_id=self.chat_id, kind="permission", tool=tool,
+                detail=detail, timeout_s=self.ask_timeout_s)
+            if verdict in ("allow", "always"):
+                return None
+            if verdict == "deny":
+                return ("your responsible member declined"
+                        + (f": {text}" if text else ""))
+            return ("your responsible member did not approve in time — "
+                    "leave things as they are")
+
+        @mcp.tool(structured_output=False)
+        def leave_chat(reason: str = "") -> str:
+            """Leave THIS group. Your responsible member is asked to approve
+            first (they put you in your rooms). The leave happens AFTER your
+            final reply posts, so say your goodbye in it."""
+            def do():
+                refusal = _owner_approved(
+                    "leave_chat",
+                    " ".join((reason or "leave this group").split())[:300])
+                if refusal:
+                    return refusal
+                self.leave_requested = True
+                return ("approved — you will leave right after this reply "
+                        "posts")
+            return guarded(do)
+
+        @mcp.tool(structured_output=False)
+        def clear_chat(keep_starred: bool = True) -> str:
+            """Clear YOUR OWN view of this chat's history (members keep
+            theirs; starred messages survive by default). Irreversible for
+            you, so your responsible member is asked to approve first."""
+            def do():
+                refusal = _owner_approved(
+                    "clear_chat", "clear its own view of this chat's history")
+                if refusal:
+                    return refusal
+                mesh.clear_chat(chat, keep_starred=bool(keep_starred))
+                return "cleared — your view of this chat starts fresh"
             return guarded(do)
 
         @mcp.tool(structured_output=False)

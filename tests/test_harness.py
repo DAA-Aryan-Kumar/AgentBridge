@@ -795,3 +795,24 @@ def test_chat_stand_down_gates_claimed_groups(hrig):
     assert responder.calls == [] and agent_msgs(hrig.owner, snap.id) == []
     # the item is still pending — released, not resolved
     assert runner.queue.snapshot()
+
+
+def test_deferred_leave_posts_goodbye_first(hrig):
+    """V53: an owner-approved leave_chat rides the Reply — the goodbye
+    posts while the agent is still a member, THEN it leaves."""
+    snap = hrig.owner.create_chat("Farewell", members=["helper"])
+    hrig.owner.post(snap.id, "hey @helper, you can go")
+    responder = Scripted(lambda d: Reply(body="thanks — signing off",
+                                         leave_chat=True))
+    runner = hrig.make_runner(responder)
+    ripple(hrig, runner, snap.id)
+
+    turn(hrig, runner, snap.id)
+
+    replies = [m for m in agent_msgs(hrig.owner, snap.id)
+               if m.kind.value == "message"]
+    assert len(replies) == 1 and "signing off" in replies[0].body
+    assert "helper" not in hrig.owner.snapshot(snap.id).members
+    # the departure pill is in the log (fold-visible to the owner)
+    assert any((m.event or {}).get("type") == "member_left"
+               for m in hrig.owner.messages_for(snap.id))

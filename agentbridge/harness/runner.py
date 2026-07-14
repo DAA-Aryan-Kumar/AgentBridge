@@ -499,6 +499,7 @@ class AgentRunner:
             self.queue.finish(group, "no_reply")
             feed.finish("done", "No reply needed")
             self._log_perf(timings, group, "no_reply")
+            self._maybe_leave(chat_id, reply)
             self.publish_status()
             return
         reply_to = None
@@ -527,7 +528,19 @@ class AgentRunner:
                                  if timer_ids else "")
         feed.finish("done", f"{note} · {timings.summary()}")
         self._log_perf(timings, group, "posted")
+        self._maybe_leave(chat_id, reply)
         self.publish_status()  # new timers become owner-visible immediately
+
+    def _maybe_leave(self, chat_id: str, reply) -> None:
+        """V53: an owner-approved leave_chat executes AFTER delivery, so the
+        agent's goodbye posts while it is still a member."""
+        if not getattr(reply, "leave_chat", False):
+            return
+        try:
+            self.mesh.leave(chat_id)
+            self.mesh.outbox.flush_once()
+        except Exception:  # noqa: BLE001 — a failed leave only logs
+            pass
 
     def _run_failed(self, group: WorkGroup, feed: RunFeed,
                     settings: HarnessSettings, delivery, err: Exception) -> None:

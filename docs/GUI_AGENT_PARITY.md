@@ -32,17 +32,17 @@ retrieval hits, staged inbound files.
 | Block / unblock | Settings→Privacy, DM danger zone | owner acts for the agent |
 | Setup/connection ops (wizard, doctor, connection health) | wizard / Settings→Connection | machine setup |
 
-## (b) Real parity gaps — a member could do these, an agent cannot
+## (b) Real parity gaps — CLOSED in R62 (v0.24.137, V53)
 
-| Capability | GUI location | Status |
-|---|---|---|
-| Group management as a member (add/remove member, rename, description, permissions, admins, leave, delete) | details pane | agent can `create_group` but nothing after that — the largest gap |
-| Mute a chat | header/sidebar | no tool (an agent can't dampen a noisy room) |
-| Archive / pin a chat | sidebar | no tool |
-| Hide / delete-for-me / clear chat | danger zone | no tool |
-| Read receipts + delivery status on its own messages | tick column, Message info | agent never learns whether a reply was seen |
-| Mark-unread / own read-cursor control | sidebar | harness-managed; borderline |
-| Delete-for-me / undelete / restore individual messages | message menu | agent has delete-for-everyone (own) only |
+| Capability | Resolution |
+|---|---|
+| Group management as a member | **SHIPPED**: `add_member` / `rename_chat` / `set_description` under the group's real permission gates (agents are never admins, so admins-only groups refuse honestly), and `leave_chat` — owner-approved via the ask pipe, DEFERRED until after the goodbye posts. `remove_member` / delete-group: **by design absent** — both require admin (or owning the target), which an agent can never hold; a permanently-refusing tool is noise. Permissions/admin changes: admin-only, same reasoning. |
+| Mute a chat | **SHIPPED**: `mute_chat('8h'/'1w'/'forever'/'off')` — the agent's OWN notification lane (CLI watcher etc.). Deliberately does NOT dampen harness triggers: whether an agent runs in a chat is its responsible member's reply-rule setting (D19); a self-service trigger damper would be config self-service (Q5). |
+| Archive a chat | **SHIPPED**: `archive_chat(bool)` — its own list only. Pin-chat: **by design absent** (sidebar ordering is a human viewing aid; an agent has no sidebar). |
+| Clear chat | **SHIPPED**: `clear_chat(keep_starred)` — owner-approved via the ask pipe (irreversible for the agent). |
+| Read receipts on own messages | **SHIPPED**: `message_info(message_id)` — per-member Delivered/Read on its OWN messages, members' receipt privacy applied. |
+| Mark-unread / read-cursor | **By design absent** — the harness owns the agent's read cursor (context read = read); a self-moved cursor would corrupt receipts. |
+| Per-message hide / delete-for-me / undelete | **By design absent** — no agent use case surfaced, and a model hiding messages from itself is a context-corruption foot-gun; `clear_chat` covers the real need (a poisoned view) under owner approval. |
 
 ## (c) Informational gaps — shown in GUI, never in agent context
 

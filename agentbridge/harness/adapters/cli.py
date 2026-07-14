@@ -186,6 +186,7 @@ class CliResponder:
         with contextlib.ExitStack() as stack:
             mcp_config = ""
             env = None
+            bridge = None
             if inv.preset.permission_args:
                 bridge = stack.enter_context(BridgeServer(
                     self.broker, chat_id=delivery.chat_id,
@@ -249,7 +250,8 @@ class CliResponder:
         # R18's workspace scoping owns the real fix.
         files = sorted(str(p) for p in outbox.iterdir()
                        if p.is_file() and p.stat().st_size)
-        return Reply(body=text, steps=steps, files=files, timers=timers)
+        return Reply(body=text, steps=steps, files=files, timers=timers,
+                     leave_chat=bool(bridge and bridge.leave_requested))
 
     def close(self) -> None:
         """Release process-held resources (the qdrant path lock above all)."""

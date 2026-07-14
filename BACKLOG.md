@@ -896,13 +896,30 @@ the update channel works. Atlan plugin: no action (he removes it himself).
   block berry for rigbot → account doc carries it AND berry's
   create_dm refuses with the non-leaking "@rigbot is not available";
   unblock → DM works again.
-- [ ] **V53 Parity (b) closes** — "a member could do these, an agent
-  cannot", one by one: b1 group management as a member (add/remove/
-  rename/description/leave — admin-gated ops stay admin-gated; agents
-  are never admins); b2 mute chat; b3 archive/pin chat; b4 hide/
-  delete-for-me/clear chat; b5 read receipts + delivery status on own
-  messages; b6 mark-unread / read-cursor control (borderline — decide
-  with b2); b7 delete-for-me / undelete individual messages.
+- [x] **V53 Parity (b) closes** (R62) — 8 new bridge tools, every one
+  riding the agent's OWN mesh facade so the real gates apply: b1
+  `add_member`/`rename_chat`/`set_description` (group permissions
+  decide — default all-members works, admins-only refuses honestly;
+  agents are never admins) + `leave_chat` — owner-approved via the ask
+  pipe ("wants to leave this group") and DEFERRED via Reply.leave_chat
+  so the goodbye posts first (runner executes after delivery, no_reply
+  path included); b2 `mute_chat` (8h/1w/forever/off — its OWN
+  notification lane; deliberately NOT a trigger damper: reply rules
+  are owner config, D19/Q5); b3 `archive_chat` (own list); b4
+  `clear_chat` (owner-approved — irreversible for the agent); b5
+  `message_info` (per-member Delivered/Read on its OWN messages,
+  receipt privacy applied). By-design absences documented in the
+  parity doc: remove_member/delete-group (admin-only — a permanently
+  refusing tool is noise), pin-chat (no sidebar), per-message hide /
+  delete-for-me / undelete (context-corruption foot-gun; clear_chat
+  covers the real need), mark-unread (the harness owns the cursor).
+  tooldocs entries (+ask phrases verified resolving) + the bridge
+  prompt roster updated. Verified at the R38/R43 tool standard: 3 new
+  REAL-HTTP tests over a real E2EE mesh (flags land in the agent's
+  overlay only; rename folds for the owner then refuses under
+  admins-only; deny note round-trips; clear empties only the agent's
+  view; deferred leave posts the goodbye THEN leaves with the pill in
+  the log).
 - [ ] **V54 Parity (c) closes** — shown in GUI, never in agent context:
   c1 reactions visible to agents; c2 `list_chats` unread counts (the
   manual already promises them — doc/impl mismatch); c3 per-chat flags;
@@ -1052,9 +1069,8 @@ the update channel works. Atlan plugin: no action (he removes it himself).
 | update channel that works (R59, done) | V51 (+ V52 answer; merged to main early for the AVD) |
 | reaction notifications (R60, done) | V50 (+ V59 landed early — same preview surface) |
 | polish batch (R61, done) | V56, V57, V58, V60, V61, V62 (+ V52 answer & GUI close) |
-| parity (b) — agent chat-level tools (R62) | V53 b2/b3/b4/b6/b7 |
-| parity (b) — group management + receipts (R63) | V53 b1/b5 |
-| parity (c) — agent context closes (R64) | V54 |
+| parity (b) — ALL of V53 in one round (R62, done) | V53 b1–b7 (shipped or BD-documented) |
+| parity (c) — agent context closes (R63) | V54 |
 | proactive timers (R65) | V55 (+ V64 assessment lands with it) |
 | storage janitor (R66) | V63 |
 | security round (NEXT, per Aryan — after janitor) | §C key-rotation-on-leave, per-member RLS, threat-model residuals |

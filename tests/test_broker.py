@@ -593,3 +593,143 @@ def test_permission_args_ride_both_argv_modes():
         assert "--permission-prompt-tool" in argv
     bare = p.build_argv(prompt="p", workdir="w", reply_file="r")
     assert "--mcp-config" not in bare             # no bridge, no flags
+
+# ------------------------------------------- chat-level member tools (V53)
+
+def _real_answer(tx, verdict, text="", delay=0.1):
+    """A stand-in owner over a REAL transport: answers the first pending
+    ask (the fake-transport helper above writes tx.docs directly)."""
+    def run():
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            doc = tx.get_doc("status/asks/helper.json") or {}
+            asks = doc.get("asks") or []
+            if asks:
+                tx.put_doc("status/asks/helper_answers.json", {
+                    "answers": {asks[0]["id"]: {"verdict": verdict,
+                                                "text": text}}})
+                return
+            time.sleep(0.02)
+    t = threading.Timer(delay, run)
+    t.start()
+    return t
+
+
+def test_chat_member_tools_flags_and_group_edits(tmp_path):
+    """V53: mute/archive write the agent's OWN overlay; group edits ride
+    the real authz gates (default all-members, refused once admins-only);
+    message_info returns receipts for its own message only."""
+    root = tmp_path / "mesh2"
+    root.mkdir()
+    home = tmp_path / "home"
+    owner = Mesh(root, "aryan", "devbox", encrypt=True, home=home)
+    owner.accounts.create_human("aryan", "hunter2x")
+    owner.accounts.create_agent("helper")
+    agent = Mesh(root, "helper", "devbox", encrypt=True, home=home)
+    try:
+        chat = owner.create_chat("Main", members=["helper"])
+        m = owner.post(chat.id, "note for receipts")
+        owner.outbox.flush_once()
+        agent.sync.sync_once([chat.id])
+
+        b = PermissionBroker(agent.tx, "helper")
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        with BridgeServer(b, chat_id=chat.id, workspace=ws, auto_allow=[],
+                          approvals=[], ask_timeout_s=0.4,
+                          mesh=agent) as bridge:
+            url = bridge.url
+            # own per-chat flags — the agent's view only
+            assert "muted for 8h" in call_tool(url, "mute_chat",
+                                               {"duration": "8h"})
+            assert "unmuted" in call_tool(url, "mute_chat",
+                                          {"duration": "off"})
+            assert "archived" in call_tool(url, "archive_chat",
+                                           {"archived": True})
+            assert agent.chat_overview(chat.id)["archived"] is True
+            assert owner.chat_overview(chat.id)["archived"] is False
+
+            # group edits under the default (all-members) permission
+            assert call_tool(url, "rename_chat",
+                             {"name": "Renamed by helper"}) == "renamed"
+            agent.outbox.flush_once()
+            owner.sync.sync_once([chat.id])
+            assert owner.snapshot(chat.id).name == "Renamed by helper"
+            assert call_tool(url, "set_description",
+                             {"text": "the desc"}) == "description updated"
+
+            # admins-only flips the same tools to an honest refusal
+            owner.set_permissions(chat.id, {"edit_settings": "admins"})
+            owner.outbox.flush_once()
+            agent.sync.sync_once([chat.id])
+            agent.membership.refold(chat.id)
+            out = call_tool(url, "rename_chat", {"name": "nope"})
+            assert "could not do that" in out
+
+            # receipts: own message only
+            own = agent.post(chat.id, "mine")
+            agent.outbox.flush_once()
+            info = call_tool(url, "message_info", {"message_id": own.id})
+            assert "receipts are for your own" not in info
+            other = call_tool(url, "message_info", {"message_id": m.id})
+            assert "receipts are for your own" in other
+    finally:
+        agent.close()
+        owner.close()
+
+
+def test_leave_and_clear_are_owner_gated(tmp_path):
+    """V53: leave_chat/clear_chat ask the owner. No answer = refusal;
+    allow = clear executes now, leave is DEFERRED (flag for the runner)."""
+    root = tmp_path / "mesh2"
+    root.mkdir()
+    home = tmp_path / "home"
+    owner = Mesh(root, "aryan", "devbox", encrypt=True, home=home)
+    owner.accounts.create_human("aryan", "hunter2x")
+    owner.accounts.create_agent("helper")
+    agent = Mesh(root, "helper", "devbox", encrypt=True, home=home)
+    try:
+        chat = owner.create_chat("Gated", members=["helper"])
+        owner.post(chat.id, "history line")
+        owner.outbox.flush_once()
+        agent.sync.sync_once([chat.id])
+
+        b = PermissionBroker(agent.tx, "helper")
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        with BridgeServer(b, chat_id=chat.id, workspace=ws, auto_allow=[],
+                          approvals=[], ask_timeout_s=0.5,
+                          mesh=agent) as bridge:
+            url = bridge.url
+            # silence = fail closed, nothing changed
+            out = call_tool(url, "leave_chat", {"reason": "done here"})
+            assert "did not approve" in out
+            assert bridge.leave_requested is False
+
+            # owner denies with a note — the note reaches the agent
+            t = _real_answer(agent.tx, "deny", text="stay put", delay=0.05)
+            out = call_tool(url, "clear_chat", {})
+            t.join()
+            assert "declined" in out and "stay put" in out
+            assert len(agent.messages_for(chat.id)) >= 1
+
+            # owner allows — clear executes (agent's view only)
+            t = _real_answer(agent.tx, "allow", delay=0.05)
+            out = call_tool(url, "clear_chat", {})
+            t.join()
+            assert "cleared" in out
+            assert [m for m in agent.messages_for(chat.id)
+                    if m.kind.value == "message"] == []
+            assert len([m for m in owner.messages_for(chat.id)
+                        if m.kind.value == "message"]) == 1
+
+            # owner allows the leave — deferred, membership intact for now
+            t = _real_answer(agent.tx, "allow", delay=0.05)
+            out = call_tool(url, "leave_chat", {"reason": "wrapping up"})
+            t.join()
+            assert "after this reply posts" in out
+            assert bridge.leave_requested is True
+            assert "helper" in agent.snapshot(chat.id).members
+    finally:
+        agent.close()
+        owner.close()

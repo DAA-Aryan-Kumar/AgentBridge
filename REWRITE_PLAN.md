@@ -1626,6 +1626,22 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       async panel fills); **V61** member tag dropped. 429 tests, 24/24
       modules; every item live-verified on a two-rig mesh.
 
+- [x] **R62 — agent parity (b): chat-level member tools. DONE
+      2026-07-15 (v0.24.137).** BACKLOG V53. Eight bridge tools on the
+      agent's own facade: `add_member`/`rename_chat`/`set_description`
+      (real group-permission gates), `leave_chat` (owner-ask "wants to
+      leave this group", DEFERRED via Reply.leave_chat — the goodbye
+      posts, THEN the runner leaves), `clear_chat` (owner-ask,
+      irreversible-for-the-agent), `mute_chat` (own notification lane
+      only — deliberately never a trigger damper, D19/Q5),
+      `archive_chat` (own list), `message_info` (Delivered/Read on own
+      messages, receipt privacy applied). By-design absences reasoned
+      in docs/GUI_AGENT_PARITY.md (remove_member/delete-group/
+      pin-chat/per-message-hide/mark-unread). tooldocs + ask phrases +
+      the bridge prompt roster updated. 432 tests (3 new real-HTTP over
+      a real E2EE mesh incl. the deny-note round-trip and the deferred
+      leave), 24/24 modules.
+
 | Backlog item (source) | Covered in |
 |---|---|
 | Settings overhaul: messaging-permission model (HANDOFF #1) | R6 |

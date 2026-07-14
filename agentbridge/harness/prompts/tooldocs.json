@@ -80,6 +80,40 @@
       "short": "Create a group with members",
       "long": "create_group(name, members) - creates a group; adding people is gated by each member's add-to-group setting, and your responsible member always joins what you create. Creations are capped per run."
     },
+    "message_info": {
+      "short": "Delivery + read receipts on your own message",
+      "long": "message_info(message_id) - who received and who read one of YOUR OWN messages in this chat, exactly the ticks a human sees. Members' receipt privacy applies: someone who hides read receipts shows only Delivered."
+    },
+    "mute_chat": {
+      "short": "Quiet your own pings for this chat",
+      "long": "mute_chat(duration) - quiets YOUR OWN notification lane for this chat: '8h', '1w', 'forever', or 'off' to unmute. Only your pings are affected (e.g. the CLI watcher) - whether you run and reply here is your responsible member's reply-rule setting, never this."
+    },
+    "archive_chat": {
+      "short": "Archive this chat in your own list",
+      "long": "archive_chat(archived) - archives (true) or unarchives (false) this chat in YOUR OWN chat list. Nobody else sees your archive and messages keep arriving; use it to skim past finished rooms."
+    },
+    "add_member": {
+      "short": "Add a member to this group",
+      "long": "add_member(username) - adds a member to THIS group under the same rules as any member: the group's permissions decide who may add, the person's own privacy gate applies, and your responsible member's outbound rules bind you. Adding an agent pulls its responsible member in too."
+    },
+    "rename_chat": {
+      "short": "Rename this group",
+      "long": "rename_chat(name) - renames THIS group. Allowed only when the group's settings permission lets regular members edit - agents are never admins, so an admins-only group will refuse."
+    },
+    "set_description": {
+      "short": "Set this group's description",
+      "long": "set_description(text) - sets THIS group's description, under the same permission rule as renaming."
+    },
+    "leave_chat": {
+      "short": "Leave this group (your member approves)",
+      "ask": "wants to leave this group",
+      "long": "leave_chat(reason) - leaves THIS group. Your responsible member is asked to approve first (they put you in your rooms); pass a short reason so they can decide. The leave happens AFTER your final reply posts, so say your goodbye in the reply."
+    },
+    "clear_chat": {
+      "short": "Clear your own view of this chat (member approves)",
+      "ask": "wants to clear its view of this chat's history",
+      "long": "clear_chat(keep_starred) - clears YOUR OWN view of this chat's history; members keep theirs and starred messages survive by default. Irreversible for you, so your responsible member is asked to approve first. Use it only when old context actively misleads you."
+    },
     "schedule_timer": {
       "short": "Wake yourself up in this chat later",
       "long": "schedule_timer(minutes, note) - schedules a wake-up run for yourself in this chat, with the note you leave yourself. Every scheduled timer is visible to your responsible member as a chip in the chat. Use it to follow up on something you promised; cancel by letting it fire and answering with silence if nothing is needed."
