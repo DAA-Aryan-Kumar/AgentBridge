@@ -482,12 +482,24 @@ Ticked = shipped + verified. Rounds named for open items.
   (create_dm + jump). Chat-scoped cards (media/encryption/permissions)
   deliberately dropped. Live-verified: admin menu = info+promote+remove,
   non-admin menu = info only, Message lands in the DM.
-- [ ] **V20 Boot theme flash** — orange (the old default accent) + light
-  mode flash before the saved accent/dark theme applies; theme must apply
-  before first paint. → round "boot experience".
-- [ ] **V21 Full-page boot/loading screen** (WhatsApp style) replacing the
-  in-layout skeleton; shaped so sign-in/create-account can take over the
-  same full page (packaging round). → round "boot experience".
+- [x] **V20 Boot theme flash** (R48) — js/main.js is a deferred MODULE, so
+  initTheme/initAccent ran after the first frame: one frame of the
+  stylesheet defaults (orange accent, light mode). An inline head script in
+  index.html now mirrors both synchronously (data-theme resolved from the
+  saved pref incl. system, data-accent + inline --accent from a hex map
+  kept in sync with util.js ACCENTS — noted at both ends). The theme-color
+  meta follows the accent live (was hardcoded orange). Live-verified:
+  dark+purple applied pre-module, dark bg, meta #7C3AED.
+- [x] **V21 Full-page boot/loading screen** (R48) — `#boot` is static
+  markup in index.html (paints before any script/fetch, themed by the V20
+  head script): centered accent glyph, indeterminate bar, "End-to-end
+  encrypted" note — WhatsApp pattern. main.js fades it once the first real
+  view painted (Mesh.state present or a non-chats route; 15s safety cap so
+  an error view is never hidden). The layout still renders underneath, so
+  boot order is unchanged; sign-in/create-account takes this page over in
+  the packaging round. Live-verified: cover themed dark/purple with the
+  bar animating, dismisses to the app signed-in and to the sign-in card
+  signed-out.
 
 ---
 
@@ -520,5 +532,5 @@ Ticked = shipped + verified. Rounds named for open items.
 | guard + AVD kit (R45, done) | V10, V11-kit |
 | group-management polish (R46, done) | V12, V13, V14, V15, V18 |
 | roster + member info (R47, done) | V16, V17, V19 |
-| boot experience | V20, V21 |
+| boot experience (R48, done) | V20, V21 |
 | parity sweep + stress | Q34, M10/M11 verifies, full-app regression |

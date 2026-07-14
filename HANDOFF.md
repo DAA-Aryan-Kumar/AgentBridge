@@ -17,28 +17,28 @@ retrieval, peer harness access + repair mutations, the Supabase cloud transport,
 a stress/soak pass with a 40× read-latency fix, and the R25 security review.
 
 - **Version:** `agentbridge/__init__.py` `__version__` (moved here from
-  `gui/__init__.py` in R26). Currently **v0.24.107** (R32.1 pill polish: the
-  E2EE notice pill is now static/inert everywhere except an unverified DM
-  peer, where the "Tap to verify @name's keys" nudge opens a focused
-  verification dialog — fingerprint + Mark as verified — instead of the info
-  pane). Before that: v0.24.106 (R33: delivered-vs-read receipts as a real
-  per-recipient `delivered_ns` cursor advanced on fetch, three-state bubble
-  ticks, and Message-info Delivered/Read timings); v0.24.105 (R32: the E2EE
-  notice pill — synthetic/client-rendered, WhatsApp pattern; signed unpin
-  tombstones considered + skipped, deletion closes transport-side with the
-  queued per-member RLS round). Before that: v0.24.104 (R31.5: per-user state
-  docs are owner-signed — forged `hidden`/`cleared`/`read_ns`/`mute` read as
-  absent via the verified accessor `messaging.state_of` — and the local
-  keystore is DPAPI-wrapped on Windows); v0.24.103 (R31:
-  threat-model closeout — signed reaction/pin overlays + key fingerprints
-  with out-of-band verification — plus Aryan's QA list: memory `forget`
-  tool, standalone agent replies via `reply_to.quote=false`, sidebar
-  repaint-on-send + pinned-then-recency ordering, pin-banner scroll fix,
-  and a per-(chat,user) lock fixing R30's mark_read vs star/flag write
-  race); v0.24.102 (R30: change-feed sync — one query per tick instead of
-  list_logs×chats, post latency off the cloud RTT, per-run agent response
-  profiling, connector contract formalized); v0.24.101 (transport-aware
-  Connection panel).
+  `gui/__init__.py` in R26). Currently **v0.24.123**. Recent rounds (full
+  detail per round in REWRITE_PLAN.md; item-level status in BACKLOG.md):
+  R48 boot experience (theme before first paint via an inline head script —
+  no more orange/light flash — + the full-page WhatsApp-style boot cover,
+  shaped for the sign-in takeover in packaging); R47 roster + member info
+  (constant chip/chevron alignment, name truncation, the Member/Agent-info
+  page from every roster menu, group permissions on their own page); R46
+  group-management polish (info events phrased client-side via
+  `meshInfoText` — the empty-pill bug — admin changes visible only to the
+  affected member, archive label/flag fixed + un-gated, admins can exit
+  when co-admins remain, created-by footer fixed); R45 GUI single-instance
+  guard (`core/lock.py`, port-scoped — closes the chronic stray
+  double-click GUI) + the AVD clean-install kit
+  (`scripts/avd_move_pack.py` + `scripts/avd_clean_install.ps1` — moves
+  @coco off the v1 era; run by Aryan); R44 owner-acts-on-agent (owner
+  edits/deletes/undoes their agent's messages, signed voids); R33–R43:
+  receipts, agent message ops, status surfacing, run UX, composer bug
+  bash (the v1-file-protocol fix), agent profile/permissions,
+  settings/model config, notifications, docs tool + ask cards. The E2EE
+  threat model closed over R31–R32.1 (signed overlays + state docs, DPAPI
+  keystore, fingerprints + verification nudge); accepted residuals live in
+  docs/THREAT_MODEL.md.
 - **Mesh root:** **`supabase://mesh2`** — the cloud transport is now PRIMARY
   (cutover 2026-07-13, R28), remembered in `~/.agentbridge/config.json`
   (`mesh_root`). `mesh_root_folder_backup` keeps the synced-folder `mesh2/` path

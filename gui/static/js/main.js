@@ -163,6 +163,21 @@ window.addEventListener("hashchange", route);
     location.hash = App.state.configured ? "#/chats" : "#/setup";
   }
   route();
+  // R48: drop the full-page boot cover once the FIRST real view painted —
+  // Mesh.state present (sidebar + chat/auth rendered) or a non-chats page
+  // routed. Safety cap: an error view is better shown than hidden.
+  (function bootDone() {
+    const b = document.getElementById("boot");
+    if (!b) return;
+    const t0 = Date.now();
+    (function tick() {
+      if (!Mesh.state && App.page === "chats" && Date.now() - t0 < 15000) {
+        setTimeout(tick, 80); return;
+      }
+      b.classList.add("done");
+      setTimeout(() => b.remove(), 350);
+    })();
+  })();
   // poll cadence is user-tunable (Settings → Connection); re-read each tick so
   // a change applies without a reload. When the SSE stream is live (v2) the
   // stream carries the news, so the poll drops to a slow safety-net tick that

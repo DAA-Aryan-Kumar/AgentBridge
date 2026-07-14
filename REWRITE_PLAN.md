@@ -1311,6 +1311,24 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       47-char name truncates, admin vs non-admin menus, Message lands in a
       real DM, flag flip persists, Back round-trips.
 
+- [x] **R48 — boot experience. DONE 2026-07-14 (v0.24.123).** BACKLOG V20 +
+      V21. **The flash (V20):** js/main.js is a deferred module — the saved
+      theme/accent applied AFTER the first frame, so every boot flashed the
+      stylesheet defaults (orange, light). An inline head script now
+      mirrors initTheme/initAccent synchronously (system pref resolved,
+      hex map kept in sync with util.js ACCENTS — cross-noted); the
+      theme-color meta follows the accent (was hardcoded orange).
+      **The boot page (V21):** static `#boot` markup in index.html —
+      centered accent glyph + indeterminate bar + "End-to-end encrypted"
+      (WhatsApp pattern), themed correctly from the first frame by the V20
+      script; main.js fades it once the first real view painted
+      (Mesh.state or a non-chats route; 15s cap so an error is never
+      hidden). The layout renders underneath (boot order unchanged);
+      sign-in/create-account takes this page over in the packaging round.
+      Live-verified signed-in AND signed-out on a rig; the R45 guard also
+      re-proved itself during rig setup (second :7792 launch printed
+      "already running — focusing it", exit 0).
+
 | Backlog item (source) | Covered in |
 |---|---|
 | Settings overhaul: messaging-permission model (HANDOFF #1) | R6 |

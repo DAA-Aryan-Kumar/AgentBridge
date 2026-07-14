@@ -4,13 +4,54 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AgentBridge</title>
-<meta name="theme-color" content="#D83B01">
+<meta name="theme-color" content="#2563EB">
+<script>
+/* theme before first paint (R48): js/main.js is a deferred module, so the
+   saved theme/accent used to apply AFTER the first frame — a flash of the
+   stylesheet defaults (orange accent, light mode). This mirrors util.js
+   initTheme/initAccent synchronously; keep the hex map in sync with
+   util.js ACCENTS. */
+(function () {
+  try {
+    var t = localStorage.getItem("theme") || "system";
+    var dark = t === "dark" || (t === "system"
+      && matchMedia("(prefers-color-scheme: dark)").matches);
+    var root = document.documentElement;
+    root.dataset.theme = dark ? "dark" : "light";
+    var HEX = { blue: "#2563EB", orange: "#D83B01", teal: "#0F766E",
+                green: "#15803D", amber: "#A16207", pink: "#DB2777",
+                purple: "#7C3AED" };
+    var a = localStorage.getItem("accent") || "blue";
+    if (!HEX[a]) a = "blue";
+    root.dataset.accent = a;
+    root.style.setProperty("--accent", HEX[a]);
+  } catch (e) { /* first paint keeps the stylesheet defaults */ }
+})();
+</script>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" sizes="192x192" href="app-192.png">
 <link rel="apple-touch-icon" href="app-192.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+<!-- R48: the full-page boot cover (WhatsApp pattern) — static markup so it
+     paints before ANY script/fetch, themed by the head script above, and
+     dismissed by main.js once the first real view rendered. The sign-in /
+     create-account flow will take this page over in the packaging round. -->
+<div id="boot">
+  <div class="boot-inner">
+    <div class="boot-glyph">
+      <svg viewBox="0 0 32 32" width="34" height="34"><path d="M4 22c3.5-8 20.5-8 24 0M4 22v-4M28 22v-4" stroke="white" stroke-width="3" fill="none" stroke-linecap="round"/></svg>
+    </div>
+    <div class="boot-title">AgentBridge</div>
+    <div class="boot-bar"><i></i></div>
+    <div class="boot-note">
+      <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+      End-to-end encrypted
+    </div>
+  </div>
+</div>
 
 <div id="shell">
   <nav id="rail">

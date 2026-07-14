@@ -310,6 +310,8 @@ export function setThemePref(pref) {
 // fallback — initAccent runs before the first render and always sets
 // data-accent, so those tokens are otherwise dead in practice.
 export const ACCENTS = [
+  // NOTE: mirrored as a plain hex map in index.html's head script (R48 —
+  // theme before first paint). Add/change a hue in BOTH places.
   { id: "blue",   label: "Blue",    hex: "#2563EB" },
   { id: "orange", label: "Orange",  hex: "#D83B01" },
   { id: "teal",   label: "Teal",    hex: "#0F766E" },
@@ -324,6 +326,8 @@ function applyAccent(id) {
   const found = ACCENTS.find((a) => a.id === id) || ACCENTS[0];
   root.style.setProperty("--accent", found.hex);
   root.dataset.accent = found.id;
+  // the OS window/browser chrome tint follows the accent too (R48)
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", found.hex);
 }
 export function initAccent() { applyAccent(accentPref()); }
 export function setAccent(id) { localStorage.setItem("accent", id); applyAccent(id); }
