@@ -430,9 +430,9 @@ outside the message log.
 
 ## 9. Frontend (`gui/static/js/`)
 
-**23 native ES modules, zero build step** — the browser imports them directly,
+**24 native ES modules, zero build step** — the browser imports them directly,
 so "run the app" and "see the current source" are the same action. Run
-`python check_frontend.py` after every frontend edit (must print **23/23**; it
+`python check_frontend.py` after every frontend edit (must print **24/24**; it
 `node --check`s each module and verifies imports resolve — the only automated
 frontend check).
 
@@ -440,11 +440,15 @@ Strict one-way layering:
 ```
 util / icons / api / markdown / files      (leaf helpers)
   → state                                  (App / Mesh / Settings stores)
-    → csel / modal / notify / composer / picker   (UI primitives)
+    → csel / modal / notify / composer / picker / reactions   (UI primitives)
       → sidebar                            (below page views)
         → chat / details / media / search / members / forward / settings / wizard   (page views)
           → main                           (router + boot)
 ```
+`reactions.js` (R50) owns the WhatsApp reaction surface: the overlay badge a
+message renders, the who-reacted popup (tabbed per emoji; own row removes)
+and the pop-in delta (new (emoji, user) pairs animate after the transcript
+swap — removals don't).
 `notify.js` (R42) owns the desktop-notification decision the server can't make
 (window focus, per-device prefs in localStorage, per-chat `tag` coalescing) and
 the "(n) AgentBridge" title badge; `realtime.js` hands it every SSE frame that

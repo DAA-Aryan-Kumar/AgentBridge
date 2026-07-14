@@ -453,7 +453,7 @@ function openChatRowMenu(chatId, x, y) {
     `<button data-act="pin">${isPinned ? ICONS.pinOff : ICONS.pin} ${isPinned ? "Unpin chat" : "Pin chat"}</button>`,
     `<button data-act="unread">${ICONS.unread} ${isUnread ? "Mark as read" : "Mark as unread"}</button>`,
     `<button data-act="mute">${isMuted ? ICONS.bellOff : ICONS.bell} ${isMuted ? "Unmute" : "Mute notifications"}</button>`,
-    `<button data-act="archive">${ICONS.archive} ${c.archived ? "Unarchive chat" : "Archive chat"}</button>`,
+    `<button data-act="archive">${ICONS.archive} ${c.archived ? "Unarchive" : "Archive"} ${isGroup ? "group" : "chat"}</button>`,
     `<button data-act="clear" class="danger-item"${canClear ? "" : " disabled"}>${ICONS.eraser} Clear chat</button>`,
     (isDm || isSelf)
       ? `<button data-act="delete" class="danger-item">${ICONS.trash} Delete chat</button>`

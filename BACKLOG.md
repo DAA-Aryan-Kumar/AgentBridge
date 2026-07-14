@@ -422,7 +422,7 @@ Ticked = shipped + verified. Rounds named for open items.
   app window there, exits 0. Ephemeral port (tests) skips it; dev rigs on
   other ports coexist. Live-verified on a rig (second :7791 refused while
   the first kept serving; :7792 coexisted); 2 tests.
-- [~] **V11 AVD clean install (coco off the v1 era)** — Aryan: wipe the AVD
+- [x] **V11 AVD clean install (coco off the v1 era)** — Aryan: wipe the AVD
   entirely, fresh v2 install (plain-text chat export exists; nothing major
   lost). Kit shipped R45: `scripts/avd_move_pack.py` (dev box: exports the
   DPAPI-wrapped key as plain b64 — verified round-trip + destination
@@ -430,7 +430,8 @@ Ticked = shipped + verified. Rounds named for open items.
   `scripts/avd_clean_install.ps1` (AVD: stops v1 tasks/workers, wipes local
   state only — never synced folders —, clone + uv sync, places files,
   owner login → adopt over the local API, harness launch + logon task).
-  **Ticks when Aryan's AVD run verifies live (@coco replies from the AVD).**
+  **Verified 2026-07-14: Aryan ran the kit on the AVD; @coco is live from
+  there** ("ran the avd script - coco is live, tick V11").
 - [x] **V12 Empty info pill after every "X created this chat"** (R46) —
   info-event bodies are ALWAYS empty (readmodel decodes only MESSAGE
   bodies), and chat.js rendered `esc(msg.body)` for every info event: the
@@ -522,13 +523,80 @@ Ticked = shipped + verified. Rounds named for open items.
   in R43. Now DOM-driven; verified live (80 csels mount, panels resolve,
   zero rejections).
 
+### Verbal asks (2026-07-14, UI-polish + live-updates kickoff)
+
+Source: Aryan's message after the AVD verification ("List is long - read the
+working agreement again, decompose the tasks, append to the detailed tasks
+list, plan and then start"). Standing theme for this arc: UI polish + verify
+the frontend↔backend connectors after the heavy backend work; never hurry;
+keep the code organized and extensible (packaging comes later).
+
+- [ ] **V23 File-open progress indicator** — a progress circle while an
+  attachment opens. Aryan: "if checking download status is not possible, let
+  this remain as it is" — determinate if the transport exposes progress,
+  else an indeterminate spinner on the chip, else drop. → file/uX riders.
+- [ ] **V24 Real-time username checking at sign-in/create-account** — errors
+  render live below the username field as the user types; when an error
+  appears the password field animates DOWN to make room for the description.
+  → sign-in page round (with V34).
+- [ ] **V25 Hot reload = the default for every page** — the agents page (and
+  others) only update when something forces a repaint; every view should
+  patch itself live from arriving state, chat windows included — partial
+  in-place patches, never a full reload. → live-updates round.
+- [ ] **V26 Start a stopped agent** — GUI option to start an agent that is
+  stopped (runner not running). → agent lifecycle round.
+- [x] **V27 Reaction popup, tabbed by reaction** (R50) — clicking the badge
+  opens the popup: "N reactions" title, "All N" + per-emoji tabs, rows =
+  (member, their emoji) with avatar, me first with "Click to remove" as the
+  ONE live control (removes in place, popup + badge update, empties close).
+  Toggling left the badge (it's the read surface); writes = quick-react bar
+  + the popup row. `reactions.js` is the new 24th module (modal layer).
+  Live-verified on a rig: tabs, tab switch, remove flow end-to-end.
+- [x] **V28 Reactions overlay the bubble corner** (R50) — ONE WhatsApp pill
+  per message (distinct emojis capped at 3 + total count when >1) hanging
+  off the bubble's bottom corner (`position:absolute; bottom:-13px`, left
+  for others / right for mine, `.has-rx` row padding so it never sits on
+  the next bubble); hover names the reactors. Live-verified both sides.
+- [x] **V29 Reaction animation** (R50) — `.rx-pop` (scale-overshoot
+  keyframes) applied via the msg-in pattern: (emoji, user) pair sets are
+  captured pre-innerHTML-swap from the previous render's map, and any NEW
+  pair pops its badge post-swap — reacts and switches animate, removals
+  just shrink. Live-verified: quick-react add popped, arriving cross-user
+  switch popped, popup remove didn't.
+- [ ] **V30 Verify: edited messages raise agent attention** — an edit to a
+  message should wake the agent, which then decides whether to reply to the
+  new content. Verify live; fix if the trigger path ignores edits.
+  → agent lifecycle round.
+- [ ] **V31 Own agents' fingerprints auto-verify** — for agents owned by the
+  signed-in user the two fingerprints are locally comparable; compare them
+  automatically instead of asking the owner to mark-verify by hand.
+  → agent lifecycle round.
+- [ ] **V32 Unread badge while the chat is open + active** — when an agent
+  posts into the currently open, actively-used chat, an unread counter still
+  appears; arriving messages should mark read while the chat is open +
+  focused (+ scrolled to bottom), WhatsApp-style. → live-updates round.
+- [x] **V33 "Archive group" wording** (R50 rider) — the sidebar right-click
+  and header ⋮ menus now use the details-pane noun rule (group → "group",
+  DM/self → "chat"); details already did. Live-verified: group row
+  "Archive group" → archived → header "Unarchive group"; DM row stays
+  "Archive chat".
+- [ ] **V34 Sign-in/create-account = a dedicated full page** — remove the
+  sign-in card from the main app layout; a dedicated page (taking over the
+  R48 boot page) opens whenever signed out. First brick of the setup pages
+  (the same page serves setup later). → sign-in page round.
+
 ---
 
 ## C. Standing deferred / future sessions
 
 - **Setup & packaging session:** wizard (folder-vs-cloud + pros/cons),
   installers, auto-update (M5), agent-assisted setup (M5/H8), Google Drive
-  (C3), quit-on-close, mobile/PWA humans-only.
+  (C3), quit-on-close, mobile/PWA humans-only. Aryan (2026-07-14): the
+  target shape is ONE consolidated polished app per OS — Windows first
+  (running it sets everything up, no terminal popups), then Linux, macOS
+  (Aryan runs those builds himself if needed), Android; later maybe a
+  toned-down pure web app for mobile. V34's sign-in page is the first
+  brick.
 - **Per-member Supabase auth + real RLS policies** (closes transport-side
   deletion residuals; today secret-key-only).
 - **Agent swarms** (own round; R16 registry shaped for it).
@@ -555,3 +623,7 @@ Ticked = shipped + verified. Rounds named for open items.
 | roster + member info (R47, done) | V16, V17, V19 |
 | boot experience (R48, done) | V20, V21 |
 | parity sweep + stress (R49, done) | Q34, M10 verify→fix, V22, settings-exposure fix, full-app regression |
+| reactions overhaul (R50, done) | V27, V28, V29 (+ rider V33) |
+| live updates everywhere (R51) | V25, V32 (+ rider V23 if feasible) |
+| sign-in page (R52) | V34, V24 |
+| agent lifecycle + trust (R53) | V26, V31, V30 |

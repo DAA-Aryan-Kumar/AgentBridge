@@ -1358,6 +1358,32 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       mid-history edit + redact converge, stars survive the R31 race
       (5/5), 300-message fold ≈ 250ms. Suite 404+1 skipped green.
 
+- [x] **R50 — reactions overhaul. DONE 2026-07-14 (v0.24.125).** BACKLOG
+      V27 + V28 + V29 (+ rider V33) — the WhatsApp treatment from Aryan's
+      screenshot. **The badge (V28):** the Q24 per-emoji Telegram chips
+      inside the bubble became ONE pill hanging off the bubble's bottom
+      corner (absolute at bottom:-13px, left for others / right for mine;
+      distinct emojis capped at 3 + total count when >1; `.has-rx` pads the
+      row so the pill never sits on the next bubble; hover names reactors).
+      **The popup (V27):** clicking the badge opens the who-reacted dialog
+      — "N reactions", "All N" + per-emoji tabs, (member, emoji) rows with
+      avatars, me first with "Click to remove" as the one live control
+      (in-place update via swapModal, empties close). The badge is now the
+      READ surface; writes = the quick-react bar + the popup row.
+      **The animation (V29):** `.rx-pop` scale-overshoot applied via the
+      msg-in pattern — (emoji, user) pair sets captured pre-innerHTML-swap
+      from the previous render's map; any NEW pair pops post-swap, so
+      reacts and switches animate but removals just shrink. All of it lives
+      in `reactions.js`, the NEW 24th module (modal layer) — chat.js only
+      renders the badge string and routes the click (module counts bumped
+      in CLAUDE/HANDOFF/ARCHITECTURE). **Rider (V33):** sidebar right-click
+      + header ⋮ archive items now use the details noun rule — groups say
+      "Archive/Unarchive group", DMs keep "chat". Live-verified on a
+      two-server folder rig (scrata/scratb, deleted after): badge sides +
+      tooltip + count, popup tabs/switch/remove flow, cross-user arriving
+      switch popped (👍→😂), quick-react add popped, remove didn't, labels
+      all three ways. Frontend-only round — no fleet restart needed.
+
 | Backlog item (source) | Covered in |
 |---|---|
 | Settings overhaul: messaging-permission model (HANDOFF #1) | R6 |

@@ -11,6 +11,7 @@ import { App, Mesh, meshDn, meshInfoText, chatAdmins, chatDisplay, renderChrome,
 import { renderSidebar, renderSideLoading, syncAskDots } from "./sidebar.js";
 import { initComposer, renderMeshPending, renderReplyArea, startReply, startEdit } from "./composer.js";
 import { openModal, closeModal } from "./modal.js";
+import { rxBadge, openReactionsPopup, captureRxSigs, animateRxChanges } from "./reactions.js";
 import { V } from "./views.js";
 
 async function renderChats(force) {
@@ -448,16 +449,13 @@ async function renderMeshChat(force) {
     }${
       starred ? '<span class="star-mini">★</span>' : ""
     }<span class="meta-time">${esc(timeOnly(msg.ts))}</span>${receiptTicks(msg, isDm)}</span>`;
-    // reaction chips (Telegram-style, inside the bubble): one pill per emoji
-    // with a count when >1; mine is highlighted and a click toggles it
-    const rxEntries = Object.entries(msg.reactions || {});
-    const rxRow = rxEntries.length ? `<div class="rx-row">${rxEntries.map(([e, users]) =>
-      `<button class="rx-chip ${users.includes(ms.user) ? "mine" : ""}"
-         data-emoji="${esc(e)}" title="${esc(users.map(meshDn).join(", "))}">
-         ${esc(e)}${users.length > 1 ? `<span class="rx-n">${users.length}</span>` : ""}</button>`)
-      .join("")}</div>` : "";
+    // reactions (R50, WhatsApp): ONE pill hanging off the bubble's bottom
+    // corner — clicking opens the who-reacted popup (writes live in the
+    // quick-react bar + the popup). has-rx pads the row so the overlay
+    // never sits on the next bubble.
+    const rxRow = rxBadge(msg, ms.user);
     parts.push(`
-      <div class="msg ${msg.mine ? "mine" : ""}${departed}" data-mid="${esc(msg.id || "")}">
+      <div class="msg ${msg.mine ? "mine" : ""}${departed}${rxRow ? " has-rx" : ""}" data-mid="${esc(msg.id || "")}">
         <span class="msg-check" aria-hidden="true">${ICONS.check}</span>
         ${showSender ? `<span class="msg-avatar">${meshAvatarInner(msg.from)}</span>` : ""}
         <div class="bubble">
@@ -547,8 +545,12 @@ async function renderMeshChat(force) {
     syncPinBanner(chatId, pins);
     const nearBottom = tr.scrollHeight - tr.scrollTop - tr.clientHeight < 120;
     const prevTop = tr.scrollTop;
+    // pre-swap: old reaction signatures (tr._msgs is still the previous
+    // render's map) so a freshly landed reaction pops in (R50)
+    const oldRx = captureRxSigs(tr);
     tr.innerHTML = bubbles;
     bindTranscript(tr, chatId, data, menuCtx);
+    animateRxChanges(tr, data.messages, oldRx);
     bindOpenFile(tr, chatId, ".mesh-att");
     // select mode survives the poll swap: .selecting rides on #content, so
     // only the per-row checkmarks (and stale ids) need reconciling
@@ -617,7 +619,7 @@ async function renderMeshChat(force) {
         <button data-act="search">${ICONS.search} Search</button>
         <button data-act="select">${ICONS.select} Select messages</button>
         <button data-act="mute">${isMuted ? ICONS.bellOff : ICONS.bell} ${isMuted ? "Unmute" : "Mute notifications"}</button>
-        ${isMember ? `<button data-act="archive">${ICONS.archive} ${meta.archived ? "Unarchive chat" : "Archive chat"}</button>` : ""}
+        ${isMember ? `<button data-act="archive">${ICONS.archive} ${meta.archived ? "Unarchive" : "Archive"} ${isDm ? "chat" : "group"}</button>` : ""}
         <button data-act="pause">${ICONS.pause} ${ms.paused ? "Resume all agents" : "Stand down all agents"}</button>
         <button data-act="close">${ICONS.close} Close chat</button>
         <div class="menu-sep"></div>
@@ -1018,18 +1020,13 @@ function bindTranscript(tr, chatId, data, ctx) {
         });
       return;
     }
-    // reaction chip: clicking my own reaction removes it, any other emoji
-    // switches to it (one reaction per user — WhatsApp)
-    const rx = e.target.closest(".rx-chip");
+    // the reaction badge opens the who-reacted popup (R50) — the write
+    // paths are the quick-react bar and the popup's own row
+    const rx = e.target.closest(".rx-badge");
     if (rx) {
       const mid = rx.closest(".msg[data-mid]")?.dataset.mid;
-      const emoji = rx.dataset.emoji;
-      if (!mid || !emoji) return;
-      const mine = (tr._msgs.get(mid)?.reactions?.[emoji] || [])
-        .includes(Mesh.state?.user);
-      api("/api/mesh/react", { chat_id: chatId, msg_id: mid,
-                               emoji: mine ? null : emoji })
-        .then((r) => { if (r.error) toast(r.error, true); else refreshChat(); });
+      const msg = mid && tr._msgs.get(mid);
+      if (msg) openReactionsPopup(chatId, msg, refreshChat);
       return;
     }
     const rm = e.target.closest(".read-more");

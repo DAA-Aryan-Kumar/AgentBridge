@@ -17,8 +17,12 @@ retrieval, peer harness access + repair mutations, the Supabase cloud transport,
 a stress/soak pass with a 40× read-latency fix, and the R25 security review.
 
 - **Version:** `agentbridge/__init__.py` `__version__` (moved here from
-  `gui/__init__.py` in R26). Currently **v0.24.124**. Recent rounds (full
+  `gui/__init__.py` in R26). Currently **v0.24.125**. Recent rounds (full
   detail per round in REWRITE_PLAN.md; item-level status in BACKLOG.md):
+  R50 reactions overhaul (the WhatsApp treatment: ONE badge overlapping the
+  bubble corner, the who-reacted popup tabbed per emoji with own-row remove,
+  pop-in animation on new (emoji, user) pairs; `reactions.js` = the 24th
+  module; groups now say "Archive/Unarchive group");
   R49 parity sweep + stress — the CLOSING round of the QA map (Q34 route-walk
   clean; the My-agents settings page hotfixed — an R43 scope bug had killed
   every dropdown since v0.24.117; the state directory stopped serving agent
@@ -108,14 +112,14 @@ persist and a new session inherits them automatically.
    `~/.claude/projects/<this-project>/memory/MEMORY.md` and the notes it points
    to (the authoritative backlog + credentials).
 2. Confirm live: `git status` clean on `main`; `~/.agentbridge/config.json`
-   points at the synced folder; `python check_frontend.py` prints **23/23**;
+   points at the synced folder; `python check_frontend.py` prints **24/24**;
    `uv run pytest -q` is green.
 
 ## Operating conventions
 
-- **Frontend = 23 native ES modules** (`gui/static/js/`), strict one-way
+- **Frontend = 24 native ES modules** (`gui/static/js/`), strict one-way
   layering, views register on the `V` registry and never import each other. Run
-  `python check_frontend.py` after every frontend edit (must print 23/23).
+  `python check_frontend.py` after every frontend edit (must print 24/24).
 - **After editing `mesh/*` or `harness/*`, restart the affected process(es)** —
   a running process reloads no code.
 - **Never round-trip source through PowerShell `Get-Content`/`Set-Content`**

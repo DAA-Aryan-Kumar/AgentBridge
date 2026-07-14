@@ -1233,21 +1233,67 @@ button.enc-pill { cursor: pointer; font: inherit; font-size: 11.5px; }
   opacity: .45; cursor: default; filter: grayscale(.4);
 }
 
-/* ---- reactions (Q24) ------------------------------------------------------
-   Telegram-style pills inside the bubble; mine gets the accent ring. The
-   quick-react bar tops the message context menu (WhatsApp). */
-.rx-row { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px; }
-.rx-chip {
-  display: inline-flex; align-items: center; gap: 3px;
+/* ---- reactions (Q24 → R50 WhatsApp treatment) -----------------------------
+   ONE pill per message hangs off the bubble's bottom corner (distinct emojis
+   + total count); clicking it opens the who-reacted popup. The quick-react
+   bar tops the message context menu (the write path — the badge only reads). */
+.msg.has-rx { margin-bottom: 13px; }   /* room for the hanging pill */
+.rx-badge {
+  position: absolute; bottom: -13px; left: 8px; z-index: 2;
+  display: inline-flex; align-items: center; gap: 2px;
   border: 1px solid var(--border); border-radius: 999px;
-  background: var(--bg-alt); padding: 1px 7px 2px;
-  font-size: 13px; line-height: 1.5; cursor: pointer;
+  background: var(--surface); box-shadow: var(--shadow);
+  padding: 1px 6px 2px; font-size: 12.5px; line-height: 1.5;
+  cursor: pointer; font-family: inherit;
 }
-.rx-chip:hover { border-color: var(--accent); }
-.rx-chip.mine { border-color: var(--accent); background: var(--accent-soft); }
-.rx-chip .rx-n { font-size: 11.5px; color: var(--text-dim); font-weight: 600; }
-.msg.mine .rx-chip { background: rgba(255,255,255,.65); }
-.msg.mine .rx-chip.mine { background: rgba(255,255,255,.9); }
+.msg.mine .rx-badge { left: auto; right: 8px; }
+.rx-badge:hover, .rx-badge.has-mine { border-color: var(--accent); }
+.rx-badge .rx-n {
+  font-size: 11px; color: var(--text-dim); font-weight: 600; margin-left: 2px;
+}
+/* a fresh reaction pops in — delta computed before the transcript swap,
+   the class applied after (the msg-in pattern) */
+.rx-badge.rx-pop { animation: rx-pop .32s cubic-bezier(.34, 1.56, .64, 1); }
+@keyframes rx-pop {
+  0% { transform: scale(.3); opacity: 0; }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* the who-reacted popup: All + per-emoji tabs, then (member, emoji) rows;
+   my row is the one live control ("Click to remove") */
+.rxp-tabs {
+  display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px;
+  border-bottom: 1px solid var(--border); padding-bottom: 9px;
+}
+.rxp-tab {
+  border: 1px solid var(--border); border-radius: 999px; background: none;
+  padding: 3px 11px; font: inherit; font-size: 12.5px; cursor: pointer;
+  color: var(--text);
+}
+.rxp-tab:hover { background: var(--hover); }
+.rxp-tab.sel { background: var(--accent-soft); border-color: var(--accent); }
+.rxp-list { max-height: 300px; overflow-y: auto; margin: 2px -6px 0; }
+.rxp-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 8px; border-radius: 8px;
+}
+.rxp-row.me { cursor: pointer; }
+.rxp-row.me:hover { background: var(--hover); }
+.rxp-ava {
+  position: relative; overflow: hidden; flex: none;
+  width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-weight: 700; font-size: 14px; color: #fff;
+}
+.rxp-who { flex: 1; min-width: 0; }
+.rxp-who .nm {
+  display: block; font-weight: 600; font-size: 13.5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rxp-who .sub { display: block; font-size: 11.5px; color: var(--text-dim); }
+.rxp-emoji { font-size: 19px; flex: none; }
+
 .menu .rx-bar {
   display: flex; gap: 2px; padding: 4px 6px 6px;
   border-bottom: 1px solid var(--border); margin-bottom: 4px;
