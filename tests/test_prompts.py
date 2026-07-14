@@ -143,7 +143,13 @@ def test_step_lines_are_clean_wording(tmp_path):
     assert pack.step_line("tool", "Read", "C:/deep/path/notes.md") \
         == "Reading notes.md"                        # paths shrink to basename
     assert pack.step_line("tool", "Bash", "rm -rf x") == "Running a command"
-    assert pack.step_line("tool", "Frobnicate", "") == "Using Frobnicate"
+    # unmapped tools humanize instead of leaking raw ids (R36)
+    assert pack.step_line("tool", "Frobnicate", "") == "Using frobnicate"
+    assert pack.step_line("tool", "mcp__github__search_issues", "") \
+        == "Using search issues (github)"
+    # the run's own plumbing file reads as the conversation, not a filename
+    assert pack.step_line("tool", "Read", "C:/ws/context.md") \
+        == "Reading the conversation"
     assert pack.step_line("text", "", "Let me look") == "Let me look"
     # the sentinel never leaks into the owner-visible feed
     assert pack.step_line("text", "", SILENCE) is None

@@ -27,6 +27,7 @@ R15's raw tool noise ("Running Grep: …" → "Searching for …").
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from ..core.config import DEFAULT_HOME
@@ -158,13 +159,36 @@ class PromptPack:
         if kind != "tool":
             return None
         detail = _short_detail(detail)
-        template = acts.get(name.lower()) or acts.get("_fallback") or ""
+        # the run's own context/reply files are plumbing — members should read
+        # "the conversation", not an internal filename (R36)
+        if detail in ("context.md", "reply.md"):
+            detail = "the conversation" if detail == "context.md" else "the reply"
+        template = acts.get(name.lower()) or ""
+        if not template:
+            # an unmapped tool must never leak its raw id ("mcp__x__do_thing"):
+            # humanize it — "do thing (x)" — before the generic fallback (R36)
+            template = acts.get("_fallback") or ""
+            name = _friendly_tool_name(name)
         try:
             line = template.format(name=name, detail=detail)
         except (KeyError, IndexError, ValueError):
             line = template
         # a detail-less fill leaves a dangling phrase — trim it
         return line.replace("  ", " ").strip().rstrip(":,-") or None
+
+
+def _friendly_tool_name(name: str) -> str:
+    """'mcp__github__search_issues' -> 'search issues (github)';
+    'SomeCamelTool' -> 'some camel tool'. Raw tool ids never reach members."""
+    n = str(name or "")
+    if n.lower().startswith("mcp__"):
+        parts = n.split("__", 2)
+        server = parts[1] if len(parts) > 1 else ""
+        tool = parts[2] if len(parts) > 2 else server
+        tool = tool.replace("_", " ").replace("-", " ").strip()
+        return f"{tool} ({server})" if server and len(parts) > 2 else tool
+    n = re.sub(r"(?<!^)(?=[A-Z])", " ", n).replace("_", " ")
+    return " ".join(n.split()).lower() or "a tool"
 
 
 def _short_detail(detail: str) -> str:

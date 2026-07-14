@@ -1,8 +1,8 @@
 /* Settings pages — profile, account, chats (theme), my agents, connection.
    The section nav lives in the sidebar. */
 
-import { $, esc, toast, setThemePref, themePref, enterToSend, setEnterToSend,
-         ACCENTS, accentPref, setAccent } from "./util.js";
+import { $, esc, toast, fmtTime, setThemePref, themePref, enterToSend,
+         setEnterToSend, ACCENTS, accentPref, setAccent } from "./util.js";
 import { ICONS } from "./icons.js";
 import { api } from "./api.js";
 import { csel, mountCsels } from "./csel.js";
@@ -36,8 +36,15 @@ const PRIVACY_FIELDS = [
 const AUDIENCE_OPTS = [
   { v: "everyone", label: "Everyone" },
   { v: "members", label: "My chats" },
+  { v: "agents", label: "Agents (+ their members)" },
   { v: "nobody", label: "Nobody" },
 ];
+// the brief's scope lines: photo is everyone/nobody only; messaging and
+// add-to-group audiences never ride the owner-member tier
+const audienceOptsFor = (field) =>
+  field === "photo"
+    ? AUDIENCE_OPTS.filter((o) => o.v === "everyone" || o.v === "nobody")
+    : AUDIENCE_OPTS;
 
 async function renderSettings() {
   const s = App.state;
@@ -65,7 +72,9 @@ async function renderSettings() {
   // stutter-sensitive chat switch). v1 has no /api/mesh/me → me stays null and
   // the v2-only surfaces below are simply skipped.
   let me = null;
-  if (section === "account") {
+  if (section === "account" || section === "agents") {
+    // agents section needs the owner-only my_agents view too (raw privacy
+    // matrix per agent, R36)
     const r = await api("/api/mesh/me");
     if (!r.error) me = r;
   }
@@ -194,9 +203,13 @@ async function renderSettings() {
             data-cat="${cat}" data-value="${esc(r.model || "")}"></span>
         </div>`;
     };
+    // raw owner-only view per agent (privacy matrix, R36)
+    const rawAgents = Object.fromEntries(
+      ((me && me.my_agents) || []).map((x) => [x.username, x]));
     html = `${back}<h1>My agents</h1>
       ${mine.map((a) => {
         const st = a.settings || {};
+        const raw = rawAgents[a.username] || {};
         return `
         <div class="card">
           <div class="ag-head">
@@ -246,9 +259,27 @@ async function renderSettings() {
               <span class="hint">Let a permitted peer pause/clear this harness (always asks you)</span></dd>
             <dt>Scheduled</dt><dd class="ag-timers" data-agent="${esc(a.username)}">
               <span class="hint">Loading…</span></dd>
+            <dt>Recent runs</dt><dd class="ag-runs" data-agent="${esc(a.username)}">
+              <span class="hint">Loading…</span></dd>
             <dt>Peer activity</dt><dd class="ag-peeraudit" data-agent="${esc(a.username)}">
               <span class="hint">Loading…</span></dd>
           </dl>
+          <div class="row"><button class="ag-stop" data-agent="${esc(a.username)}">
+            Stop current run</button>
+            <span class="hint">Kills whatever it's working on right now — no
+            error notice is posted</span></div>
+          <h2 style="margin-top:14px">Privacy</h2>
+          <dl class="kv" style="grid-template-columns:minmax(120px,180px) 1fr">
+            ${PRIVACY_FIELDS.map(([k, label]) =>
+              `<dt>${label}</dt><dd><span class="csel-slot pv-aud"
+                data-agent="${esc(a.username)}" data-field="${k}"
+                data-value="${esc(raw.privacy?.[k] || "everyone")}"></span></dd>`).join("")}
+          </dl>
+          <div class="row" style="margin-top:6px"><label class="switch">
+            <input type="checkbox" class="ag-read-receipts" data-agent="${esc(a.username)}"
+              ${raw.privacy?.read_receipts !== false ? "checked" : ""}>
+            <span class="slider"></span></label>
+            <span><b>Read receipts</b> — this agent sends and sees them</span></div>
           <p class="hint">"Current model" applies everywhere; the per-audience
           models below kick in when it's left on the family default. Per-chat
           rules and models live in each chat's info page — a chat's own pick
@@ -499,6 +530,17 @@ async function renderSettings() {
         const queued = (h.queue || []).length;
         dd.innerHTML = (timers || `<span class="hint">No wake-ups scheduled</span>`)
           + (queued ? `<div class="hint">${queued} queued trigger(s)</div>` : "");
+        // completed runs, newest first (R36 — the "tasks completed" list)
+        const runsDd = document.querySelector(`.ag-runs[data-agent="${agent}"]`);
+        if (runsDd) {
+          const runs = (r.runs || []).slice(-8).reverse();
+          runsDd.innerHTML = runs.length ? runs.map((x) => `
+            <div class="ag-run"><span class="ag-run-state ${esc(x.state)}">${esc(x.state)}</span>
+              <span class="ag-run-note">${esc(x.note || "")}</span>
+              <span class="mi-time">${esc(fmtTime(x.finished))} · ${esc(chatName(x.chat_id))}</span>
+            </div>`).join("")
+            : `<span class="hint">No completed runs yet</span>`;
+        }
         // the peer-access audit rides the same fetch (R22)
         const add = document.querySelector(`.ag-peeraudit[data-agent="${agent}"]`);
         if (add) {
@@ -576,6 +618,27 @@ async function renderSettings() {
       });
       if (r.error) { toast(r.error, true); return; }
       toast(`@${agent}'s status updated`, { check: true });
+    });
+  });
+  // owner stops the agent's in-flight run (R36) — all chats
+  document.querySelectorAll(".ag-stop").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      const r = await api("/api/mesh/agent_stop", { agent: btn.dataset.agent });
+      btn.disabled = false;
+      if (r.error) { toast(r.error, true); return; }
+      toast(`Stopping @${btn.dataset.agent}'s current run…`);
+    });
+  });
+  // agent read receipts (its own privacy matrix, owner-set)
+  document.querySelectorAll(".ag-read-receipts").forEach((sw) => {
+    sw.addEventListener("change", async (e) => {
+      const r = await api("/api/mesh/set_privacy", {
+        agent: sw.dataset.agent,
+        privacy: { read_receipts: e.target.checked,
+                   view_read_receipts: e.target.checked },
+      });
+      if (r.error) toast(r.error, true);
     });
   });
   // owner: set/clear each agent's photo — Take / Upload / Remove via the shared
@@ -743,14 +806,16 @@ function wireAccountEditors(ms) {
     toast("Status updated", { check: true });
   });
 
-  // Privacy matrix — one audience csel per field; change POSTs immediately
+  // Privacy matrix — one audience csel per field; change POSTs immediately.
+  // A data-agent slot edits that AGENT's matrix (owner-set, R36/M6).
   document.querySelectorAll(".pv-aud").forEach((slot) => {
     slot.appendChild(csel({
-      options: AUDIENCE_OPTS,
+      options: audienceOptsFor(slot.dataset.field),
       value: slot.dataset.value || "everyone",
       onChange: async (v) => {
-        const r = await api("/api/mesh/set_privacy",
-          { privacy: { [slot.dataset.field]: v } });
+        const body = { privacy: { [slot.dataset.field]: v } };
+        if (slot.dataset.agent) body.agent = slot.dataset.agent;
+        const r = await api("/api/mesh/set_privacy", body);
         if (r.error) toast(r.error, true);
       },
     }));

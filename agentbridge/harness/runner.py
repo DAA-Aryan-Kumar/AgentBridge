@@ -39,7 +39,7 @@ from .feed import RunFeed, record_tasks, write_harness_doc
 from .peer import PeerService
 from .perf import RunTimings
 from .queue import WorkGroup, WorkItem, WorkQueue
-from .responder import Reply, Responder, clean_reply
+from .responder import Reply, Responder, RunStopped, clean_reply
 from .settings import HarnessSettings
 from .timers import TimerService
 from . import triggers
@@ -313,6 +313,19 @@ class AgentRunner:
             timings.start("model")
             try:
                 reply = self.responder.respond(delivery, on_step=feed.step)
+            except RunStopped:
+                # the owner pressed Stop (R36): a deliberate outcome, not a
+                # failure — no error notice, the slot is refunded, and the
+                # triggers are recorded handled so they never re-fire
+                timings.stop()
+                self._log_perf(timings, group, "stopped")
+                self.queue.rate_refund(chat_id)
+                self.queue.finish(group, "stopped-by-owner")
+                if group.kind == "timer":
+                    self.timers.pop(group.items[0].key.split("timer:", 1)[-1])
+                feed.finish("stopped", "Stopped by your member")
+                self.publish_status()
+                return
             except Exception as e:  # noqa: BLE001 — a run dies, the loop lives
                 timings.stop()
                 self._log_perf(timings, group, f"error:{type(e).__name__}")

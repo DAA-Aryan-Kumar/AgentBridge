@@ -65,6 +65,8 @@ class RunFeed:
                 "started": self.started, "updated": utcnow_iso(),
                 "turns": self.turns, "activity": self.activity,
                 "recent": self.recent, "draft": "",
+                # timestamped steps for the in-progress right-click menu (R36)
+                "steps": self.tasks[-12:],
             })
             self._last_write = time.time()
         except Exception:  # noqa: BLE001
@@ -74,6 +76,25 @@ class RunFeed:
         if note:
             self.activity = note
         self.write(state, force=True)
+        self._append_history(state)
+
+    def _append_history(self, state: str) -> None:
+        """The 'tasks completed by this agent' record (R36): finished runs
+        append to status/<agent>_runs.json, newest last, capped. Single
+        writer (this agent's machine), so read-modify-write is safe."""
+        try:
+            path = f"status/{self.agent}_runs.json"
+            doc = self.tx.get_doc(path, default={}) or {}
+            runs = doc.get("runs") if isinstance(doc, dict) else None
+            runs = runs if isinstance(runs, list) else []
+            runs.append({
+                "chat_id": self.chat_id, "state": state,
+                "started": self.started, "finished": utcnow_iso(),
+                "turns": self.turns, "note": self.activity[:160],
+            })
+            self.tx.put_doc(path, {"agent": self.agent, "runs": runs[-20:]})
+        except Exception:  # noqa: BLE001 — history must never break a run
+            pass
 
 
 def record_tasks(tx: Transport, chat_id: str, msg_id: str,

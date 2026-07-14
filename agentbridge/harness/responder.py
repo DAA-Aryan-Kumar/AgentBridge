@@ -19,11 +19,17 @@ from typing import TYPE_CHECKING, Callable, Protocol
 if TYPE_CHECKING:  # pragma: no cover
     from .conversation import Delivery
 
-__all__ = ["Reply", "Responder", "clean_reply", "SILENCE"]
+__all__ = ["Reply", "Responder", "RunStopped", "clean_reply", "SILENCE"]
 
 OnStep = Callable[[str], None]  # live activity line -> the run feed
 
 SILENCE = "<<<NO-REPLY>>>"
+
+
+class RunStopped(RuntimeError):
+    """The owner stopped this run mid-flight (R36). A deliberate outcome,
+    not a failure: the runner posts no error notice, refunds the rate slot,
+    and records the triggers as handled so they never re-fire."""
 
 # leading paragraphs that are narration about the work, not the message —
 # smaller models leak these despite the prompt ban (v1: seen live)

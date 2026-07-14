@@ -79,6 +79,12 @@ export function fmtTime(tsUtc) {
   return d.toLocaleDateString([], { day: "numeric", month: "short" }) + " " + time;
 }
 
+// mid-sentence variant for "last seen …" (R36 polish): lowercase today/
+// yesterday — "last seen today 04:49 AM", never "last seen Today …"
+export function fmtTimeLower(tsUtc) {
+  return fmtTime(tsUtc).replace(/^Today/, "today").replace(/^Yesterday/, "yesterday");
+}
+
 export function timeOnly(tsUtc) {
   const d = new Date(tsUtc);
   return isNaN(d) ? "" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });

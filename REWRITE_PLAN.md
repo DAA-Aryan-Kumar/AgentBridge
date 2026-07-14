@@ -1071,6 +1071,31 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       chat.js/details.js/settings.js/style.css + one bridge tool; no overlap
       with the parallel session.
 
+- [x] **R36 — run UX (stop / one-line progress / run history / labels) +
+      agent privacy in the agents page. DONE 2026-07-14 (v0.24.110, 387
+      tests).** BACKLOG Q9/Q10/Q11/Q12 + verbal V1–V4 + M6's last GUI gap.
+      (1) **Owner stop** — `POST /api/mesh/agent_stop` (owner-gated) drops a
+      stop doc; the CLI adapter polls it beside the timeout watchdog and
+      kills the subprocess (`RunStopped`); the runner records a DELIBERATE
+      stop: no error notice, rate slot refunded, triggers marked handled,
+      feed state "stopped". Buttons: top-right of the working bubble (this
+      chat) + Settings → My agents "Stop current run" (any chat).
+      Integration-tested with a 30s-sleep stub killed in ~2s. (2) **One-line
+      progress** — the bubble shows dots + the CURRENT activity on one line
+      ("…working" gone); right-click lists the timestamped tasks so far
+      (feed doc now publishes `steps`). (3) **Run history** — finished runs
+      append to `status/<agent>_runs.json` (cap 20) → "Recent runs" in the
+      agent card (the missing "tasks completed by agent" list). (4)
+      **Labels** — unmapped tools humanize ("Using search issues (github)"),
+      context.md reads as "Reading the conversation". (5) **Agent privacy
+      matrix** in the agent card (owner-set via `set_privacy agent=`;
+      read-receipts toggle) + surfaced the backend-only "agents" audience
+      tier in ALL privacy pickers; photo keeps everyone/nobody. (6)
+      **Presence polish** — the DM header's online/last-seen patches in
+      place on every poll (it froze at chat-open before); details-pane
+      status+last-seen share one comma-separated line; lowercase
+      "today"/"yesterday" via fmtTimeLower. All live-verified on the rig.
+
 | Backlog item (source) | Covered in |
 |---|---|
 | Settings overhaul: messaging-permission model (HANDOFF #1) | R6 |

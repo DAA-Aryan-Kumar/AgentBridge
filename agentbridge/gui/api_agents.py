@@ -119,9 +119,30 @@ def agent_harness_status(app, req, mesh) -> dict:
         return {"error": "only the agent's responsible member can view this"}
     doc = mesh.tx.get_doc(f"status/{name}_harness.json")
     audit = mesh.tx.get_doc(f"status/peer_audit/{name}.json")
+    runs = mesh.tx.get_doc(f"status/{name}_runs.json")
     return {"ok": True, "harness": doc if isinstance(doc, dict) else None,
             "peer_audit": (audit.get("entries") if isinstance(audit, dict)
-                           else []) or []}
+                           else []) or [],
+            # completed-runs history, newest last (R36)
+            "runs": (runs.get("runs") if isinstance(runs, dict) else []) or []}
+
+
+@authed
+def agent_stop(app, req, mesh) -> dict:
+    """Stop the agent's in-flight run (R36): the owner drops a stop doc the
+    adapter polls; the run's subprocess is killed and the outcome is recorded
+    as a deliberate stop (no error notice, slot refunded). ``chat_id`` limits
+    the stop to one chat's run; empty stops whatever is running."""
+    import time as _time
+
+    name = (req.data.get("agent") or "").strip().lower()
+    if mesh.directory.owner_of(name) != mesh.user:
+        return {"error": "only the agent's responsible member can stop it"}
+    mesh.tx.put_doc(f"status/{name}_stop.json", {
+        "ns": _time.time_ns(), "by": mesh.user,
+        "chat_id": (req.data.get("chat_id") or "").strip(),
+    })
+    return {"ok": True}
 
 
 @authed
@@ -254,6 +275,7 @@ POST = {
     "/api/mesh/delete_agent": delete_agent,
     "/api/mesh/adopt_agent": adopt_agent,
     "/api/mesh/answer_ask": answer_ask,
+    "/api/mesh/agent_stop": agent_stop,
     "/api/mesh/stand_down": stand_down,
     "/api/mesh/pause": pause,
 }

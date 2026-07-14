@@ -42,7 +42,9 @@ by-design (documented where).
   sha check; agent-assisted setup (config-writing help).**
 - [x] **M6 Privacy matrix** — symmetric member/agent audiences incl.
   agents-plus-owner tiers, public messaging/add_to_group, blocks,
-  read-receipt + view-read-receipt toggles; owner sets agent rules. R6.
+  read-receipt + view-read-receipt toggles; owner sets agent rules (R6
+  backend). GUI completed R36: per-agent matrix in the agents page + the
+  "agents" audience tier surfaced in the pickers (it existed backend-only).
 - [x] **M7 Status + About** — backend fields + defaults (R6/R7); GUI surfacing
   (DM header + details), owner-sets-agent-status, and the `read_status` tool
   all shipped R35. Agent default about VERIFIED as
@@ -130,16 +132,24 @@ Ticked = shipped + verified. Rounds named for open items.
   `mark_delivered`), Read = the read cursor; "worker receives = Delivered,
   agent reads = Read" (R33, live-verified full ladder). Startup-ping noise
   rides the run-UX round.
-- [ ] **Q9 "Tasks completed by agent" list** — existed in v1, missing → round
-  "run UX".
-- [ ] **Q10 GUI progress stuck at one step for short tasks** → round "run UX".
-- [~] **Q11 Friendly tool-call labels** — activity map exists
-  (prompts/default.json `activity`); **OPEN: "reading message" instead of
-  context.md wording; short/long tool descriptions agents can read out.** →
-  round "run UX".
-- [ ] **Q12 Stop button on an in-progress run** + one-line progress (animated
-  dots + current task) + right-click "tasks so far, with timestamps" → round
-  "run UX".
+- [x] **Q9 "Tasks completed by agent" list** (R36) — finished runs append to
+  `status/<agent>_runs.json` (cap 20); Settings → My agents shows "Recent
+  runs" with state (done/error/stopped), note, time, chat. Live-verified.
+- [x] **Q10 GUI progress** (R36) — the live bubble now shows the CURRENT
+  activity on the dots' line (short tasks were "stuck" because only a bare
+  "…working" label showed); the full step list is one right-click away.
+- [~] **Q11 Friendly tool-call labels** (R36) — unmapped tools humanize
+  ("mcp__github__search_issues" → "Using search issues (github)") and the
+  run's context.md reads as "Reading the conversation". **OPEN: short/long
+  tool descriptions agents read out to members** → rides the "docs tool"
+  round (same data).
+- [x] **Q12 Stop an in-progress run** (R36) — stop button top-right of the
+  working bubble (this chat) + "Stop current run" in Settings → My agents
+  (any chat); owner-gated endpoint drops a stop doc, the adapter's poller
+  kills the subprocess, the runner records a DELIBERATE stop (no error
+  notice, slot refunded, trigger never re-fires — integration-tested).
+  One-line progress + right-click "tasks so far, with timestamps" shipped
+  with it. Live-verified end-to-end on the rig.
 - [ ] **Q13 Reasoning-effort picker broken; per-model effort sets** → round
   "settings + model config".
 - [ ] **Q14 User-facing permissions list** (safe toggles per chat + settings;
@@ -221,6 +231,25 @@ Ticked = shipped + verified. Rounds named for open items.
   (R34).
 - [ ] **Q34 GUI parity sweep** — after everything above: one complete read of
   the GUI against app state → final round.
+
+### Verbal asks (2026-07-14, run-UX round kickoff)
+
+- [x] **V1 Last seen doesn't update automatically** (R36) — the DM header's
+  presence line now patches in place on every state poll
+  (`syncDmHeaderPresence`, outside both render signatures); the details pane
+  folds peer status/presence into its signature. Live-verified (timestamp
+  moved with no navigation).
+- [x] **V2 Stop button for agents in Settings** (R36) — see Q12.
+- [x] **V3 Agents get their own privacy rules, owner-set, in the agents page**
+  (R36; M6's last GUI gap) — each agent card carries the full privacy matrix
+  (posting via `set_privacy` with `agent=`, already owner-gated) + a read-
+  receipts toggle. Also fixed while there: the **"agents (+ their members)"
+  audience tier existed in the backend but was missing from the GUI options**
+  — added for humans and agents alike; photo keeps its everyone/nobody scope
+  line from the brief. Agents-page reorganization = its own future session.
+- [x] **V4 last-seen copy** (R36) — lowercase "today"/"yesterday" in last-seen
+  (`fmtTimeLower`); chat-details status + last seen share ONE comma-separated
+  line ("Busy · reviewing the PR, last seen today 04:49 AM"). Live-verified.
 
 ---
 

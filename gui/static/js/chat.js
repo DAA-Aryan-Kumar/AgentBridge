@@ -1,8 +1,8 @@
 /* The chats page: auth gate, empty state, and the open-chat transcript
    with its header menu. The composer lives in composer.js. */
 
-import { $, esc, fmtSize, timeOnly, fmtTime, dayLabel, toast, clampLong,
-         paneCoversChat, closeMenus } from "./util.js";
+import { $, esc, fmtSize, timeOnly, fmtTime, fmtTimeLower, dayLabel, toast,
+         clampLong, paneCoversChat, closeMenus } from "./util.js";
 import { ICONS, BIRD, extIcon } from "./icons.js";
 import { isImg, fileUrl } from "./files.js";
 import { api, bindOpenFile } from "./api.js";
@@ -318,6 +318,9 @@ async function renderMeshChat(force) {
   // pins deliberately do NOT (pin/unpin must ride the partial path so scroll
   // survives — the banner is synced imperatively).
   const structKey = chatStructKey(chatId, meta);
+  // the DM header's presence line updates on EVERY pass — it lives outside
+  // both signatures, so a pure last-seen change must not wait for a rebuild
+  syncDmHeaderPresence();
   // NEITHER signature moved: skip the rebuild EVEN under force. Opening/closing
   // the chat-info pane routes here with force=true but nothing changed —
   // rebuilding would re-clamp read-mores at the pane's new width and flash the
@@ -468,20 +471,23 @@ async function renderMeshChat(force) {
     let draft = (f.draft || "").trim();
     if (draft === "NO_REPLY") draft = "";   // protocol sentinel, not content
     const stale = f.age_s != null && f.age_s > 180;
-    // the name lives in the sender line now — the label doesn't repeat it
-    let label = `${draft ? "writing" : "working"}…`;
-    if (stale) label += ` (no updates for ${Math.round(f.age_s / 60)} min)`;
-    let sub = f.activity || "";
-    if (f.turns) sub += `${sub ? "  ·  " : ""}step ${f.turns}`;
+    // ONE line (R36): dots + the current activity together — "…working" is
+    // gone; the dots ARE the working signal. Stop button top-right (owner
+    // only), right-click lists the tasks so far with timestamps.
+    let line = f.activity || (draft ? "Writing the reply" : "Working");
+    if (stale) line += ` (no updates for ${Math.round(f.age_s / 60)} min)`;
+    const isOwner = (ms.users?.[f.agent]?.owners || []).includes(ms.user);
     parts.push(`
-      <div class="msg">
+      <div class="msg feed-msg" data-feed-agent="${esc(f.agent)}"
+           data-feed-steps="${esc(JSON.stringify(f.steps || []))}">
         ${feedHead(f.agent)}
         <div class="bubble typing">
+          ${isOwner ? `<button class="feed-stop" data-agent="${esc(f.agent)}"
+            title="Stop this response" aria-label="Stop this response">${ICONS.close}</button>` : ""}
           ${feedSender(f.agent, true)}
           <div class="typing-row"><span class="tdot"></span><span class="tdot"></span>
-            <span class="tdot"></span><span class="typing-label">${esc(label)}</span></div>
+            <span class="tdot"></span><span class="typing-label">${esc(line)}</span></div>
           ${draft ? `<div class="typing-draft">${md(draft)}<span class="caret">▍</span></div>` : ""}
-          ${sub ? `<div class="typing-sub">${esc(sub)}</div>` : ""}
         </div>
       </div>`);
   }
@@ -847,8 +853,34 @@ function receiptTicks(msg, isDm) {
 function presenceLine(presence) {
   if (!presence) return "";
   if (presence.online === true) return '<span class="pres-online">online</span>';
-  if (presence.last_seen) return "last seen " + esc(fmtTime(presence.last_seen));
+  if (presence.last_seen) return "last seen " + esc(fmtTimeLower(presence.last_seen));
   return "";
+}
+
+// keep the DM header's online/last-seen CURRENT (R36 polish): every state
+// poll patches it in place — the header itself only rebuilds on structural
+// change, so without this the line froze at whatever chat-open saw
+function syncDmHeaderPresence() {
+  const ms = Mesh.state;
+  const btn = document.querySelector("#chat-top .chat-title-btn");
+  if (!btn || !ms?.users || !Mesh.chatId) return;
+  const meta = (ms.chats || []).find((c) => c.id === Mesh.chatId);
+  if (!meta || meta.kind !== "dm") return;
+  const peer = (meta.members || []).find((u) => u !== ms.user);
+  const line = peer ? presenceLine(ms.users[peer]?.presence) : "";
+  let sub = btn.querySelector(".chat-head-sub");
+  if (!line) {
+    if (sub) sub.remove();
+    btn.classList.remove("has-sub");
+    return;
+  }
+  if (!sub) {
+    sub = document.createElement("div");
+    sub.className = "chat-head-sub";
+    btn.appendChild(sub);
+  }
+  if (sub.innerHTML !== line) sub.innerHTML = line;
+  btn.classList.add("has-sub");
 }
 
 // one delegated listener per transcript element (full renders create a new
@@ -874,6 +906,18 @@ function bindTranscript(tr, chatId, data, ctx) {
     const encBtn = e.target.closest(".enc-pill");
     if (encBtn) {
       V.openKeyVerify(encBtn.dataset.verify);
+      return;
+    }
+    // owner stops an in-flight agent run (R36) — this chat's run only
+    const stopBtn = e.target.closest(".feed-stop");
+    if (stopBtn) {
+      stopBtn.disabled = true;
+      api("/api/mesh/agent_stop", { agent: stopBtn.dataset.agent,
+                                    chat_id: chatId })
+        .then((r) => {
+          if (r.error) { toast(r.error, true); stopBtn.disabled = false; }
+          else toast(`Stopping @${stopBtn.dataset.agent}…`);
+        });
       return;
     }
     const rm = e.target.closest(".read-more");
@@ -919,9 +963,41 @@ function bindTranscript(tr, chatId, data, ctx) {
                     top: e.clientY, bottom: e.clientY }, msg, chatId, tr._ctx);
       return;
     }
+    // the in-progress bubble's own menu: tasks undertaken so far, with
+    // timestamps (R36) — the only relevant option mid-run
+    const feedRow = e.target.closest(".feed-msg");
+    if (feedRow) {
+      e.preventDefault();
+      let steps = [];
+      try { steps = JSON.parse(feedRow.dataset.feedSteps || "[]"); } catch {}
+      openFeedMenu(e.clientX, e.clientY, feedRow.dataset.feedAgent, steps);
+      return;
+    }
     const cm = document.getElementById("chat-menu");
     if (cm && cm._openAt) { e.preventDefault(); cm._openAt(e.clientX, e.clientY); }
   });
+}
+
+// tasks-so-far menu for an in-progress run (R36): timestamped steps, newest
+// last — read-only, positioned at the cursor like the message menu
+function openFeedMenu(x, y, agent, steps) {
+  closeMenus();
+  const menu = document.createElement("div");
+  menu.className = "menu msg-menu feed-menu";
+  const rows = (steps || []).slice(-10).map((s) => `
+    <div class="feed-step"><span class="feed-step-text">${esc(s.text || "")}</span>
+      <span class="mi-time">${esc(timeOnly(s.ts || ""))}</span></div>`).join("");
+  menu.innerHTML = `<div class="feed-menu-head">@${esc(agent)} — tasks so far</div>
+    ${rows || '<div class="mi-empty">Nothing logged yet</div>'}`;
+  document.body.appendChild(menu);
+  menu.style.visibility = "hidden";
+  menu.hidden = false;
+  const w = menu.offsetWidth, h = menu.offsetHeight;
+  menu.style.left = Math.min(x, window.innerWidth - w - 8) + "px";
+  menu.style.top = Math.min(y, window.innerHeight - h - 8) + "px";
+  menu.style.visibility = "";
+  setTimeout(() => document.addEventListener(
+    "click", () => menu.remove(), { once: true }));
 }
 
 // the message context menu. Reply / Message X / Copy / Forward / Edit / Pin /

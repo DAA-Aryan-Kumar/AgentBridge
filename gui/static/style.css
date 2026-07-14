@@ -759,6 +759,43 @@ select, textarea {
 .tdot:nth-child(3) { animation-delay: .4s; }
 @keyframes tblink { 0%, 60%, 100% { opacity: .25; } 30% { opacity: 1; } }
 
+/* R36: stop an in-flight run (owner only) — top-right of the working bubble */
+.bubble.typing { position: relative; }
+.feed-stop {
+  position: absolute; top: 4px; right: 4px;
+  width: 20px; height: 20px; padding: 0; border: none; border-radius: 50%;
+  background: transparent; color: var(--text-faint); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.feed-stop:hover { color: var(--bad); background: var(--panel); }
+.feed-stop svg { width: 13px; height: 13px; }
+.feed-stop:disabled { opacity: .4; cursor: default; }
+/* the bubble needs breathing room so the label never sits under the button */
+.feed-msg .bubble.typing { padding-right: 30px; }
+/* tasks-so-far context menu on the in-progress bubble */
+.feed-menu { max-width: 340px; padding: 6px 0; }
+.feed-menu-head {
+  font-size: 12px; font-weight: 600; color: var(--text-dim);
+  padding: 4px 12px 6px; border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.feed-step {
+  display: flex; gap: 10px; justify-content: space-between;
+  padding: 3px 12px; font-size: 12.3px;
+}
+.feed-step-text { min-width: 0; overflow-wrap: anywhere; }
+/* R36: the completed-runs list in Settings -> My agents */
+.ag-run { display: flex; gap: 8px; align-items: baseline;
+  font-size: 12.3px; margin-bottom: 3px; }
+.ag-run-state { font-size: 11px; font-weight: 600; text-transform: uppercase;
+  color: var(--text-dim); flex: none; }
+.ag-run-state.done { color: #24c65f; }
+.ag-run-state.error { color: var(--bad); }
+.ag-run-state.stopped { color: #f0a020; }
+.ag-run-note { min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.ag-run .mi-time { flex: none; }
+
 /* date / info pills — centered rounded chips between messages, like
    WhatsApp's "TODAY" and Telegram's "Aryan created this chat" */
 .day-sep {

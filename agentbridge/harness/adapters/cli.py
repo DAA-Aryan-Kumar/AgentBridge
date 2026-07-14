@@ -24,6 +24,7 @@ import json
 import os
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 from ...core.config import DEFAULT_HOME
@@ -33,7 +34,7 @@ from ..broker import PermissionBroker
 from ..conversation import Delivery
 from ..memory import MemoryStore
 from ..prompt import PromptManager, PromptPack, TRANSCRIPT_TAIL
-from ..responder import OnStep, Reply
+from ..responder import OnStep, Reply, RunStopped
 from ..retrieval import HistoryIndex, plan_query
 from ..settings import HarnessSettings
 from .registry import Invocation, ModelRegistry
@@ -194,7 +195,8 @@ class CliResponder:
                 mcp_config=mcp_config,
             )
             rc, lines, err = self._run(argv, workdir, settings.timeout_s,
-                                       inv, pack, step, env=env)
+                                       inv, pack, step, env=env,
+                                       chat_id=delivery.chat_id)
             if self._usage_error(rc, err) and inv.preset.id not in self._minimal:
                 # a CLI update rejected our flags — drop conveniences, keep
                 # safety args AND the permission plumbing
@@ -206,7 +208,8 @@ class CliResponder:
                     effort=inv.effort, minimal=True, mcp_config=mcp_config,
                 )
                 rc, lines, err = self._run(argv, workdir, settings.timeout_s,
-                                           inv, pack, step, env=env)
+                                           inv, pack, step, env=env,
+                                           chat_id=delivery.chat_id)
 
         text = reply_from_output(lines, inv.preset.format)
         if not text and reply_file.is_file():
@@ -267,7 +270,8 @@ class CliResponder:
 
     def _run(self, argv: list[str], workdir: Path, timeout_s: float,
              inv: Invocation, pack: PromptPack, step,
-             env: dict | None = None) -> tuple[int | None, list[str], str]:
+             env: dict | None = None,
+             chat_id: str = "") -> tuple[int | None, list[str], str]:
         kwargs: dict = {}
         if os.name == "nt":  # no console flash under pythonw (v1 lesson)
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
@@ -283,6 +287,35 @@ class CliResponder:
             timeout_s, lambda: (timed_out.set(), proc.kill()))
         watchdog.daemon = True
         watchdog.start()
+        # owner stop button (R36): a stop doc on the transport kills this run.
+        # Polled here (not the runner) because only the adapter owns the Popen;
+        # best-effort — a transport blip just means the next poll catches it.
+        # stop_req = the owner really asked; run_over = just releases the poller
+        stop_req = threading.Event()
+        run_over = threading.Event()
+        run_start_ns = time.time_ns()
+        stop_path = f"status/{self.mesh.user}_stop.json"
+
+        def _poll_stop() -> None:
+            while proc.poll() is None and not run_over.is_set() \
+                    and not timed_out.is_set():
+                try:
+                    doc = self.mesh.tx.get_doc(stop_path)
+                    if (isinstance(doc, dict)
+                            and int(doc.get("ns", 0)) >= run_start_ns - int(30e9)
+                            and (not doc.get("chat_id")
+                                 or doc.get("chat_id") == chat_id)):
+                        stop_req.set()
+                        proc.kill()
+                        with contextlib.suppress(Exception):
+                            self.mesh.tx.delete_doc(stop_path)  # consumed
+                        return
+                except Exception:  # noqa: BLE001 — polling must never crash
+                    pass
+                run_over.wait(2.5)
+
+        stopper = threading.Thread(target=_poll_stop, daemon=True)
+        stopper.start()
         err_chunks: list[str] = []
         t = threading.Thread(
             target=lambda: err_chunks.append(proc.stderr.read()), daemon=True)
@@ -303,6 +336,9 @@ class CliResponder:
             rc = proc.wait(timeout=60)
         finally:
             watchdog.cancel()
+            run_over.set()  # release the poller's wait
+        if stop_req.is_set():
+            raise RunStopped("stopped by the responsible member")
         if timed_out.is_set():
             return None, lines, "timed out"
         t.join(timeout=10)

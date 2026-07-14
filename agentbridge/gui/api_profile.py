@@ -80,6 +80,12 @@ def me(app, req, mesh) -> dict:
             entry = user_json(a, mesh.visible_profile(name))
             entry["harness"] = dict(a.agent.harness)
             entry["active"] = a.active
+            # the agent's RAW privacy matrix — owner-editable (R36 / M6:
+            # "the rules for privacy rules for agents will be set by their
+            # responsible member"); this endpoint is already owner-only
+            entry["privacy"] = {
+                k: getattr(v, "value", v) for k, v in a.privacy.__dict__.items()
+            }
             if a.agent_rules:
                 entry["rules"] = {
                     k: getattr(v, "value", v)

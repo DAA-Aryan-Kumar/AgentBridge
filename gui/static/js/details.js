@@ -1,7 +1,7 @@
 /* Chat info pane (WhatsApp "Group info" pattern) and the per-chat agents
    page. Subviews (search / media / agents) render into the same pane. */
 
-import { $, esc, fmtTime, toast, clampLong, paneCoversChat, closeMenus } from "./util.js";
+import { $, esc, fmtTime, fmtTimeLower, toast, clampLong, paneCoversChat, closeMenus } from "./util.js";
 import { ICONS } from "./icons.js";
 import { api, bindOpenFile } from "./api.js";
 import { md } from "./markdown.js";
@@ -97,9 +97,13 @@ async function renderChatDetails() {
     u.kind === "agent" && (u.owners || []).includes(ms.user)
     && (meta.members || []).includes(u.username));
   // only re-render when something actually changed — a poll redraw would
-  // knock dropdowns and toggles out from under the user
+  // knock dropdowns and toggles out from under the user. The DM peer's
+  // status/presence ride the signature so the identity line stays live (R36).
+  const dmPeerRec = isDmLike(meta) && meta.kind !== "self"
+    ? ms.users[dmOther(meta, ms.user)] : null;
   const dKey = JSON.stringify([meta, media.length, (data.links || []).length,
     (data.starred || []).length, myAgentsHere.map((a) => a.settings),
+    dmPeerRec ? [dmPeerRec.status, dmPeerRec.presence, dmPeerRec.key_verified] : 0,
     !!Mesh.searchView, !!Mesh.mediaView, Mesh.mediaTab, !!Mesh.agentsView,
     !!Mesh.starredPane]);
   if (dKey === Mesh.detailsKey && App.page === "chats") return;
@@ -168,21 +172,22 @@ async function renderChatDetails() {
         : isDm ? "@" + esc(dmOther(meta, ms.user))
         : `Group · ${memberCount}`}</div>
       ${(() => {
-        // Q32: in a DM, the peer's status (dnd/busy + text) sits below the
-        // @username, and online/last-seen below that — each shown ONLY when
-        // the peer shares it (no empty field). Re-renders on poll via dKey.
+        // Q32 + R36 polish: in a DM the peer's status and presence share ONE
+        // line below the @username, comma-separated — "Busy · reviewing the
+        // PR, last seen today 04:49 AM" — each part only when shared.
         if (!isDm || isSelf) return "";
         const peer = ms.users[dmOther(meta, ms.user)] || {};
         const st = peer.status || {};
-        const statusLine = (st.state && st.state !== "available") || st.text
-          ? `<div class="ci-status">${st.state && st.state !== "available"
-              ? `<span class="status-dot ${esc(st.state)}"></span>${esc(STATUS_LABEL[st.state] || st.state)}` : ""}${
-              st.text ? `${(st.state && st.state !== "available") ? " · " : ""}${esc(st.text)}` : ""}</div>`
-          : "";
+        const bits = [];
+        if ((st.state && st.state !== "available") || st.text) {
+          bits.push(`${st.state && st.state !== "available"
+            ? `<span class="status-dot ${esc(st.state)}"></span>${esc(STATUS_LABEL[st.state] || st.state)}` : ""}${
+            st.text ? `${(st.state && st.state !== "available") ? " · " : ""}${esc(st.text)}` : ""}`);
+        }
         const p = peer.presence || {};
-        const presLine = p.online === true ? '<div class="ci-presence">online</div>'
-          : p.last_seen ? `<div class="ci-presence">last seen ${esc(fmtTime(p.last_seen))}</div>` : "";
-        return statusLine + presLine;
+        if (p.online === true) bits.push("online");
+        else if (p.last_seen) bits.push(`last seen ${esc(fmtTimeLower(p.last_seen))}`);
+        return bits.length ? `<div class="ci-status">${bits.join(", ")}</div>` : "";
       })()}
       <div class="ci-actions">
         ${isDm ? "" : `<button class="ci-act" id="ci-add">

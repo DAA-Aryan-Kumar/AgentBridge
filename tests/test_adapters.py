@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import sys
 import textwrap
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -200,6 +201,55 @@ def test_cli_responder_end_to_end_through_the_runner(arig):
         assert any("search" in t["text"] for t in doc["tasks"])
     finally:
         runner.close()
+
+
+def test_owner_stop_kills_the_run_cleanly(tmp_path):
+    """R36: the owner's stop doc kills the in-flight subprocess; the outcome
+    is a deliberate stop — no reply, no error notice, feed state 'stopped',
+    the trigger recorded handled so it never re-fires."""
+    root = tmp_path / "mesh2"
+    root.mkdir()
+    home = tmp_path / "home"
+    (home / "adapters").mkdir(parents=True)
+    # the stub sleeps 30s — plenty of window for the ~2.5s stop poll
+    slow = stub_preset(tmp_path)
+    slow["args"] = [slow["args"][0], "--sleep", "{prompt}"]
+    (home / "adapters" / "stub.json").write_text(json.dumps(slow),
+                                                 encoding="utf-8")
+    owner = Mesh(root, "aryan", "devbox", encrypt=True, home=home)
+    owner.accounts.create_human("aryan", "hunter2x")
+    owner.accounts.create_agent("helper", harness={"adapter": "stub"})
+    snap = owner.create_chat("Slow", members=["helper"])
+    owner.post(snap.id, "@helper take your time")
+    owner.outbox.flush_once()
+
+    runner = AgentRunner(root, "helper", home=home,
+                         machine="devbox", poll_s=0.2)
+    runner.attach_cli_responder()
+    try:
+        runner.mesh.sync.sync_once([snap.id])
+        # the stop request lands just before dispatch — the poller's first
+        # check catches it and kills the subprocess long before 30s
+        owner.tx.put_doc("status/helper_stop.json",
+                         {"ns": time.time_ns(), "by": "aryan", "chat_id": ""})
+        runner.tick()
+        runner.drain(timeout=60)
+        runner.mesh.outbox.flush_once()
+        owner.sync.sync_once([snap.id])
+
+        assert [m for m in owner.messages_for(snap.id)
+                if m.from_ == "helper"] == []           # no reply, no notice
+        feed = runner.mesh.tx.get_doc("status/helper_run.json")
+        assert feed and feed["state"] == "stopped"
+        runs = runner.mesh.tx.get_doc("status/helper_runs.json")
+        assert runs and runs["runs"][-1]["state"] == "stopped"
+        # handled: a second pass never re-runs the same trigger
+        runner.tick()
+        runner.drain(timeout=30)
+        assert runner.queue.snapshot() == []
+    finally:
+        runner.close()
+        owner.close()
 
 
 def test_routing_gates_at_scan(arig):
