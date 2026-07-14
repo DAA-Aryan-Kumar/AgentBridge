@@ -82,9 +82,10 @@ by-design (documented where).
   seam (R21). **[D] mem0/graphiti extraction, prose summarization, LLM
   planner — parked until a box with a local LLM** (dev box: onnxruntime
   DLL-blocked, no ollama). Sessions deliberately not reused (own retrieval).
-- [~] **H6 Global vs chat memory, DM-default policy** — R20. **OPEN: per-chat
-  toggle prohibiting global-memory retrieval (off in groups / on in DMs by
-  default)** → round "settings + model config".
+- [x] **H6 Global vs chat memory, DM-default policy** (R41 close) — the R20
+  dm-default policy now has BOTH missing pieces: a GUI for the account-wide
+  policy (agent card "Global memory": DMs only / Everywhere / Off — it had
+  no GUI) and the per-chat override toggle (see Q30).
 - [x] **H7 Harness decomposition + JSON prompt pack + prompt manager** —
   R15–R17.
 - [~] **H8 Split config files + user-modifiable + model picker with reasoning
@@ -168,8 +169,14 @@ Ticked = shipped + verified. Rounds named for open items.
   + build_argv + the GUI picker are all model-aware (options refresh on a
   model switch; an invalid pick falls back to Default). Live-verified: the
   picker offers the 5 levels, `reasoning: high` persists.
-- [ ] **Q14 User-facing permissions list** (safe toggles per chat + settings;
-  setup-assist compatible) → round "settings + model config".
+- [x] **Q14 User-facing permissions list** (R41) — each agent card carries a
+  "Standing approvals" list: every "Always allow" grant an ask-card ever
+  produced, shown as tool + scope ("everywhere" / "in <chat>") with a ✕ that
+  revokes it (matched by tool+chat, list-replacing patch). Owners could
+  grant standing permissions but never SEE or revoke them before. The
+  Claude-Code-style ask-card overhaul itself stays in the "docs tool + ask
+  cards" round (Q28). Live-verified: two planted grants listed, one revoked,
+  the other survived.
 - [~] **Q15 Agents can delete messages** — the AGENT can now delete its own
   messages for everyone (`delete_message` tool, R34). **OPEN: owner-only Undo
   (for me / for everyone) inside the tombstone; groups keep showing the
@@ -254,9 +261,13 @@ Ticked = shipped + verified. Rounds named for open items.
   left showed only in DMs where the avatar gutter is reclaimed; now
   symmetric 20px. Live-verified: a 24-line code block clamps at exactly
   9.000 pre-lines and the reveal schedule still grows (→ 15 lines).
-- [ ] **Q30 Per-chat context depth** (owner sets how many days a model
-  retrieves; default auto) **+ per-chat global-memory prohibition toggle** →
-  round "settings + model config".
+- [x] **Q30 Per-chat context depth + global-memory toggle** (R41) — the
+  chat's agents pane gains "Context here" (Auto / 1–90 days: the ceiling
+  applies to BOTH the verbatim transcript tail and vector recall — the
+  index holds older history, so recall is filtered too) and "Global memory"
+  (Default / Allowed here / Off here — the override resolves before the
+  bridge's memory gate). Both are per-chat dicts merged server-side like
+  rules/models. Live-verified persistence; parsing + resolution tested.
 - [x] **Q31 Edit in the composer** (R37) — menu Edit opens the message IN
   the composer: an edit bar (pencil + original preview) above the box, the
   send button becomes a check, Enter/check saves, Escape/X cancels, and the
@@ -361,7 +372,7 @@ Ticked = shipped + verified. Rounds named for open items.
 | run UX | Q9, Q10, Q11, Q12 |
 | composer + transcript bug bash (R37, done) | Q16, Q19, Q24, Q25, Q27, Q29, Q31, V7 |
 | agent profile + permissions (R38, done) | V5, V6, V8, V9 |
-| settings + model config | Q13, Q14, Q20, Q21, Q23, Q30, M11-GUI, H6, H8, H9 |
+| settings + model config (R39–R41, done) | Q13, Q14, Q20, Q21, Q23, Q30, M11-GUI, H6, H8-picker, H9 |
 | notifications | Q26, M3-remainder |
 | docs tool + ask cards | Q7, Q28 (H2 close) |
 | parity sweep + stress | Q34, M10/M11 verifies, full-app regression |

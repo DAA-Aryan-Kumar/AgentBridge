@@ -70,7 +70,22 @@ function mountAgentSlots(scope, chatId, fams) {
     });
     if (r.error) toast(r.error, true);
   };
+  const GMEM_LABEL = { dm: "DMs only", everywhere: "everywhere", off: "off" };
   mountCsels(scope, (slot) => {
+    if (slot.classList.contains("cd-days")) {
+      return [
+        { v: "", label: "Auto — everything relevant" },
+        ...[1, 3, 7, 14, 30, 90].map((d) =>
+          ({ v: String(d), label: d === 1 ? "1 day" : `${d} days` })),
+      ];
+    }
+    if (slot.classList.contains("cd-gmem")) {
+      return [
+        { v: "", label: `Default — ${GMEM_LABEL[slot.dataset.def] || slot.dataset.def}` },
+        { v: "on", label: "Allowed here" },
+        { v: "off", label: "Off here" },
+      ];
+    }
     if (slot.classList.contains("cd-route-model")) {
       const fam = fams.find((f) => f.id === slot.dataset.fam);
       return [
@@ -93,9 +108,12 @@ function mountAgentSlots(scope, chatId, fams) {
       postRoute(slot.dataset.agent, slot.dataset.cat);
       return;
     }
-    const key = slot.classList.contains("cd-model") ? "models" : "rules";
+    const key = slot.classList.contains("cd-days") ? "context_days"
+      : slot.classList.contains("cd-gmem") ? "memory_overrides"
+      : slot.classList.contains("cd-model") ? "models" : "rules";
+    const value = key === "context_days" ? (v ? +v : null) : (v || null);
     const r = await api("/api/mesh/agent", {
-      username: slot.dataset.agent, patch: { [key]: { [chatId]: v || null } },
+      username: slot.dataset.agent, patch: { [key]: { [chatId]: value } },
     });
     if (r.error) toast(r.error, true);
   });
@@ -867,6 +885,14 @@ async function renderChatAgents(agents, meta) {
                        data-value="${esc(rt.model || "")}"></span>` : ""}
               </div>`;
             }).join("")}</dd>`);
+          // Q30/H6: this chat's context ceiling + global-memory override
+          rows.push(`<dt class="cd-sub">Context here</dt>
+            <dd><div class="csel-slot cd-days" data-agent="${esc(a.username)}"
+                 data-value="${esc((st.context_days || {})[chatId] || "")}"></div></dd>`);
+          rows.push(`<dt class="cd-sub">Global memory</dt>
+            <dd><div class="csel-slot cd-gmem" data-agent="${esc(a.username)}"
+                 data-def="${esc(st.global_memory || "dm")}"
+                 data-value="${esc((st.memory_overrides || {})[chatId] || "")}"></div></dd>`);
           return rows.join("");
         }).join("")}
       </dl>

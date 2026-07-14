@@ -1147,6 +1147,27 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       owner overwrite won, rules persisted, identity block shows all three
       lines.
 
+- [x] **R39–R41 — settings + model config. DONE 2026-07-14 (v0.24.113–115,
+      393 tests).** BACKLOG Q13/Q14/Q20/Q21/Q23/Q30 + M11/H6/H9 closes +
+      H8's picker half, shipped as three verified commits.
+      **R39 (.113):** the reasoning-effort picker was dead because no live
+      preset declared efforts — claude.json now carries `--effort`
+      low…max (from `claude --help`); presets gain per-model
+      `model_efforts` narrowing (registry + GUI are model-aware). MCP-only
+      agents: adapter "none" → no runner spawned, clean stand-down, resolve
+      refuses. The chat's agents pane gains the FULL per-audience card
+      (H9); precedence confirmed per the brief (chat → current → audience →
+      preset). **R40 (.114):** Privacy is its own Settings section with the
+      matrix + a Blocked list (block had NO GUI — DM details gains
+      Block/Unblock); Delete account (password-confirmed) + Delete agent
+      buttons; the M11 departed display implemented (grey messages, DM
+      "This account was deleted" info text, details "Account deleted").
+      **R41 (.115):** per-chat "Context here" (1–90-day ceiling applied to
+      the transcript tail AND vector recall) + "Global memory" override
+      (resolves before the bridge's memory gate), account-wide global-memory
+      picker, and the "Standing approvals" list — every Always-allow grant
+      visible + revocable (tool+chat matched). All live-verified on the rig.
+
 | Backlog item (source) | Covered in |
 |---|---|
 | Settings overhaul: messaging-permission model (HANDOFF #1) | R6 |

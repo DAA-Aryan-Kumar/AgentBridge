@@ -64,8 +64,13 @@ class HarnessSettings:
     approvals: list[dict] = field(default_factory=list)
     # cross-chat memory policy (R20): where may the agent touch its GLOBAL
     # memory — "dm" (default: only one-on-one with a member), "everywhere",
-    # or "off" (chat-scoped memory only)
+    # or "off" (chat-scoped memory only). R41 (H6/Q30): per-chat overrides —
+    # "on"/"off" for ONE chat beats the account-wide policy.
     global_memory: str = "dm"
+    memory_overrides: dict[str, str] = field(default_factory=dict)
+    # per-chat context ceiling (Q30): how many DAYS of history a run may see
+    # (transcript tail AND retrieval); 0 / absent = auto (no ceiling)
+    context_days: dict[str, int] = field(default_factory=dict)
     # peer harness access (R22): "off" (default: unreachable) or "ask" (each
     # peer session surfaces an owner popup); peer_auto = agents pre-approved
     # (DIAGNOSTICS only). peer_repair (R22.5) is a SEPARATE, stricter gate:
@@ -119,6 +124,16 @@ class HarnessSettings:
             global_memory=(str(h.get("global_memory") or "dm").lower()
                            if str(h.get("global_memory") or "dm").lower()
                            in ("dm", "everywhere", "off") else "dm"),
+            memory_overrides={
+                str(k): str(v).lower()
+                for k, v in (h.get("memory_overrides") or {}).items()
+                if str(v).lower() in ("on", "off")
+            },
+            context_days={
+                str(k): _int(v, 0, 1, 365)
+                for k, v in (h.get("context_days") or {}).items()
+                if _int(v, 0, 1, 365)
+            },
             peer_access=("ask" if str(h.get("peer_access") or "off").lower()
                          == "ask" else "off"),
             peer_auto=[str(n) for n in (h.get("peer_auto") or []) if n],
@@ -140,6 +155,20 @@ class HarnessSettings:
 
     def route(self, category: str) -> Route:
         return self.routing.get(category) or Route()
+
+    def global_memory_for(self, chat_id: str) -> str:
+        """The EFFECTIVE cross-chat memory policy in one chat: a per-chat
+        override ("on" = everywhere / "off") beats the account-wide rule."""
+        override = self.memory_overrides.get(chat_id, "")
+        if override == "on":
+            return "everywhere"
+        if override == "off":
+            return "off"
+        return self.global_memory
+
+    def context_days_for(self, chat_id: str) -> int:
+        """This chat's history ceiling in days; 0 = auto (no ceiling)."""
+        return self.context_days.get(chat_id, 0)
 
     def model_for(self, category: str, chat_id: str = "") -> str:
         """Most specific wins: this chat's model → the override-all "current

@@ -280,6 +280,11 @@ async function renderSettings() {
             <dt>Replies per hour</dt><dd><span class="csel-slot ag-rate"
               data-agent="${esc(a.username)}"
               data-value="${st.max_replies_per_hour != null ? esc(st.max_replies_per_hour) : ""}"></span></dd>
+            <dt>Global memory</dt><dd><span class="csel-slot ag-gmem"
+              data-agent="${esc(a.username)}"
+              data-value="${esc(st.global_memory || "dm")}"></span>
+              <span class="hint">Where it may use cross-chat memory; a chat's
+              info page can override it for that chat</span></dd>
             <dt>Replies to</dt><dd class="ag-routes" data-agent="${esc(a.username)}">
               ${CATS.map(routeRow(a, st)).join("")}</dd>
             <dt>Runs on</dt><dd class="ag-machine" data-agent="${esc(a.username)}">
@@ -314,6 +319,22 @@ async function renderSettings() {
               ${raw.privacy?.read_receipts !== false ? "checked" : ""}>
             <span class="slider"></span></label>
             <span><b>Read receipts</b> — this agent sends and sees them</span></div>
+          <h2 style="margin-top:14px">Standing approvals</h2>
+          <div class="ag-approvals" data-agent="${esc(a.username)}">
+            ${(st.approvals || []).length ? (st.approvals || []).map((ap, i) => `
+              <div class="row ag-appr-row" style="justify-content:space-between">
+                <span><code>${esc(ap.tool)}</code>
+                  <span class="hint">${ap.chat === "*" ? "everywhere"
+                    : "in " + esc(chatDisplay((ms.chats || []).find((c) => c.id === ap.chat)
+                        || { name: ap.chat }, ms.user))}</span></span>
+                <button class="ag-appr-x" data-agent="${esc(a.username)}"
+                  data-tool="${esc(ap.tool)}" data-chat="${esc(ap.chat)}"
+                  title="Revoke">✕</button>
+              </div>`).join("")
+            : `<p class="hint" style="margin:2px 0 0">None. When it asks for a
+               permission mid-run, answering "Always allow" lands the grant
+               here — revoke any of them any time.</p>`}
+          </div>
           <h2 style="margin-top:14px">Reach</h2>
           <dl class="kv" style="grid-template-columns:minmax(120px,180px) 1fr">
             <dt>May message</dt><dd><span class="csel-slot ag-rule"
@@ -564,6 +585,13 @@ async function renderSettings() {
       ];
       mountCsels($(".settings-body"), (slot) => {
         if (slot.classList.contains("ag-rule")) return GATE_OPTS;
+        if (slot.classList.contains("ag-gmem")) {
+          return [
+            { v: "dm", label: "DMs only" },
+            { v: "everywhere", label: "Everywhere" },
+            { v: "off", label: "Off — chat memory only" },
+          ];
+        }
         if (slot.classList.contains("ag-status-state")) return statusOpts;
         if (slot.classList.contains("ag-adapter")) return adapterOpts;
         if (slot.classList.contains("ag-model"))
@@ -688,6 +716,7 @@ async function renderSettings() {
         model: val(".ag-model") || null,
         reasoning: val(".ag-reason") || null,
         default_rule: val(".ag-default"),
+        global_memory: val(".ag-gmem") || "dm",
         peer_access: val(".ag-peer") || "off",
         peer_repair: !!document.querySelector(`.ag-repair[data-agent="${agent}"]`)?.checked,
         routing,
@@ -725,6 +754,23 @@ async function renderSettings() {
         { agent, about: (inp?.value || "").trim() });
       if (r.error) { toast(r.error, true); return; }
       toast(`@${agent}'s About updated`, { check: true });
+    });
+  });
+  // revoke a standing approval (Q14): rebuild the list without this grant
+  // (matched by tool+chat, not index — indexes go stale after a removal);
+  // approvals is a plain list, so the patch replaces it wholesale
+  document.querySelectorAll(".ag-appr-x").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const agent = btn.dataset.agent;
+      const rec = (Mesh.state.users || {})[agent] || {};
+      const left = (rec.settings?.approvals || []).filter((ap) =>
+        !(ap.tool === btn.dataset.tool && String(ap.chat) === btn.dataset.chat));
+      const r = await api("/api/mesh/agent",
+        { username: agent, patch: { approvals: left } });
+      if (r.error) { toast(r.error, true); return; }
+      if (rec.settings) rec.settings.approvals = left;
+      btn.closest(".ag-appr-row").remove();
+      toast("Approval revoked", { check: true });
     });
   });
   // owner deletes an agent (Q20/M11): soft — it leaves every room and its

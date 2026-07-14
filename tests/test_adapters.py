@@ -194,6 +194,22 @@ def test_mcp_only_adapter_runs_no_cli(tmp_path):
         owner.close()
 
 
+def test_per_chat_context_and_memory_overrides():
+    """Q30/H6: the per-chat context ceiling and global-memory override parse
+    defensively and resolve chat-by-chat."""
+    s = settings(global_memory="dm",
+                 memory_overrides={"c1": "on", "c2": "off", "c3": "bogus"},
+                 context_days={"c1": 7, "c2": "junk", "c4": 9999})
+    assert s.global_memory_for("c1") == "everywhere"
+    assert s.global_memory_for("c2") == "off"
+    assert s.global_memory_for("c3") == "dm"     # bogus override dropped
+    assert s.global_memory_for("cX") == "dm"     # no override = the policy
+    assert s.context_days_for("c1") == 7
+    assert s.context_days_for("c2") == 0         # junk dropped = auto
+    assert s.context_days_for("c4") == 365       # clamped to the ceiling
+    assert s.context_days_for("cX") == 0
+
+
 def test_reply_from_output_formats():
     stream = [json.dumps({"type": "result", "result": "final"})]
     assert reply_from_output(stream, "claude-stream") == "final"

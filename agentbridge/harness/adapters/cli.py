@@ -135,6 +135,15 @@ class CliResponder:
                                     delivery.chat_id)  # raises with a reason
         pack = self.prompts.for_agent(acc)
 
+        # per-chat context ceiling (Q30): the owner caps how many DAYS of
+        # history a run may see — the ceiling applies to the verbatim tail
+        # here and to retrieval below; 0 = auto (no ceiling)
+        days = settings.context_days_for(delivery.chat_id)
+        cutoff_ns = time.time_ns() - days * 86_400 * 10**9 if days else 0
+        if cutoff_ns:
+            delivery.transcript = [
+                m for m in delivery.transcript if m.ns >= cutoff_ns]
+
         # per-chat WORKSPACE (R18): the agent's own desk for this chat —
         # context, inbox, outbox (R20 adds memory) live here, runs cwd here
         workdir = (self.home / "harness" / self.agent / "workspaces"
@@ -146,7 +155,7 @@ class CliResponder:
             if stale.is_file():
                 stale.unlink(missing_ok=True)
 
-        self._retrieve(delivery)             # long chats stop forgetting (R21)
+        self._retrieve(delivery, cutoff_ns)  # long chats stop forgetting (R21)
         staged = self._stage_inbox(delivery, workdir)
         context_file = workdir / "context.md"
         context_file.write_text(pack.context_text(delivery, staged),
@@ -179,7 +188,9 @@ class CliResponder:
                     deny_roots=self._deny_roots(),
                     mesh=self.mesh, timers_out=timers,
                     memory=self.memory, chat_kind=delivery.chat_kind,
-                    global_memory=settings.global_memory,
+                    # H6/R41: the per-chat override resolves here, so the
+                    # bridge's memory gate sees the effective policy
+                    global_memory=settings.global_memory_for(delivery.chat_id),
                 ))
                 mcp_config = bridge.mcp_config()
                 # the inner CLI must out-wait the owner-answer window
@@ -232,10 +243,13 @@ class CliResponder:
         """Release process-held resources (the qdrant path lock above all)."""
         self.memory.close()
 
-    def _retrieve(self, delivery: Delivery) -> None:
+    def _retrieve(self, delivery: Delivery, cutoff_ns: int = 0) -> None:
         """Index anything new, then pull the older messages this trigger
         makes relevant into the delivery. Retrieval is garnish: any failure
-        (no backend, no qdrant, a mid-index crash) leaves the run intact."""
+        (no backend, no qdrant, a mid-index crash) leaves the run intact.
+        ``cutoff_ns`` is the owner's per-chat context ceiling (Q30) — the
+        index holds older history from previous runs, so recall must honor
+        the window too."""
         try:
             if delivery.kind != "message" or not self.history.available():
                 return
@@ -244,8 +258,12 @@ class CliResponder:
             if not query:
                 return
             visible = {m.id for m in delivery.transcript[-TRANSCRIPT_TAIL:]}
-            delivery.recalled = self.history.relevant(
+            recalled = self.history.relevant(
                 delivery.chat_id, query, exclude_ids=visible)
+            if cutoff_ns:
+                recalled = [m for m in recalled
+                            if getattr(m, "ns", 0) >= cutoff_ns]
+            delivery.recalled = recalled
         except Exception:  # noqa: BLE001 — never block a reply on retrieval
             delivery.recalled = []
 
