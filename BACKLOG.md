@@ -1014,11 +1014,27 @@ the update channel works. Atlan plugin: no action (he removes it himself).
   (Settings→Agents "Emergency stand-down"). 2 tests (hold+resume with
   another chat unaffected; claim-time gate). Live-verified: menu →
   toast → tag → doc on disk → resume clears all three.
-- [ ] **V63 Storage janitor** (promoted from §C; Aryan: real concern —
-  Supabase free-tier storage, and a tombstoned blob is unreadable to
-  everyone anyway): redaction → blob removal; delete-chat/delete-account
-  → transport purge after a grace window. Lands BEFORE the security
-  round starts.
+- [x] **V63 Storage janitor** (R65) — `mesh/janitor.py` + transport
+  `delete_blob` (folder unlink / Supabase Storage remove; base default =
+  honest no-op). Two conservative legs, both grace-windowed (7 days):
+  **blobs** — only messages whose redaction passes the SAME verifier the
+  read fold uses (a forged doc reclaims nothing; a validly VOIDED
+  redaction — R44 Undo — is skipped; on plaintext dev meshes voids are
+  honored presence-based), swept per-member (file ids live in the sealed
+  body, so membership is required — every chat has members, so every
+  chat has a janitor); **chats** — a group whose signed, admin-gated
+  event fold says deleted purges via tx.delete_chat (info events are
+  plaintext, so this works even after being folded out). After the
+  grace, Undo still restores the TEXT (the sealed body lives in the log)
+  but the attachment is gone — documented. Surfaces: POST
+  /api/mesh/janitor; About → Storage card ("Clean up now" + honest
+  results incl. MB); silent daily auto-sweep beside the update check.
+  All deletes idempotent (racing janitors fine). 3 tests over the real
+  E2EE folder transport (grace, undo + forgery reclaim nothing,
+  deleted-group purge leaves live chats + is idempotent across
+  members); live: endpoint + Storage card verified on the rig ("Nothing
+  to reclaim — all clean"). Account deletion stays soft (accounts are
+  tiny docs; unchanged).
 - [ ] **V64 Question: attachment sync barrier — could the agent start
   immediately and "look the file up later"**, so a large file doesn't
   read as a frozen agent? — assessment owed (the answered-ledger means
@@ -1094,5 +1110,5 @@ the update channel works. Atlan plugin: no action (he removes it himself).
 | parity (b) — ALL of V53 in one round (R62, done) | V53 b1–b7 (shipped or BD-documented) |
 | parity (c) — agent context closes (R63, done) | V54 |
 | proactive timers (R64, done) | V55 (V64 assessed in the session wrap-up) |
-| storage janitor (R65) | V63 |
-| security round (NEXT, per Aryan — after janitor) | §C key-rotation-on-leave, per-member RLS, threat-model residuals |
+| storage janitor (R65, done) | V63 |
+| security round (NEXT, per Aryan — every gate is now cleared) | §C key-rotation-on-leave, per-member RLS, threat-model residuals |

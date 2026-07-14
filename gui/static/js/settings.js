@@ -651,6 +651,17 @@ async function renderSettings() {
         button into Update now / Download now.</p>
       </div>
       <div class="card">
+        <h2>Storage</h2>
+        <div class="row">
+          <button id="jan-run">Clean up now</button>
+          <span class="hint" id="jan-note" style="margin:0"></span>
+        </div>
+        <p class="hint" style="margin-bottom:0">Reclaims server space:
+        attachments of messages deleted for everyone (after a 7-day undo
+        window) and deleted groups' data. Runs automatically once a day;
+        nothing readable is ever touched.</p>
+      </div>
+      <div class="card">
         <h2>Performance</h2>
         <dl class="kv" style="grid-template-columns:minmax(110px,160px) 1fr">
           <dt>Check for news</dt><dd><span id="poll-slot"></span></dd>
@@ -856,6 +867,27 @@ async function renderSettings() {
     const auto = $("#upd-auto");
     if (auto) auto.addEventListener("change", (e) => {
       localStorage.setItem("updAuto", e.target.checked ? "1" : "0");
+    });
+  }
+  // V63: the storage janitor — one honest button; the daily auto-run
+  // lives in main.js beside the update auto-check
+  const janBtn = $("#jan-run");
+  if (janBtn) {
+    const note = $("#jan-note");
+    janBtn.addEventListener("click", async () => {
+      janBtn.disabled = true;
+      note.textContent = "Sweeping…";
+      const r = await api("/api/mesh/janitor", {});
+      janBtn.disabled = false;
+      if (!r || r.error || !r.ok) {
+        note.textContent = (r && r.error) || "Couldn't sweep right now";
+        return;
+      }
+      const mb = (r.bytes / 1048576).toFixed(r.bytes > 1048576 ? 1 : 2);
+      note.textContent = (r.blobs || r.chats)
+        ? `Reclaimed ${r.blobs} file(s) (${mb} MB)`
+          + (r.chats ? ` + ${r.chats} deleted group(s)` : "")
+        : "Nothing to reclaim — all clean";
     });
   }
   const pollSlot = $("#poll-slot");

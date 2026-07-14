@@ -220,6 +220,10 @@ class FolderTransport(Transport):
         except (FileNotFoundError, OSError):
             return None
 
+    def delete_blob(self, path: str) -> None:
+        # idempotent by design — two janitors racing is fine (V63)
+        self._abs(path).unlink(missing_ok=True)
+
     def local_path(self, path: str) -> Path | None:
         p = self._abs(path)
         return p if p.exists() else None

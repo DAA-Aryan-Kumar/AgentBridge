@@ -310,6 +310,13 @@ class SupabaseTransport(Transport):
             return None
         return None
 
+    def delete_blob(self, path: str) -> None:
+        path = _check(path)
+        try:  # idempotent — a missing object is already the goal (V63)
+            self._retry(lambda: self._store().remove([f"{self.root}/{path}"]))
+        except Exception:  # noqa: BLE001 — next sweep retries
+            pass
+
     # ---------------------------------------------------------------- events
     def watch(self) -> Watcher:
         w = _HintWatcher(self)

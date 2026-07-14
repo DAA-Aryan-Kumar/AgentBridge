@@ -220,6 +220,12 @@ window.addEventListener("hashchange", route);
       }
     }).catch(() => {});
   }
+  // V63: the daily storage sweep — silent maintenance (the About page's
+  // "Clean up now" is the loud, on-demand version)
+  if (Date.now() - (+localStorage.getItem("janLastRun") || 0) > 86400e3) {
+    localStorage.setItem("janLastRun", String(Date.now()));
+    api("/api/mesh/janitor", {}).catch(() => {});
+  }
   // R48: drop the full-page boot cover once the FIRST real view painted —
   // Mesh.state present (sidebar + chat/auth rendered) or a non-chats page
   // routed. Safety cap: an error view is better shown than hidden.

@@ -200,6 +200,17 @@ def update_check(app, req, mesh) -> dict:
 
 
 @authed
+def janitor_sweep(app, req, mesh) -> dict:
+    """Run the V63 storage janitor once: reclaim the attachments of
+    verified delete-for-everyone'd messages (past the 7-day undo grace)
+    and purge groups whose deletion folded terminal. Idempotent."""
+    from ..mesh.janitor import Janitor
+
+    out = Janitor(mesh).sweep()
+    return {"ok": True, **out}
+
+
+@authed
 def update_apply(app, req, mesh) -> dict:
     """Apply a git-channel update. Every rail is recomputed server-side —
     the client's earlier check result is never trusted."""
@@ -230,4 +241,5 @@ def update_apply(app, req, mesh) -> dict:
 
 
 GET = {"/api/update_check": update_check}
-POST = {"/api/update_apply": update_apply}
+POST = {"/api/update_apply": update_apply,
+        "/api/mesh/janitor": janitor_sweep}

@@ -145,6 +145,10 @@ class Transport(ABC):
     @abstractmethod
     def blob_size(self, path: str) -> int | None: ...
 
+    def delete_blob(self, path: str) -> None:
+        """Remove ONE stored blob (the storage janitor, V63). Default: not
+        supported — the janitor then reclaims nothing on this transport."""
+
     def local_path(self, path: str) -> Path | None:
         """Real filesystem path for folder-backed stores, else None — the seam
         where open-with-OS / preview features degrade for API backends."""

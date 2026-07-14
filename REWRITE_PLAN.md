@@ -1671,6 +1671,18 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       date beyond-today wake-ups. 435 tests, 24/24 modules; end-to-end
       brief-fidelity test + parse_at unit shapes.
 
+- [x] **R65 — storage janitor. DONE 2026-07-15 (v0.24.140).** BACKLOG
+      V63 (Aryan's gate before the security round). `mesh/janitor.py`
+      + transport `delete_blob`: verified-redaction blob reclamation
+      (the read fold's OWN verifier — forged docs reclaim nothing,
+      valid voids/Undo are skipped, 7-day grace; post-grace Undo
+      restores text, not the attachment — documented) and terminal
+      chat purges (the signed, admin-gated event fold is the judge —
+      works even after being folded out, info events are plaintext).
+      POST /api/mesh/janitor + About→Storage card + silent daily
+      sweep. 438 tests (3 new over the real E2EE folder transport),
+      24/24 modules; card verified live.
+
 | Backlog item (source) | Covered in |
 |---|---|
 | Settings overhaul: messaging-permission model (HANDOFF #1) | R6 |
