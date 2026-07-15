@@ -44,11 +44,13 @@ a stress/soak pass with a 40× read-latency fix, and the R25 security review.
   and report permission outcomes, R66 fixed the lost-trigger race (agents
   silent on new-chat messages), R71 the unread-badge reappear, R72 the
   attachment-wait note, R73 timer-timezone clarity, R74 repo public +
-  the DM standing-approval hole, R75 password-on-signout (V68). Still
-  queued: V69 owner-changed pill (design in memory), V66 typing/step
-  indicator (after the schema paste), V78 multi-message turns,
-  per-member Supabase RLS, V75/V76 (external events / silence nudge),
-  the V85–V100 polish batch. Older
+  the DM standing-approval hole, R75 password-on-signout (V68), R77 the
+  V69 owner-changed pill (machine claims now post each agent's own
+  "left — their responsible member changed" departure before ownership
+  moves). Still queued: V78 multi-message turns, V66 typing/step
+  indicator, per-member Supabase RLS, V75/V76 (external events / silence
+  nudge), the V85–V110 polish batch (V109 = permission-prompt overhaul:
+  the app should ask the HARNESS for run state directly). Older
   rounds (full detail per round in REWRITE_PLAN.md; item-level in BACKLOG.md):
   R54 agent lifecycle + trust (own agents' key pins auto-verify — born
   Verified at create/adopt, backfilled at sign-in; the My-agents Runner

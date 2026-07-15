@@ -330,6 +330,49 @@ class Mesh:
         self.key_pins.mark_verified(name)
 
     # ----------------------------------------------------------- lifecycle
+    def claim_machine_agents(self) -> list[str]:
+        """Login-on-this-machine ownership transfer (D19) with the V69
+        departure pills: BEFORE ownership moves, each claimed agent LEAVES —
+        as itself, reason ``owner_changed`` — every group its new
+        responsible member isn't in. The fold's heal would drop it there
+        silently; the agent's keys live on this machine (the very basis of
+        the claim), so it can still speak its own goodbye, and the chat key
+        epoch rotates on each departure exactly like any leave (R69).
+        Pill failures never block a login — the owner patch still runs and
+        the heal keeps the invariant (silently, as before V69)."""
+        try:
+            claimable = self.accounts.claimable_agents()
+        except Exception:  # noqa: BLE001 — let the primitive raise instead
+            claimable = []
+        for agent in claimable:
+            try:
+                self._depart_owner_changed(agent)
+            except Exception:  # noqa: BLE001 — best-effort storytelling
+                continue
+        return self.accounts.claim_machine_agents()
+
+    def _depart_owner_changed(self, agent: str) -> None:
+        from ..core.models import ChatKind
+
+        if self.keystore.load(agent) is None:
+            return  # no keys = no signed goodbye; the heal cascades silently
+        scoped = Mesh(
+            self.tx, agent, self.machine, home=self.home,
+            encrypt=isinstance(self.sealer, E2EESealer),
+        )
+        try:  # NOT started — no presence beat, no threads; writes flush below
+            for snap in scoped.membership.chats_for():
+                if (snap.kind is ChatKind.GROUP
+                        and agent in snap.members
+                        and self.user not in snap.members):
+                    try:
+                        scoped.membership.leave(snap.id, reason="owner_changed")
+                    except Exception:  # noqa: BLE001 — one room never blocks
+                        continue
+            scoped.outbox.flush_once()  # durable NOW — no worker is running
+        finally:
+            scoped.close()
+
     def start(self, *, heartbeat: bool = True) -> None:
         """Start the background outbox flusher, notifier pump (+ the presence
         heartbeat). The sync loop stays the caller's to run — GUI/harness own

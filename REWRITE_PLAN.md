@@ -1792,6 +1792,23 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       hijack path; session restore stays password-free. delete_account
       threads its verified pw through. +3 HTTP assertions; live-verified.
 
+- [x] **R77 — the owner-changed pill (V69). DONE 2026-07-16
+      (v0.24.156), rig-verified.** The machine claim was the one cascade
+      mutation site without V37 pills — agents vanished silently from
+      rooms the new owner isn't in. The FACADE now owns the transfer
+      (`Mesh.claim_machine_agents`): before the owner patch, each claimed
+      agent leaves those groups AS ITSELF through a short-lived
+      agent-scoped Mesh (unstarted: no threads/presence; outbox flushed
+      synchronously) — `membership.leave(reason="owner_changed")` gives a
+      real ns-stamped departure, tenure close, R69 epoch rotation, and the
+      pill ("X left — their responsible member changed", state.js). The
+      accounts primitive split into `claimable_agents()` + the patch.
+      Degradations: missing agent keys or any pill failure → today's
+      silent heal; claiming never blocks a login. New-batch self-notes
+      swept as V102–V109 (+V110 Performance-knob assessment); V109 =
+      permission-prompt overhaul escalation (app should ask the HARNESS
+      for run state directly). 470 tests, 24/24 modules.
+
 - [x] **R76 — the egress round (V84, the scaling emergency). DONE
       2026-07-15 (v0.24.151), live sweep 17/17.** Free tier at 857%
       egress / 170% realtime / 204 peak connections. Full deliberation +

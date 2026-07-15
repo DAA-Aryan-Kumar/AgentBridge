@@ -275,7 +275,7 @@ class MembershipService:
             self.keys.on_members_removed(chat_id, healed)
         return healed
 
-    def leave(self, chat_id: str) -> ChatSnapshot:
+    def leave(self, chat_id: str, *, reason: str = "") -> ChatSnapshot:
         # R56 (V37): record the owned agents the heal will cascade out with
         # me — posted BEFORE my own departure (a member may still write).
         snap = self.messaging.snapshot(chat_id)
@@ -285,7 +285,13 @@ class MembershipService:
                           "by": self.user, "reason": "with_owner",
                           "owner": self.user}
             )
-        self.messaging.post_event(chat_id, {"type": events.EV_MEMBER_LEFT})
+        # ``reason`` rides the event for the pill ("owner_changed", V69 —
+        # an agent departing because its responsible member changed); the
+        # fold ignores extra keys, so old clients render a plain "left"
+        event = {"type": events.EV_MEMBER_LEFT}
+        if reason:
+            event["reason"] = reason
+        self.messaging.post_event(chat_id, event)
         healed = self.refold(chat_id)
         if self.keys is not None:  # R69: rotate the epoch away from me on exit
             self.keys.on_member_left(chat_id, healed)

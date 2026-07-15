@@ -74,7 +74,11 @@ export function meshInfoText(msg, me) {
     case "member_removed": return ev.reason === "with_owner"
       ? `${meshDn(ev.who)} left with ${obj(ev.owner || by)}`
       : `${name(by)} removed ${obj(ev.who)}`;
-    case "member_left": return `${name(msg.from)} left`;
+    case "member_left": return ev.reason === "owner_changed"
+      // V69: an agent departs rooms its NEW responsible member isn't in —
+      // say why, or the roster change reads as a silent kick
+      ? `${meshDn(msg.from)} left — their responsible member changed`
+      : `${name(msg.from)} left`;
     case "admin_granted": return ev.who === me ? "You're now an admin" : "";
     case "admin_revoked": return ev.who === me ? "You're no longer an admin" : "";
     case "renamed": return `${name(by)} changed the name to “${ev.name || ""}”`;

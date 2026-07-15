@@ -143,7 +143,9 @@ class GuiApp:
             if mesh.keystore.load(name) is None:
                 mesh.accounts.unlock(password)  # new machine: unwrap + cache
             try:
-                mesh.accounts.claim_machine_agents()  # D19: login claims
+                # D19: login claims; the facade posts the V69 owner-changed
+                # departure pills before ownership moves
+                mesh.claim_machine_agents()
             except Exception:  # noqa: BLE001 — claiming must not block login
                 pass
             self._detach()

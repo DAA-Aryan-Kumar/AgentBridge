@@ -418,16 +418,14 @@ class AccountsService:
                 changed.append(name)
         return changed
 
-    def claim_machine_agents(self) -> list[str]:
-        """Login-on-this-machine ownership transfer (D19): the signed-in
-        member becomes the responsible member for agents hosted HERE. The
-        invariant then self-enforces the fallout — in any room where the old
-        owner sat but the new one doesn't, the agent cascades out on the next
-        fold. Called by the sign-in flow (R13)."""
+    def claimable_agents(self) -> list[str]:
+        """Agents a sign-in on THIS machine would transfer (hosted here,
+        owned by someone else). Split from the patch (V69) so the facade
+        can post their owner-changed departures BEFORE ownership moves."""
         me = self.directory.get(self.user)
         if me is None or me.kind is not UserKind.HUMAN:
             raise PermissionDenied("only a signed-in member can claim agents")
-        claimed = []
+        out = []
         for path in self.tx.list_docs("users"):
             doc = self.tx.get_doc(path)
             agent_info = (doc or {}).get("agent") or {}
@@ -436,12 +434,24 @@ class AccountsService:
                 and agent_info.get("machine") == self.machine
                 and agent_info.get("owner") not in ("", self.user)
             ):
-                name = doc["name"]
-                self.directory.patch(
-                    name, lambda d: d.setdefault("agent", {}).update(owner=self.user)
-                )
-                claimed.append(name)
-        return sorted(claimed)
+                out.append(doc["name"])
+        return sorted(out)
+
+    def claim_machine_agents(self) -> list[str]:
+        """Login-on-this-machine ownership transfer (D19): the signed-in
+        member becomes the responsible member for agents hosted HERE. The
+        invariant then self-enforces the fallout — in any room where the old
+        owner sat but the new one doesn't, the agent cascades out on the next
+        fold. Called by the sign-in flow (R13) through the FACADE's
+        ``Mesh.claim_machine_agents`` (V69), which first posts each agent's
+        owner-changed departure pills; this primitive only moves ownership."""
+        claimed = []
+        for name in self.claimable_agents():
+            self.directory.patch(
+                name, lambda d: d.setdefault("agent", {}).update(owner=self.user)
+            )
+            claimed.append(name)
+        return claimed
 
     def delete_agent(self, agent: str) -> None:
         """Owner-initiated agent deletion (soft, like every deletion): remove

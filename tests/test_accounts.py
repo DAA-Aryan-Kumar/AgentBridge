@@ -3,7 +3,7 @@
 import pytest
 
 from agentbridge.core.errors import PermissionDenied, ValidationError
-from agentbridge.core.models import Role, UserKind
+from agentbridge.core.models import MsgKind, Role, UserKind
 from agentbridge.mesh.service import Mesh
 from agentbridge.transport.folder import FolderTransport
 
@@ -268,7 +268,7 @@ def test_claim_machine_agents_transfers_ownership(world):
     aryan.accounts.create_agent("claude")               # on mach1, owner aryan
     room = aryan.create_chat("Only aryan here", members=["claude"])
 
-    claimed = fable.accounts.claim_machine_agents()     # fable signs in, mach1
+    claimed = fable.accounts.claim_machine_agents()     # the bare primitive
     assert claimed == ["claude"]
     assert fable.directory.owner_of("claude") == "fable"
 
@@ -276,3 +276,43 @@ def test_claim_machine_agents_transfers_ownership(world):
     healed = aryan.membership.refold(room.id)
     assert "claude" not in healed.members
     assert set(healed.members) == {"aryan"}
+
+
+def test_claim_posts_owner_changed_departures(world):
+    """V69: the FACADE claim makes the fallout visible — in every group the
+    new responsible member isn't in, the agent leaves AS ITSELF with reason
+    ``owner_changed`` (a real ns-stamped departure, not a silent heal);
+    rooms the new owner shares keep the agent, no pill."""
+    from conftest import install_key
+
+    meshes, _ = world
+    aryan, fable = meshes["aryan"], meshes["fable"]
+    aryan.accounts.create_agent("claude")
+    lost = aryan.create_chat("Aryan only", members=["claude"])
+    kept = aryan.create_chat("Both here", members=["claude", "fable"])
+    # the machine-claim premise: the agent's keys live on this machine —
+    # the test world splits homes per user, so mirror reality explicitly
+    install_key(fable.home, "claude", aryan.keystore.load("claude"))
+
+    assert fable.claim_machine_agents() == ["claude"]
+    assert fable.directory.owner_of("claude") == "fable"
+
+    # the lost room: a REAL departure event authored by the agent
+    aryan.sync.sync_once([lost.id])
+    snap = aryan.membership.refold(lost.id)
+    assert "claude" not in snap.members
+    pills = [m for m in aryan.messages_for(lost.id)
+             if m.kind is MsgKind.INFO
+             and (m.event or {}).get("type") == "member_left"
+             and (m.event or {}).get("reason") == "owner_changed"]
+    assert len(pills) == 1 and pills[0].from_ == "claude"
+    # tenure closed at the event's ns — the departure is log-real (R25)
+    assert pills[0].ns > 0
+
+    # the kept room: fable is present, claude stays, and no pill appears
+    aryan.sync.sync_once([kept.id])
+    snap2 = aryan.membership.refold(kept.id)
+    assert "claude" in snap2.members
+    assert not [m for m in aryan.messages_for(kept.id)
+                if m.kind is MsgKind.INFO
+                and (m.event or {}).get("reason") == "owner_changed"]

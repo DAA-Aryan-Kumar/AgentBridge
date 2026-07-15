@@ -1277,11 +1277,24 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
   assertions (no-pw refused, wrong-pw refused + session survives,
   right-pw signs out); live-verified on the rig (wrong→stays,
   right→auth page, zero console errors).
-- [ ] **V69 "left because its owner changed" pill — BUILD** (Aryan
+- [x] **V69 "left because its owner changed" pill — BUILD** (Aryan
   confirmed) — when `_heal` cascades an agent out of a room because its
   responsible member is no longer there (ownership transfer / owner
   leave), post/synthesize a member-departure info pill so it isn't a
-  silent membership change.
+  silent membership change. → **DONE R77 (v0.24.156, rig-verified
+  2026-07-16).** Owner-leave/removal cascades already had V37 pills; the
+  missing mutation site was the MACHINE CLAIM. `Mesh.claim_machine_agents`
+  (facade) now runs the transfer: before ownership moves, each claimed
+  agent LEAVES — as itself, via a short-lived agent-scoped Mesh (its keys
+  are on this machine, the basis of the claim) — every group the new
+  responsible member isn't in, with `member_left` reason `owner_changed`
+  riding `membership.leave(reason=)`; tenure closes at a real ns and the
+  chat key epoch rotates like any leave (R69). Rooms the new owner shares
+  keep the agent, no pill. Renderer: "X left — their responsible member
+  changed". Missing agent keys / any pill failure degrade to today's
+  silent heal and never block a login. Rig-verified end-to-end (two GUIs,
+  ben's login claimed scrat: pill room shows the pill + roster drop; kept
+  room untouched; owner=ben in the directory). 470 tests.
 - [ ] **V66 Typing / step indicator in the sidebar** (queued) — replaces
   the message preview while someone types (human) or shows the agent's
   current step (agent). Data exists (livefeed: typing_* docs + run-feed
@@ -1390,6 +1403,49 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
 - [ ] **V100 Question (answer): how does the app handle permission
   prompts from Claude Code ITSELF** (vs the mesh broker)? — folds into
   V85/V86; answer from code when that round runs.
+### Aryan's self-notes, second batch (2026-07-15 evening, source: his
+### "message yourself" chat — swept 2026-07-16). Not hurried.
+
+- [ ] **V102 Composer disappears for blocked contacts** (18:13) — verify
+  intended: a blocked DM should probably show a "you blocked X" affordance
+  with Unblock, not a vanished composer.
+- [ ] **V103 Privacy vs DM creation (cluster)** (18:14 + 18:46) — "Allow
+  claude to dm me"; "nobody in privacy rules gate dm creation or messaging
+  itself — since dm creation is what is intended. block would already work
+  for a created dm." Decide + implement: the messaging-privacy gate should
+  not block DM creation outright (block covers the hostile case); agents
+  DMing their owner must work.
+- [ ] **V104 Agent parity audit: forward / message-info / copy / edit**
+  (18:16) — check which of these exist for AGENT-authored messages and
+  close the gaps (extends docs/GUI_AGENT_PARITY.md).
+- [ ] **V105 Loading spinner when an agent is stopped** (18:17) — the Stop
+  button needs immediate visible feedback.
+- [ ] **V106 Question: how do agent privacy rules affect their owner?**
+  (18:17) — answer from code (R6 matrix + D19), document in the answer.
+- [ ] **V107 An agent should KNOW it was stopped** (18:20) — surface the
+  stop into the agent's next-run context (pairs with V87 short-term
+  memory).
+- [ ] **V108 Ellipsis for long messages in permission prompts** (19:04) —
+  3-dots/clamp when the quoted message is long.
+- [ ] **V109 ⚠ Permission-prompt overhaul escalation** (19:08) — "very
+  unusable": the ghost prompt lingers after the agent already stopped;
+  the running indicator is unstable; a closed prompt easily confuses
+  "stopped" with "not responding". Aryan's design ask: **the app should
+  talk to the HARNESS DIRECTLY to know whether an agent runs** (process
+  truth, e.g. runner liveness/lock or a local channel) rather than
+  inferring from mesh messages — "a useful fix for all connectors".
+  Merge into the V85 cluster as its architecture; V85's UI fixes ride it.
+
+- [ ] **V110 Retire the "Performance / Check for news" knob in About?**
+  (Aryan asked 2026-07-16 whether the section still makes sense; Claude's
+  assessment: NO — the dropdown tunes the frontend's LOCAL /api/state
+  poll, which never touches the cloud; since R76 every metered cadence is
+  profile-driven in the transport layer, so a user-facing knob for a free
+  localhost poll is calm-UI noise nobody can reason about. Recommend:
+  remove the section, fix the cadence (or focus-gate it), keep the R76
+  traffic meter in the Connection card as the honest surface.) Await
+  Aryan's go-ahead, then it's a 20-minute frontend round.
+
 - [ ] **V101 Feed the hint watchdog from the LOG side too** (found in the
   R76 post-migration probe, 2026-07-15, during a degraded-realtime spell:
   agent reply 150.8s vs the 18.1s baseline). The R76 watchdog only trips
