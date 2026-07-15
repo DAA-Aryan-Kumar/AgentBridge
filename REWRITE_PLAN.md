@@ -1712,6 +1712,16 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       section. 444 tests, 24/24 modules. V80/V81/V82 (permission
       feedback loop) = next.
 
+- [x] **R68 — permission feedback + ask-encouragement. DONE
+      2026-07-15 (v0.24.143).** BACKLOG V80/V81/V82. V81 answered from
+      code (the asks endpoint is owner-only → a third-party requester
+      sees the agent go quiet). Closed in the `bridge` prompt: the agent
+      ATTEMPTS/ASKS for gated actions rather than refusing on its
+      member's behalf (V82), tells a non-owner requester it has asked
+      its member to approve (V81 agent-side), and reports the
+      allowed/denied outcome in its reply (V80). +1 prompt test. The
+      visual requester-facing "asking @owner" chip folds into V66.
+
 | Backlog item (source) | Covered in |
 |---|---|
 | Settings overhaul: messaging-permission model (HANDOFF #1) | R6 |

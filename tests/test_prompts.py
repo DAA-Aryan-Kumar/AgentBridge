@@ -84,6 +84,21 @@ def test_prompt_assembly_blocks(tmp_path):
     assert "threaded reply" in p                     # reply-vs-tag etiquette
 
 
+def test_bridge_guidance_encourages_asking_not_refusing(tmp_path):
+    """R68 (V80/V82): with the ask gate live, the agent is told to ATTEMPT
+    or ASK for gated actions rather than refuse for its member, to relay
+    that it asked when the requester isn't the owner, and to report the
+    outcome."""
+    pm = PromptManager(tmp_path / "nohome")
+    pack = pm.for_agent(acc())
+    p = pack.prompt(delivery(), acc(), context_file="c", outbox="o",
+                    bridge=True)
+    low = p.lower()
+    assert "rather than refusing" in low                 # V82: don't preempt
+    assert "asked your responsible member to approve" in low  # V81 relay
+    assert "allowed to do or could not do" in low        # V80 outcome report
+
+
 def test_prompt_timer_task(tmp_path):
     pm = PromptManager(tmp_path / "nohome")
     pack = pm.for_agent(acc())

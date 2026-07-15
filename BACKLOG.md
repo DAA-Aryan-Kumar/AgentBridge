@@ -1160,18 +1160,34 @@ security items below (V79–V82 are part of it per his framing).
   scope='global')` in a DM is correctly permitted by the "dm" policy;
   "policy-gated" wording just reads as if it asks — left as-is.
   V80/V81/V82 (permission feedback loop) = the next round.
-- [ ] **V80 Permission-ask feedback loop** — when a tool call raises an
-  owner ask, the AGENT should be told a permission was requested (and
-  its outcome) instead of the run ending blind. Pairs with V81/V82.
-- [ ] **V81 Question: third-party view of a pending owner ask** — Aryan
-  talks to someone ELSE's agent, a tool needs permission: what does the
-  asker see while the owner decides? If nothing, add an honest
-  "asking @owner for permission" surface (skip if it already exists —
-  verify from code first).
-- [ ] **V82 Encourage the agent to ASK for grantable permissions** —
-  prompt/tooldocs change: an agent facing a gated-but-askable action
-  should raise the ask itself instead of refusing until the user tells
-  it to ask.
+- [x] **V80 Permission-ask feedback loop** (R68) — the deny message
+  already flows back to the agent (Claude Code surfaces the
+  permission-tool deny text as the tool result); the gap was the agent
+  not UNDERSTANDING the model, so it either refused preemptively or
+  couldn't tell an approve from no-gate. Closed in the `bridge` prompt:
+  the agent is now told the outcome comes back and it must "say plainly
+  in your reply what you were allowed to do or could not do." The
+  richer VISUAL feedback (a run-feed "waiting for approval" step) is
+  folded into V66's typing/step indicator.
+- [x] **V81 Question: third-party view of a pending owner ask** (R68) —
+  ANSWERED from code: the `/api/mesh/asks` endpoint is OWNER-ONLY
+  (`acc.agent.owner == mesh.user`), so when you talk to someone ELSE's
+  agent and a tool needs permission, ONLY that agent's responsible
+  member sees the approval popup — you see the agent go quiet. Agent-
+  side close shipped in the `bridge` prompt: "when the person making
+  the request is someone else, tell them you have asked your
+  responsible member to approve, so they know why you paused rather
+  than thinking you froze." A dedicated requester-visible "asking
+  @owner" chip is folded into V66 (the typing/step indicator surface).
+- [x] **V82 Encourage the agent to ASK for grantable permissions**
+  (R68) — `bridge` prompt now: "When a task genuinely needs something
+  gated (a file outside your folder, a tool you don't have), ATTEMPT it
+  or ask for it rather than refusing on your member's behalf: the
+  attempt pauses the run and asks your responsible member to approve,
+  so let them decide instead of declining for them." +1 prompt test
+  asserting all three phrases. (The mechanism already existed — the
+  broker asks when a gated tool is USED; the agent just needed telling
+  not to refuse first.)
 
 ---
 
