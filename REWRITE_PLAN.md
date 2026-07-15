@@ -1733,6 +1733,18 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       Also fixed a pre-existing `test_janitor` flake (async store read).
       447 tests.
 
+- [x] **R70 — repo-public secret audit + tip redaction. DONE
+      2026-07-15 (v0.24.145).** BACKLOG V73 (partial). Full-history scan:
+      CLEAN of Supabase URL/project-ref/keys/JWTs (gitignored, out of
+      git), no secret dirs tracked. One real finding: `legacy/mesh.py`
+      seed_defaults hardcoded `aryan/aryan123` (live mesh password) at
+      tip + 1 history commit — redacted the tip to `changeme`. **V73
+      BLOCKED pending Aryan rotating `aryan123` on the live mesh** (then
+      flip is safe; history still carries the old value in 1 commit, but
+      with no URL/keys in the repo there's no reachable target). Did NOT
+      flip visibility (irreversible; his real password was in it — his
+      go-ahead assumed no secrets).
+
 | Backlog item (source) | Covered in |
 |---|---|
 | Settings overhaul: messaging-permission model (HANDOFF #1) | R6 |

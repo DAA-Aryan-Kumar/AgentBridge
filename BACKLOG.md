@@ -1115,11 +1115,23 @@ security items below (V79–V82 are part of it per his framing).
   (hold+heal end-to-end, deadline skip, doc + listing read-through).
   Live: fleet restarted onto .141, test-group cursors rewound, both
   agents answered Aryan's original @all message.
-- [ ] **V73 Make the AgentBridge GitHub repo public** — Aryan
+- [~] **V73 Make the AgentBridge GitHub repo public** — Aryan
   2026-07-15: "We can make the agentbridge gh public now." Full-history
-  secret audit FIRST (supabase.env was always out of git; verify
-  nothing leaked in any commit), then flip visibility. He updates the
-  AVD after this round.
+  secret audit DONE (R70): CLEAN of Supabase URL/project-ref/keys/JWTs
+  (never committed — `.env`/`*.env` gitignored, `supabase.env` lives in
+  ~/.agentbridge), no keys/cache/state dirs tracked, no home paths in
+  code, `sb_secret_x`/`hunter2` are dummy fixtures. ONE real finding:
+  `legacy/mesh.py::seed_defaults` hardcoded `aryan/aryan123` — Aryan's
+  LIVE mesh password — at the tip AND in 1 history commit. Redacted the
+  tip to `changeme` (retired v1 convenience, not imported by live code),
+  but **history still carries the value in 1 commit**. Severity is LOW
+  (the repo exposes no Supabase URL/keys, so a public reader has no
+  reachable target), but it IS his real password. **BLOCKED pending
+  Aryan: rotate `aryan123` on the live mesh** (trivial — the exposed
+  value then becomes worthless and no history rewrite is needed), then
+  give the go-ahead to flip visibility (`gh repo edit --visibility
+  public`). A history rewrite (filter-repo/BFG + force-push) is the
+  alternative if he'd rather scrub it — his call, it's destructive.
 - [ ] **V74 Question: timers when agent and owner are in different
   timezones** — `parse_at` resolves 'HH:MM' in the HARNESS MACHINE's
   local timezone (the AVD ≠ Aryan's laptop case). Answer + decide:

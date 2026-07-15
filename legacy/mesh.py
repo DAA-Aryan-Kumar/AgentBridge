@@ -1481,7 +1481,9 @@ class Mesh:
         existing agents, so there is something to test against."""
         created = []
         if not self.get_user("aryan"):
-            self.create_human("aryan", "Aryan", "aryan123")
+            # placeholder seed password (retired v1 first-run convenience);
+            # never a live credential — redacted before the repo went public
+            self.create_human("aryan", "Aryan", "changeme")
             created.append("aryan")
         for agent in ("claude", "coco"):
             if not self.get_user(agent):
