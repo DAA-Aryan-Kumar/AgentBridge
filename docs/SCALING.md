@@ -233,5 +233,18 @@ migration replaces those full pulls with ~1 KB empty cursor queries
 (idle fleet <1 GB/MONTH, activity-proportional beyond that) — **the
 dashboard paste is the actual fix; legacy mode is the tourniquet.**
 
-Still pending: the dashboard SQL paste (flips legacy → delta; the
-Connection panel confirms), and a Supabase usage-page check the next day.
+**Migration landed (2026-07-15, ~23:40):** Aryan pasted the R76 SQL and
+the live fleet self-upgraded with no restart — Connection panel flipped to
+`mode: delta`. The watchdog tripped exactly as designed on the paste
+itself (the backfill bumps every row's seq with no poke — DDL doesn't
+broadcast) and self-cleared. Post-migration probe: cross-process tombstone
+in 5.5 s poke-fast; a whole probe cycle moved **1.2 KB** where legacy
+moved ~190 KB per pull. Boot nuance (accepted): a freshly-created
+transport's FIRST poke can drop while its socket is still subscribing —
+the safety poll heals it; long-lived fleet processes keep warm sockets.
+One follow-up logged (BACKLOG V101): silent MESSAGES found by a safety
+poll don't feed the watchdog yet, so message latency degrades to ~45 s
+(not ~10 s) during a realtime outage — observed once during a
+Supabase-side incident window.
+
+Still pending: a Supabase usage-page check the next day.

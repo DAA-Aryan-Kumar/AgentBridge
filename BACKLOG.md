@@ -1390,6 +1390,15 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
 - [ ] **V100 Question (answer): how does the app handle permission
   prompts from Claude Code ITSELF** (vs the mesh broker)? — folds into
   V85/V86; answer from code when that round runs.
+- [ ] **V101 Feed the hint watchdog from the LOG side too** (found in the
+  R76 post-migration probe, 2026-07-15, during a degraded-realtime spell:
+  agent reply 150.8s vs the 18.1s baseline). The R76 watchdog only trips
+  on silent DOC deltas; new MESSAGES found by a safety poll with no poke
+  don't count, so the sync engine stays at 45s polls through a realtime
+  outage. Small change: `SyncEngine` reports "found records, unhinted" to
+  the transport wrapper (same suspect window) → message latency degrades
+  to ~10s instead of ~45s when Supabase realtime is down. Not urgent —
+  the current behaviour is the documented degraded envelope.
 
 ---
 
