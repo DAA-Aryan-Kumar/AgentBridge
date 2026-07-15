@@ -1138,9 +1138,28 @@ security items below (V79–V82 are part of it per his framing).
 - [ ] **V78 Agents may write 2+ messages per turn** — "truly free
   conversation": let a run post multiple messages instead of one
   monolithic reply.
-- [ ] **V79 SECURITY: audit @claude's chat with Aryan — "the loose
-  sandbox doesn't work properly"** — read the live chat, find the
-  loophole he saw, root-cause and fix. Part of the security round.
+- [x] **V79 SECURITY: the loose sandbox doesn't confine reads** (R67)
+  — read @claude's live chat with Aryan: the agent listed his entire
+  `Downloads` tree (44,241 files) and read a personal PDF (train
+  ticket, PNR) with NO prompt. ROOT CAUSE: `broker.decide` rule 3
+  auto-allowed the preset's read-class tools (`Read`/`Glob`/`Grep`)
+  ANYWHERE outside the deny-roots (home + mesh) — a deliberate "the
+  sandbox is about writes, not curiosity" choice that's exactly wrong
+  for a personal machine. FIX: a path target OUTSIDE the workspace is
+  now gated (reads included) — `auto_allow` bypasses the ask ONLY for
+  no-outside-path calls (workspace-cwd `Glob`, stateless `TodoWrite`);
+  everything else asks (owner sees "wants to read a file" + the full
+  path). Owner keeps the escape (live always-allow / standing
+  `approvals` rule). Unattended = fail closed. +3 broker tests
+  (outside read/glob gated, workspace+stateless still instant, standing
+  approval still grants) + an over-the-wire MCP assertion; THREAT_MODEL
+  section added. 444 tests. NOTE: the agent left
+  `C:\Users\AryanKumar\Downloads\claude_boundary_test.txt` as evidence
+  during the sweep — Aryan's to remove (I won't touch his Downloads).
+  Global-memory finding (#6 in the sweep) was NOT a hole: `remember(
+  scope='global')` in a DM is correctly permitted by the "dm" policy;
+  "policy-gated" wording just reads as if it asks — left as-is.
+  V80/V81/V82 (permission feedback loop) = the next round.
 - [ ] **V80 Permission-ask feedback loop** — when a tool call raises an
   owner ask, the AGENT should be told a permission was requested (and
   its outcome) instead of the run ending blind. Pairs with V81/V82.

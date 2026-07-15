@@ -8,11 +8,19 @@ Policy, in resolution order (first hit wins):
    outright, no ask: the keystore and the local cache hold plaintext keys
    and other members' chat bodies — reading them would break visibility =
    membership, and no owner click should be able to grant that;
-3. read-class tools the preset marks ``auto_allow`` run anywhere else — the
-   workspace sandbox is about WRITES and side effects, not curiosity;
-4. an owner-granted always-allow rule (``agent.harness["approvals"]``:
+3. any OTHER path target — outside the workspace, reads INCLUDED — falls to
+   the ask (rule 5). Reading a member's personal files (their Downloads,
+   documents, keys) IS the privacy breach, not mere "curiosity" (R67, V79:
+   the live agent read a 44k-file Downloads tree and a personal PDF with no
+   prompt because ``auto_allow`` used to greenlight reads ANYWHERE). The
+   owner can still grant a standing always-allow (rule 4);
+4. ``auto_allow`` read-class / no-side-effect tools (Read/Glob/Grep scoped
+   to the workspace cwd, TodoWrite) run without asking ONLY when they carry
+   no path target outside the workspace — internal state and workspace reads,
+   never a reach onto the host;
+5. an owner-granted always-allow rule (``agent.harness["approvals"]``:
    ``[{tool, chat}]``, chat ``"*"`` = every chat) allows without asking;
-5. everything else becomes an ASK: an owner-visible doc the GUI surfaces as
+6. everything else becomes an ASK: an owner-visible doc the GUI surfaces as
    a popup (approve / always-allow / deny). No answer inside the timeout
    means **deny** — unattended agents never get the benefit of the doubt.
 
@@ -118,12 +126,19 @@ class PermissionBroker:
                deny_roots: list[Path] | None = None) -> tuple[bool, str]:
         """Returns ``(allowed, message)``; blocks while the owner decides."""
         target = path_of(tool_input)
-        if target and _inside(target, workspace):
-            return True, ""
-        if target and any(_inside(target, root) for root in deny_roots or []):
-            return False, ("that path is the platform's own storage "
-                           "(keys, caches, the shared mesh) — off limits")
-        if tool in (auto_allow or ()):
+        outside = False
+        if target:
+            if _inside(target, workspace):
+                return True, ""
+            if any(_inside(target, root) for root in deny_roots or []):
+                return False, ("that path is the platform's own storage "
+                               "(keys, caches, the shared mesh) — off limits")
+            # a real filesystem path OUTSIDE the workspace: it must be gated,
+            # reads included (V79). auto_allow no longer short-circuits this —
+            # only a standing owner approval (below) or a live click may grant
+            # a reach onto the host's own files.
+            outside = True
+        if not outside and tool in (auto_allow or ()):
             return True, ""
         for rule in approvals or []:
             if rule.get("tool") == tool and \

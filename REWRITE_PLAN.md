@@ -1698,6 +1698,20 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       modules; live: cursors rewound, both agents answered the
       original @all.
 
+- [x] **R67 — the loose sandbox (security round begins). DONE
+      2026-07-15 (v0.24.142).** BACKLOG V79: @claude's live boundary
+      sweep showed it reading Aryan's whole Downloads tree + a personal
+      PDF with no prompt. Root cause = `broker.decide` auto-allowing
+      read-class tools ANYWHERE outside the deny-roots ("sandbox is
+      about writes, not curiosity" — inverted for a personal machine).
+      Fix: any path target OUTSIDE the workspace is gated, reads
+      included; `auto_allow` bypasses the ask only for no-outside-path
+      calls (workspace-cwd Glob, stateless TodoWrite); owner keeps the
+      always-allow / standing-approval escape; unattended = fail closed.
+      +3 broker tests + over-the-wire MCP assertion, THREAT_MODEL
+      section. 444 tests, 24/24 modules. V80/V81/V82 (permission
+      feedback loop) = next.
+
 | Backlog item (source) | Covered in |
 |---|---|
 | Settings overhaul: messaging-permission model (HANDOFF #1) | R6 |

@@ -327,6 +327,41 @@ version-skewed fleet a pre-R31.5 process writes unsigned state docs that
 newer readers ignore until `harden_startup` re-signs them — upgrade all of an
 account's processes together (the standing restart discipline).
 
+## Agent filesystem sandbox — TIGHTENED R67 (V79)
+
+The R18 broker confines an inner CLI's tool use to its per-chat **workspace**
+(the agent's own desk under `~/.agentbridge/harness/<agent>/workspaces/<chat>`).
+A live boundary sweep (Aryan + @claude, 2026-07-15) found the confinement was
+**write-only**: the broker's policy auto-allowed the preset's read-class tools
+(`Read`/`Glob`/`Grep`) **anywhere on the host** except the deny-roots (the
+harness home + mesh root), on the reasoning that "the sandbox is about writes
+and side effects, not curiosity." On a personal machine that reasoning is
+inverted — the live agent listed a 44k-file `Downloads` tree and read a
+personal PDF (a train ticket with PNR/transaction id) with **no prompt**.
+Reading a member's private files IS the privacy breach.
+
+**Fix (`broker.decide`):** any tool call whose path target resolves OUTSIDE
+the workspace is gated — **reads included** — and `auto_allow` no longer
+short-circuits it. Resolution is now: inside workspace → allow; inside a
+deny-root → hard refuse (no ask); any other path target → ASK the owner
+(who sees "wants to read a file" + the full path, and can approve / always-
+allow / deny); `auto_allow` bypasses the ask ONLY for calls with no
+outside-workspace path (a workspace-cwd `Glob`, the stateless `TodoWrite`).
+The owner keeps every escape: a live always-allow, or a standing
+`approvals` rule (`{tool, chat:"*"}`), grants a host read without a prompt
+each time — the fix removes the SILENT default, not the ability. Unattended
+agents still fail closed (no answer = deny). Covered by
+`test_broker.py::test_auto_allow_never_greenlights_a_read_outside_the_workspace`
+and the over-the-wire MCP assertion in the bridge test.
+
+**Still accepted:** blocklisted tools (`Bash`, `WebFetch`, …) never reach
+the gate (hard-blocked at the CLI); an owner who grants a broad standing
+approval re-opens host reads by their own choice; the agent's legitimate
+file access (staged inbox attachments, `fetch_file`) is copied INTO the
+workspace, so it never needs a host read. The paired permission-feedback
+work — telling the agent a permission was asked and encouraging it to ask
+rather than refuse (V80–V82) — is a follow-up round.
+
 ## Migration — R9.5 (retired R16.5)
 
 The v1→v2 migration tool ran the one R14 cutover; its legacy chats were

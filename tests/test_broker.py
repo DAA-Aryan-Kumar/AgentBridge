@@ -101,17 +101,57 @@ def test_deny_roots_refuse_even_reads_with_no_ask(tmp_path):
     assert tx.docs.get("status/asks/helper.json") is None  # never asked
 
 
-def test_auto_allow_reads_anywhere_else(tmp_path):
+def test_auto_allow_never_greenlights_a_read_outside_the_workspace(tmp_path):
+    """V79 (R67): reading a file OUTSIDE the workspace is a privacy decision
+    the owner must make — auto_allow no longer short-circuits it (the live
+    agent read a personal PDF in Downloads with no prompt). It falls to the
+    ask, which times out closed here."""
     _, b, ws = make(tmp_path)
     ok, _ = b.decide(chat_id="c1", workspace=ws, tool="Read",
-                     tool_input={"file_path": str(tmp_path / "other.txt")},
+                     tool_input={"file_path": str(tmp_path / "downloads" / "tax.pdf")},
                      auto_allow=["Read", "Glob", "Grep"], approvals=[],
-                     timeout_s=1)
-    assert ok
+                     timeout_s=0.2)
+    assert not ok            # gated: no auto-allow reach onto the host
+    # a Glob pointed at an outside directory is gated the same way
     ok, _ = b.decide(chat_id="c1", workspace=ws, tool="Glob",
-                     tool_input={"pattern": "**/*.py"},   # no path at all
+                     tool_input={"pattern": "**/*.pdf",
+                                 "path": str(tmp_path / "downloads")},
                      auto_allow=["Read", "Glob", "Grep"], approvals=[],
-                     timeout_s=1)
+                     timeout_s=0.2)
+    assert not ok
+
+
+def test_auto_allow_still_runs_workspace_cwd_and_stateless_tools(tmp_path):
+    """The confinement doesn't over-restrict: a no-path Glob (cwd is the
+    workspace) and a stateless tool like TodoWrite still run instantly."""
+    _, b, ws = make(tmp_path)
+    ok, _ = b.decide(chat_id="c1", workspace=ws, tool="Glob",
+                     tool_input={"pattern": "**/*.py"},   # no path -> cwd = ws
+                     auto_allow=["Read", "Glob", "Grep", "TodoWrite"],
+                     approvals=[], timeout_s=1)
+    assert ok
+    ok, _ = b.decide(chat_id="c1", workspace=ws, tool="TodoWrite",
+                     tool_input={"todos": [{"content": "x"}]},
+                     auto_allow=["Read", "Glob", "Grep", "TodoWrite"],
+                     approvals=[], timeout_s=1)
+    assert ok
+    # a read INSIDE the workspace is instant regardless of auto_allow
+    ok, _ = b.decide(chat_id="c1", workspace=ws, tool="Read",
+                     tool_input={"file_path": str(ws / "inbox" / "doc.txt")},
+                     auto_allow=[], approvals=[], timeout_s=1)
+    assert ok
+
+
+def test_owner_can_still_grant_an_outside_read_via_standing_approval(tmp_path):
+    """V79 leaves the escape hatch: an owner who wants the agent to read a
+    host path without a prompt each time grants a standing approval (or
+    clicks always-allow) — the fix removes the SILENT default, not the
+    ability."""
+    _, b, ws = make(tmp_path)
+    ok, _ = b.decide(chat_id="c1", workspace=ws, tool="Read",
+                     tool_input={"file_path": str(tmp_path / "downloads" / "ok.txt")},
+                     auto_allow=["Read"],
+                     approvals=[{"tool": "Read", "chat": "*"}], timeout_s=0.2)
     assert ok
 
 
@@ -286,6 +326,17 @@ def test_bridge_approve_and_ask_member_over_http(tmp_path):
             "tool_name": "Write",
             "input": {"file_path": str(tmp_path / "elsewhere.txt")}}))
         assert out["behavior"] == "deny"          # timeout -> fail closed
+
+        # V79 over the wire: an auto_allow READ of a path outside the
+        # workspace no longer passes silently — it becomes an ask (deny here)
+        out = json.loads(call_tool(bridge.url, "approve", {
+            "tool_name": "Read",
+            "input": {"file_path": str(tmp_path / "downloads" / "personal.pdf")}}))
+        assert out["behavior"] == "deny"
+        # but a no-path read stays instant (workspace cwd)
+        out = json.loads(call_tool(bridge.url, "approve", {
+            "tool_name": "Read", "input": {}}))
+        assert out["behavior"] == "allow"
 
         t = answer(tx, "answer", text="go ahead", delay=0.05)
         try:
