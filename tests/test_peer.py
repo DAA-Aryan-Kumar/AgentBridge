@@ -90,6 +90,32 @@ def test_ask_then_owner_allows_then_response(world):
     assert [e["outcome"] for e in audit] == ["requested", "allowed"]
 
 
+def test_idle_ticks_never_rewrite_the_pending_doc(world):
+    """R76: _publish_pending is change-guarded. It used to write (and poke
+    every mirror in the fleet) on EVERY 5s tick forever — the last writer
+    that kept an idle mesh from ever idling on the metered transport."""
+    claude = world["claude"]
+    target = PeerService(claude)
+    writes = []
+    real_put = claude.tx.put_doc
+
+    def counting_put(path, data):
+        if "peer_pending" in path:
+            writes.append(path)
+        return real_put(path, data)
+
+    claude.tx.put_doc = counting_put
+    for _ in range(5):                      # five idle ticks
+        target.serve_once(settings("ask"))
+    assert len(writes) == 1                 # one initial publish, then silence
+
+    PeerService(world["ops"]).request("claude", "status")
+    target.serve_once(settings("ask"))      # the list moved: one more write
+    assert len(writes) == 2
+    target.serve_once(settings("ask"))      # unchanged again: silent
+    assert len(writes) == 2
+
+
 def test_off_policy_denies_silently_but_audits(world):
     claude, ops = world["claude"], world["ops"]
     PeerService(ops).request("claude", "ping")

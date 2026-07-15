@@ -17,26 +17,38 @@ retrieval, peer harness access + repair mutations, the Supabase cloud transport,
 a stress/soak pass with a 40× read-latency fix, and the R25 security review.
 
 - **Version:** `agentbridge/__init__.py` `__version__` (moved here from
-  `gui/__init__.py` in R26). Currently **v0.24.150** (fleet live on it).
-  **⚠ TOP PRIORITY: the Supabase EGRESS EMERGENCY (BACKLOG V84)** — egress
-  is 6× over the free-tier limit, account deactivation imminent. The
-  mirror pulls a full doc snapshot per realtime hint + every 4s across ~6
-  processes, and avatars re-stream every read. Needs its own careful round
-  (incremental doc sync + adaptive cadence + avatar etag caching); V66
-  typing indicator must land AFTER it (it adds polling). The repo is now
-  PUBLIC (R74). **SECURITY ARC R66–R75 (2026-07-15) DONE + LIVE** — the core of Aryan's
+  `gui/__init__.py` in R26). Currently **v0.24.151** (fleet live on it).
+  **R76 (2026-07-15) CLOSED THE EGRESS EMERGENCY (V84)** — the free tier
+  had hit 857% egress / 170% realtime / 204 peak connections. Root causes
+  (measured, all fixed): the mirror's flat 4s full-snapshot loop
+  (21.4 GB/day across 6 procs), a `supervise_all` transport LEAK (one
+  mirror + realtime socket per 30s rescan), and presence heartbeats
+  poking every mirror awake forever. The fix is the Replicache
+  poke→delta-pull→reconcile shape + a `TransportProfile` economics
+  contract on every connector — **docs/SCALING.md is the round's design
+  doc and the checklist every future connector must pass.** Live sweep
+  17/17 (agent reply 18.1s; cross-process edit/delete/react/pin 7–15s in
+  legacy mode; avatar/file second hits = 0 storage bytes).
+  **⚠ ARYAN'S ONE STEP: paste the R76 section of docs/supabase_schema.sql
+  into the dashboard SQL editor** (idempotent, no restart — the fleet
+  self-upgrades to delta mode within a minute; Settings → About shows
+  "Sync: Incremental" once live, and the session traffic meter proves the
+  drop). Until the paste it runs a floored legacy mode ~30× cheaper than
+  before. V66 typing indicator may now land AFTER the paste (its polling
+  must ride the new cadence rules). The repo is PUBLIC (R74).
+  **SECURITY ARC R66–R75 (2026-07-15) DONE + LIVE** — the core of Aryan's
   security round: R67 closed the loose agent sandbox (reads outside the
   per-chat workspace now ask the owner — @claude had been reading the whole
   Downloads tree with no prompt), R69 rotates chat keys on `leave()` and
   distrusts a departed member's epoch, R68 makes the agent ask-not-refuse
   and report permission outcomes, R66 fixed the lost-trigger race (agents
   silent on new-chat messages), R71 the unread-badge reappear, R72 the
-  attachment-wait note, R73 timer-timezone clarity. **⚠ OPEN:** the repo is
-  NOT yet public — a live password (`aryan123`) is in `legacy/mesh.py`
-  history; Aryan must rotate it then flip (`gh repo edit --visibility
-  public`). Still queued: V68 sign-out protection (password-on-signout —
-  Aryan's UX call), V66 typing/step indicator, V78 multi-message turns,
-  per-member Supabase RLS, V75/V76 (external events / silence nudge). Older
+  attachment-wait note, R73 timer-timezone clarity, R74 repo public +
+  the DM standing-approval hole, R75 password-on-signout (V68). Still
+  queued: V69 owner-changed pill (design in memory), V66 typing/step
+  indicator (after the schema paste), V78 multi-message turns,
+  per-member Supabase RLS, V75/V76 (external events / silence nudge),
+  the V85–V100 polish batch. Older
   rounds (full detail per round in REWRITE_PLAN.md; item-level in BACKLOG.md):
   R54 agent lifecycle + trust (own agents' key pins auto-verify — born
   Verified at create/adopt, backfilled at sign-in; the My-agents Runner

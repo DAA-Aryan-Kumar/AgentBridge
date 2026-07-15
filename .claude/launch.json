@@ -2,6 +2,12 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "agentbridge-live",
+      "runtimeExecutable": "C:\\Users\\AryanKumar\\Downloads\\AgentBridge\\.venv\\Scripts\\python.exe",
+      "runtimeArgs": ["-m", "agentbridge.gui", "--no-browser"],
+      "port": 7787
+    },
+    {
       "name": "agentbridge-rig",
       "runtimeExecutable": ".venv\\Scripts\\python.exe",
       "runtimeArgs": [

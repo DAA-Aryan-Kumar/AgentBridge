@@ -240,48 +240,69 @@ risks live in docs/THREAT_MODEL.md ("What is NOT protected").
   `list_docs`, `append_log`/`read_log`(offset-based)/`list_logs`,
   blob put/get/size, `list_chat_ids`, `watch()` (a wake-up *hint* only). Plus a
   `cache_key` for store partitioning. **Adding a connector = implement the
-  abstract surface + one `make_transport` scheme entry.** Two OPTIONAL fast
-  paths (R30) make a high-RTT driver feel local and degrade gracefully when
-  absent: `get_docs(prefix)` (bulk read; default loops the required methods —
-  the mirror warms from it) and `changed_logs(cursor)` +
-  `has_change_feed = True` (a global monotonic change feed over the logs —
-  the sync engine then polls every chat in ONE round-trip).
+  abstract surface + one `make_transport` scheme entry + fill in the
+  `TransportProfile` and pass the docs/SCALING.md §4 checklist.** The profile
+  (R76) DECLARES the connector's economics — `metered`, `supports_doc_delta`,
+  idle/fallback poll cadences, reconcile interval, presence beat/staleness —
+  and every cadence in the app reads from it (no caller hard-codes a poll
+  rate; porting free-folder-poll assumptions onto a metered API is what
+  melted the Supabase free tier, V84). Optional fast paths, degrading
+  gracefully when absent: `get_docs(prefix)` (bulk read),
+  `changed_logs(cursor)` + `has_change_feed` (global log feed, R30), and
+  `snapshot_docs()`/`get_docs_delta(cursor)` (the docs delta feed, R76 —
+  the docs twin of the log feed; `suggest_poll_s(default)` lets a wrapper
+  answer live cadence to hint-woken loops).
 - **`transport/folder.py`** — the synced-folder impl. Retries transient
   `PermissionError` (OneDrive mid-sync locks), tolerates half-synced files (BOM
   strip, partial trailing JSONL line not consumed), a memoized path-escape guard
   (`_abs`), and a best-effort `ReadDirectoryChangesW` watcher that only shortens
   poll latency (polling stays the truth — OneDrive doesn't reliably notify for
   files synced *down*).
-- **`transport/supabase.py`** (R23) — docs → `ab_docs`, logs → `ab_logs` (row
-  id = read offset), blobs → the `ab-mesh` bucket, realtime broadcast hints on a
-  daemon thread (degrade → poll). Trust model v1: **only the secret key** talks
-  to the project (RLS on, no policies, so the publishable key can do nothing);
-  bodies arrive pre-sealed, so the server only ever stores ciphertext.
-  Implements both R30 fast paths: `get_docs` (one paged query) and
-  `changed_logs` (`ab_logs` row ids are one global identity column, so
-  "what changed since cursor?" is one indexed query — measured ~65-85 ms
-  p50/op on the live project; `scripts/profile_supabase.py` re-measures
-  every op against a throwaway root).
-- **`transport/cache.py`** (R28, reworked R29) — `CachingTransport`, a warm
-  in-memory **read mirror** (`get_doc`/`list_docs`/`list_chat_ids`; NOT logs or
-  blobs) that `make_transport` wraps around a **cloud** transport only (a folder
-  read is already free). One paged bulk query (`SupabaseTransport.get_docs`)
-  loads every doc under the root; a background daemon re-pulls the snapshot
-  every ~4 s (woken early by realtime hints), so the hot GUI read paths touch
-  the network **zero** times (`/api/mesh/state`: ~3 s under R28's short-TTL
-  read-through cache → ~12 ms mirrored). Stability rules: a FAILED refresh
-  keeps serving the last good snapshot (stale beats vanished — under R28 a
-  transient cloud fault read as "doc missing" and was cached, so chats/profiles
-  flickered out of the sidebar); writes are write-through and update the mirror
-  synchronously (a writer always sees its own writes); a refresh snapshot never
-  clobbers a doc written locally after the snapshot query began (recent-write
-  guard); returned docs are deep copies (callers patch documents in place).
-  Cross-process staleness ≤ the refresh cadence + hint latency — within the
-  mesh's existing eventual-consistency window (meta.json is already a
-  rebuildable snapshot). The GUI shares ONE mirrored transport between the
-  pre-auth directory and the Mesh (`GuiApp._build` passes `_tx0`).
-  `mirror_status()` reports warmth + seconds since the last good refresh;
-  the GUI Connection panel renders it as Connected / Reconnecting.
+- **`transport/supabase.py`** (R23, economics reworked R76) — docs →
+  `ab_docs`, logs → `ab_logs` (row id = read offset), blobs → the `ab-mesh`
+  bucket, realtime broadcast hints on a daemon thread (degrade → poll).
+  Trust model v1: **only the secret key** talks to the project (RLS on, no
+  policies, so the publishable key can do nothing); bodies arrive
+  pre-sealed, so the server only ever stores ciphertext. Fast paths:
+  `get_docs` (one paged query), `changed_logs` (`ab_logs` ids are one
+  global identity column), and the R76 **doc delta feed** —
+  `ab_docs.seq` (trigger-bumped from one sequence) + **soft deletes**
+  (`deleted=true` tombstones ride the feed; the janitor purges them after
+  30 days; `put_doc` revives). The driver PROBES for the migrated schema
+  and falls back to legacy full snapshots until the `docs/supabase_schema.sql`
+  R76 section is pasted — re-probing on a 60s leash, so the paste upgrades a
+  live fleet with no restart. Writes are echo-free (`returning="minimal"`);
+  outbound **hints are class-coalesced with a trailing edge**
+  (`_HintCoalescer`): messages 0.5s, permission asks 1s, run-feed 5s,
+  read-state 10s, `presence/` NEVER (heartbeats are carried by safety
+  polls; sign-in/out flips call `hint_now()`). `transfer_stats()` counts
+  queries + approximate bytes for the Connection panel and soak tests.
+- **`transport/cache.py`** (R28, reworked R29, delta + adaptive cadence
+  R76) — `CachingTransport`, a warm in-memory **read mirror**
+  (`get_doc`/`list_docs`/`list_chat_ids`; NOT logs or blobs) that
+  `make_transport` wraps around a **cloud** transport only (a folder read is
+  already free). Warm = one full `snapshot_docs()` (docs + the cursor they
+  are current at). The background daemon then follows the Replicache
+  poke→delta-pull→reconcile shape (docs/SCALING.md): realtime pokes wake an
+  incremental `get_docs_delta(cursor)` pull; a **slow safety poll**
+  (profile `idle_poll_s`, 45s on supabase) guards lost pokes; a full
+  reconcile runs at boot + every `reconcile_s` (6h); a **hint watchdog**
+  drops to `fallback_poll_s` (10s) for 10 min when a safety poll finds
+  changes no poke announced. Pre-migration (legacy schema) it full-pulls at
+  the slow cadence with a fallback-rate floor against poke bursts — still
+  ~30× cheaper than the old flat 4s loop that burned 21 GB/day (V84).
+  Stability rules unchanged from R29: a FAILED refresh keeps serving the
+  last good snapshot; writes are write-through and mirror-synchronous; the
+  recent-write guard protects local writes from racing pulls (full AND
+  delta); returned docs are deep copies. A tombstoned `meta.json` drops the
+  chat id at delta-apply time. The GUI shares ONE mirrored transport between
+  the pre-auth directory and the Mesh (`GuiApp._build` passes `_tx0`).
+  `mirror_status()` reports warmth, age, sync mode (delta/full), hint
+  health + transfer stats; the Connection panel renders Connected /
+  Reconnecting, the sync mode (with a paste-the-migration warning while
+  legacy), and a session traffic meter. **Never build a transport per call
+  in a loop** — `supervise_all` doing that (one leaked mirror + realtime
+  socket per 30s rescan) was half the V84 fire; helpers take a `tx`.
 - **`store/db.py`** — a local SQLite **read cache** (messages + per-log
   offsets + a small cached-doc kv), rebuildable from the transport at any time.
 - **`store/outbox.py`** — the durable send guarantee: a sealed envelope is

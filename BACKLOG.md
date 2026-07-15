@@ -1292,7 +1292,7 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
 ### Aryan's self-notes polish batch (2026-07-15, source: his "message
 ### yourself" chat) — LOGGED, not hurried. Grouped; build in priority order.
 
-- [ ] **V84 ⚠ EGRESS EMERGENCY (TOP PRIORITY)** — Supabase egress is
+- [x] **V84 ⚠ EGRESS EMERGENCY (TOP PRIORITY)** — Supabase egress is
   **6× over the free-tier limit; account deactivation imminent**. Almost
   certainly the CachingTransport mirror pulling a FULL `get_docs("")`
   snapshot every `refresh_s=4s` across ~6 logical processes (GUI +
@@ -1303,6 +1303,28 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
   GET/POST poll cadence; avatars cached by date/etag, not re-streamed;
   connector-level error handling if Supabase errors out. "We might need
   to change the way the connector works." → its own round, but URGENT.
+  → **DONE R76 (v0.24.151, live-verified 17/17 2026-07-15)** — full
+  deliberation + measured cost model + connector contract in
+  **docs/SCALING.md**. It was worse than the diagnosis: (1) the flat 4s
+  full-snapshot loop (157 KB × 6 procs = 21.4 GB/day, matches the bill),
+  (2) `supervise_all` LEAKED one mirror + one realtime socket per 30s
+  rescan (the 204-connection peak + 3.4M realtime messages), (3) presence
+  heartbeats poked every mirror awake forever. Shipped: `ab_docs.seq`
+  delta feed + soft deletes (schema paste pending — legacy fallback live,
+  auto-upgrades ≤1 min after the paste, Connection panel says so),
+  TransportProfile per-connector economics (Aryan's "per-connector
+  config"), hint classes + coalescing (fast lane for asks/messages =
+  Aryan's fast-route; presence never pokes), the leak fix, sha-addressed
+  blob disk cache (avatars + inline files, second hit = 0 storage bytes,
+  live-proven), echo-free writes, hint watchdog (connector-level error
+  handling), session traffic meter in About. Live sweep 17/17: agent
+  reply 18.1s, cross-process edit/delete/react/pin/meta 7–15s (legacy
+  cadence; sub-second-poked delta after the paste). **⚠ ARYAN'S ONE
+  STEP: paste the R76 section of docs/supabase_schema.sql in the
+  dashboard SQL editor** (idempotent; no restart needed) — until then
+  the fleet runs the slower legacy mode (~30× cheaper than before;
+  delta mode is another ~10× on top). Also killed at cutover: a stray
+  SECOND fleet (uv python) that had been doubling all traffic.
 - [ ] **V85 Permission-prompt fragility (cluster)** — the prompt is
   "very fragile": takes 2–3 tries for a decision to record; persists
   after a fleet restart until another prompt replaces it (closing the

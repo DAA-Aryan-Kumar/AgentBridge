@@ -109,8 +109,12 @@ class CachingTransport(Transport):
                          name="ab-mirror-warm").start()
 
     def refresh(self) -> None:
-        """One synchronous snapshot pull (tests; the loop calls this too)."""
+        """One synchronous snapshot pull (tests; the loop calls this too).
+        Also ensures the background refresher is running — a caller who
+        warms MANUALLY first must not end up with a mirror frozen on its
+        boot snapshot (auto_refresh=False keeps this a no-op)."""
         self._refresh_once()
+        self._start_thread()
 
     def mirror_status(self) -> dict:
         """Mirror health for the GUI Connection panel: ``warm`` = the bulk

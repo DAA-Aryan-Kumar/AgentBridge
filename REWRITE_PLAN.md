@@ -1792,6 +1792,30 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       hijack path; session restore stays password-free. delete_account
       threads its verified pw through. +3 HTTP assertions; live-verified.
 
+- [x] **R76 — the egress round (V84, the scaling emergency). DONE
+      2026-07-15 (v0.24.151), live sweep 17/17.** Free tier at 857%
+      egress / 170% realtime / 204 peak connections. Full deliberation +
+      measured cost model + the future-connector contract live in
+      **docs/SCALING.md** (Aryan's framing: treat it as a scaling
+      problem). Three causes, all fixed: the flat 4s full-snapshot
+      mirror loop (21.4 GB/day measured), the `supervise_all` transport
+      LEAK (one mirror + realtime socket per 30s rescan — the connection
+      peak + realtime overage), presence heartbeats poking every mirror
+      forever. Shape = Replicache poke→delta-pull→reconcile: `ab_docs.seq`
+      trigger + soft-delete tombstones (idempotent SQL section appended
+      to docs/supabase_schema.sql — **Aryan pastes once; the fleet
+      auto-upgrades within a minute, no restart**; until then a floored
+      legacy mode runs ~30× cheaper than before), `TransportProfile`
+      declared economics on every driver (all cadences read from it),
+      writer-side hint coalescing with per-class lanes (asks 1s /
+      messages 0.5s / run-feed 5s / receipts 10s / presence NEVER — flips
+      poke via hint_now), hint watchdog (safety poll finding unannounced
+      changes → 10s polls for 10 min), sha-addressed GUI blob disk cache
+      (avatars + inline files), echo-free writes, janitor tombstone
+      purge, Connection panel: sync mode + paste warning + session
+      traffic meter. 465 tests (was 438). Fleet cutover also killed a
+      stray DUPLICATE fleet (uv python) that had doubled all traffic.
+
 | Backlog item (source) | Covered in |
 |---|---|
 | Settings overhaul: messaging-permission model (HANDOFF #1) | R6 |

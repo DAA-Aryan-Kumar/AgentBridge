@@ -86,6 +86,7 @@ class PeerService:
         # commands can't run here, only be sent.
         self.repair_ops = repair_ops or {}
         self._lock = threading.Lock()
+        self._last_pending: list[dict] | None = None  # change guard (R76)
 
     # ------------------------------------------------------------- signing
     def _bundle(self):
@@ -305,12 +306,20 @@ class PeerService:
 
     # ------------------------------------------------------------ plumbing
     def _publish_pending(self, awaiting: dict) -> None:
+        rows = [{"id": m["id"], "from": m["from"],
+                 "command": m["command"],
+                 "repair": bool(m.get("repair"))}
+                for m in awaiting.values()]
+        # R76: change-guarded like publish_status — this used to write (and
+        # poke every mirror in the fleet) on EVERY 5s tick forever, which
+        # single-handedly kept the mesh from ever idling (hint meter: 33
+        # pokes/90s from two idle runners). Write only when the list moved.
+        if rows == self._last_pending:
+            return
+        self._last_pending = rows
         self.tx.put_doc(PENDING_DOC.format(target=self.agent), {
             "agent": self.agent, "updated": utcnow_iso(),
-            "awaiting": [{"id": m["id"], "from": m["from"],
-                          "command": m["command"],
-                          "repair": bool(m.get("repair"))}
-                         for m in awaiting.values()],
+            "awaiting": rows,
         })
 
     def _audit(self, meta: dict, outcome: str) -> None:
