@@ -19,9 +19,18 @@ outlives the server and reconnects on its own — spawning a second window
 here would double it.
 
 Process enumeration shells out to PowerShell (an OS facility, not a
-runtime dependency); non-Windows falls back to ``ps``. Everything is
-best-effort: worst case the helper relaunches beside a process that
-refused to die, and the port lock (R45) resolves the race.
+runtime dependency) with ``CREATE_NO_WINDOW`` — the V119 report was a
+console flashing up mid-restart (a detached process has no console, so
+its child powershell CREATED one). Non-Windows falls back to ``ps``.
+
+Relaunches use the checkout's OWN venv ``pythonw`` when it exists
+(``<cwd>/.venv/Scripts/pythonw.exe``) — the canonical fleet shape —
+rather than ``sys.executable``, which inside the uv-shim fleet is the
+BARE uv ``python.exe`` and produced a non-canonical process chain
+(V119's restart death was in such a chain). Every step appends to
+``%TEMP%/agentbridge_restart.log`` so the next failure isn't a black
+box. Everything is best-effort: worst case the helper relaunches beside
+a process that refused to die, and the port lock (R45) resolves it.
 """
 
 from __future__ import annotations
@@ -32,11 +41,24 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 import time
+from pathlib import Path
 
 __all__ = ["main"]
 
 _FLEET_MARKS = ("-m agentbridge.gui", "-m agentbridge.harness")
+_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0  # CREATE_NO_WINDOW
+
+
+def _log(msg: str) -> None:
+    try:
+        with open(Path(tempfile.gettempdir()) / "agentbridge_restart.log",
+                  "a", encoding="utf-8") as fh:
+            fh.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} [{os.getpid()}] "
+                     f"{msg}\n")
+    except OSError:
+        pass
 
 
 def _list_python_procs() -> list[tuple[int, str]]:
@@ -47,7 +69,8 @@ def _list_python_procs() -> list[tuple[int, str]]:
                 ["powershell", "-NoProfile", "-Command",
                  "Get-CimInstance Win32_Process -Filter \"Name like 'python%'\""
                  " | ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }"],
-                capture_output=True, text=True, timeout=30).stdout
+                capture_output=True, text=True, timeout=30,
+                creationflags=_NO_WINDOW).stdout
         else:
             out = subprocess.run(["ps", "-eo", "pid=,args="],
                                  capture_output=True, text=True,
@@ -103,14 +126,25 @@ def _wait_gone(pid: int, timeout_s: float) -> None:
 
 
 def _spawn(cmd: list[str], cwd: str) -> None:
-    flags = 0
+    flags = _NO_WINDOW
     if sys.platform == "win32":
-        flags = (subprocess.DETACHED_PROCESS
-                 | subprocess.CREATE_NEW_PROCESS_GROUP)
+        flags |= (subprocess.DETACHED_PROCESS
+                  | subprocess.CREATE_NEW_PROCESS_GROUP)
+    _log("spawn: " + " ".join(cmd))
     subprocess.Popen(cmd, cwd=cwd or None, creationflags=flags,
                      close_fds=True,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                      stdin=subprocess.DEVNULL)
+
+
+def _pick_exe(cwd: str, fallback: str) -> str:
+    """The checkout's own venv pythonw — the canonical fleet interpreter —
+    when it exists; the caller's interpreter otherwise (V119)."""
+    if cwd and sys.platform == "win32":
+        venv_w = Path(cwd) / ".venv" / "Scripts" / "pythonw.exe"
+        if venv_w.is_file():
+            return str(venv_w)
+    return fallback
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -127,15 +161,20 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError:
         gui_args = []
     scope = _scope_home(gui_args)
+    exe = _pick_exe(args.cwd, args.exe)
+    _log(f"start: gui_pid={args.gui_pid} exe={exe} cwd={args.cwd} "
+         f"scope={scope or '(main)'} args={gui_args}")
 
     # 1. let the old GUI finish its response and exit on its own
     _wait_gone(args.gui_pid, 20.0)
+    _log("old gui gone (or wait expired)")
 
     # 2. clear what's left of THIS instance's fleet (the harness tree, a
     #    wedged GUI); remember whether a harness was part of it
     had_harness = False
     for pid, cmd in _fleet_procs(scope):
         had_harness = had_harness or "agentbridge.harness" in cmd
+        _log(f"kill {pid}: {cmd[:120]}")
         try:
             os.kill(pid, signal.SIGTERM)
         except OSError:
@@ -147,10 +186,15 @@ def main(argv: list[str] | None = None) -> int:
     #    harness if one had been running (main app only — see module doc)
     if "--no-browser" not in gui_args:
         gui_args.append("--no-browser")
-    _spawn([args.exe, "-m", "agentbridge.gui", *gui_args], args.cwd)
-    if had_harness and not scope:
-        time.sleep(2.0)
-        _spawn([args.exe, "-m", "agentbridge.harness", "--all"], args.cwd)
+    try:
+        _spawn([exe, "-m", "agentbridge.gui", *gui_args], args.cwd)
+        if had_harness and not scope:
+            time.sleep(2.0)
+            _spawn([exe, "-m", "agentbridge.harness", "--all"], args.cwd)
+    except Exception as e:  # noqa: BLE001 — the log is the whole point
+        _log(f"RELAUNCH FAILED: {type(e).__name__}: {e}")
+        return 1
+    _log("done")
     return 0
 
 

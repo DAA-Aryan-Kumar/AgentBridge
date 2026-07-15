@@ -1548,6 +1548,41 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
   code. First pass done R80 (see below). Future confusions land here
   source-tagged.
 
+### Aryan's self-notes, third batch (2026-07-15 late evening, swept
+### 2026-07-16 during the RLS round). Not hurried except V119.
+
+- [ ] **V115 @ badge for replies/tags in groups** (21:24) — a group row
+  where you were tagged or replied-to shows "@" in place of the unread
+  counter (groups only, WhatsApp-style).
+- [ ] **V116 Message-info relative times + hot-reload audit** (21:33) —
+  message info shows "10 mins ago"/"30 mins ago" under an hour, "Today,
+  1:45 AM" / "Yesterday, 1:45 AM", else local date+time. AND: audit
+  every page for live refresh — message info and About (the cloud
+  traffic meter) should update without switching pages.
+- [ ] **V117 Harness tells agents the time proactively** (21:43) — an
+  agent that was down a while must check the CURRENT time before
+  posting; the harness injects this caution itself (context timestamp /
+  "the last message is N hours old" note), never per-prompt copy.
+- [ ] **V118 Question/investigate: CoCo worse — browser sign-in every
+  start?** (21:45) — CoCo's harness needs a browser sign-in each start;
+  Aryan doubts it relates to the harness error being thrown. Diagnose
+  the coco adapter's auth persistence separately from the error.
+- [x] **V119 ⚠ R82 restart regressions** (21:47, hit ~10 min after R82
+  shipped): a terminal window flashes ("opens even when it didn't need
+  to") and Aryan's restart left the fleet DEAD — he saw a signed-out/
+  unreachable window and relaunched by hand at 03:20. ROOT CAUSES:
+  (1) the helper's PowerShell process-enumeration ran without
+  CREATE_NO_WINDOW — a detached process has no console, so its child
+  CREATED one (the flash); (2) relaunches used `sys.executable`, which
+  inside the uv-shim fleet is the bare uv `python.exe` — a
+  non-canonical chain his second restart died in; the helper was a
+  fire-and-forget black box, so nothing recorded why. → **FIXED R84
+  rider (v0.24.163)**: CREATE_NO_WINDOW everywhere, relaunches use the
+  checkout's own `.venv\Scripts\pythonw.exe` (the canonical fleet
+  interpreter), and every step appends to %TEMP%\agentbridge_restart.log
+  so the next failure is diagnosable. Live-verified with two
+  consecutive endpoint restarts (his exact scenario).
+
 - [ ] **V101 Feed the hint watchdog from the LOG side too** (found in the
   R76 post-migration probe, 2026-07-15, during a degraded-realtime spell:
   agent reply 150.8s vs the 18.1s baseline). The R76 watchdog only trips
