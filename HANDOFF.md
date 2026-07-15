@@ -17,7 +17,15 @@ retrieval, peer harness access + repair mutations, the Supabase cloud transport,
 a stress/soak pass with a 40× read-latency fix, and the R25 security review.
 
 - **Version:** `agentbridge/__init__.py` `__version__` (moved here from
-  `gui/__init__.py` in R26). Currently **v0.24.160** (fleet live on it).
+  `gui/__init__.py` in R26). Currently **v0.24.162** (fleet live on it).
+  **R83 (2026-07-16, V109+V85)**: the permission-prompt overhaul — the
+  GUI asks the HARNESS for run state via a local heartbeat
+  (`core/runstate.py`); ghost prompts die with their run (boot reset +
+  teardown withdrawal + process-truth gating in asks/livefeed/sidebar);
+  answered cards die instantly and never resurrect; Close button;
+  outside-path asks say why there's no "Always"; in-process "always"
+  grants; desktop pings for new asks. **R82 (V113)**: Restart app in
+  About → Updates (detached helper, instance-scoped, session restores).
   **R81 (2026-07-16, V66)**: sidebar typing/step indicator — the chat
   row shows "X is typing…" / the agent's current run step instead of the
   preview, mirror-served (zero new cloud traffic). **R80 (2026-07-16,
@@ -65,11 +73,11 @@ a stress/soak pass with a 40× read-latency fix, and the R25 security review.
   V69 owner-changed pill (machine claims now post each agent's own
   "left — their responsible member changed" departure before ownership
   moves), R79 multi-message turns (V78), R81 sidebar typing/step
-  indicator (V66). Still queued: V109/V85 permission-prompt overhaul
-  (the app should ask the HARNESS for run state directly), per-member
-  Supabase RLS, V75/V76 (external events / silence nudge), the V85–V114
-  polish batch (V111 = app lock; V112 = privacy-copy rename riding
-  V103; V113 = restart in Updates; V114 = standing agent-docs). Older
+  indicator (V66), R83 permission-prompt overhaul (V109+V85). Still
+  queued: per-member Supabase RLS, V86 (CC-tool JSON rendering), V75/V76
+  (external events / silence nudge), the V87–V114 polish batch (V111 =
+  app lock; V112 = privacy-copy rename riding V103; V114 = standing
+  agent-docs). Older
   rounds (full detail per round in REWRITE_PLAN.md; item-level in BACKLOG.md):
   R54 agent lifecycle + trust (own agents' key pins auto-verify — born
   Verified at create/adopt, backfilled at sign-in; the My-agents Runner

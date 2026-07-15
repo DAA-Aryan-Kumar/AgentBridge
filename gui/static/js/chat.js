@@ -11,6 +11,7 @@ import { App, Mesh, meshDn, meshInfoText, chatAdmins, chatDisplay, renderChrome,
 import { renderSidebar, renderSideLoading, syncAskDots } from "./sidebar.js";
 import { initComposer, renderMeshPending, renderReplyArea, startReply, startEdit } from "./composer.js";
 import { openModal, closeModal } from "./modal.js";
+import { notifyAsk } from "./notify.js";
 import { rxBadge, openReactionsPopup, captureRxSigs, animateRxChanges } from "./reactions.js";
 import { V } from "./views.js";
 
@@ -786,7 +787,23 @@ function startAskPoll() {
     }
     try {
       const r = await api("/api/mesh/asks");
-      const asks = r.asks || [], timers = r.timers || [];
+      const timers = r.timers || [];
+      // V85: local memory of answered/dismissed asks — the card dies the
+      // moment you act and never resurrects while the harness's doc is
+      // still converging (the old grey-out un-greyed on the next tick and
+      // read as "the decision didn't record"; that WAS the 2–3 tries)
+      Mesh.askDone = Mesh.askDone || new Map();
+      const now = Date.now();
+      for (const [id, ts] of Mesh.askDone)
+        if (now - ts > 900000) Mesh.askDone.delete(id);
+      const asks = (r.asks || []).filter((a) => !Mesh.askDone.has(a.id));
+      // V85: a NEW ask pings once — a run is blocked on the owner, and a
+      // prompt behind an unfocused window used to time out unseen
+      Mesh.askSeen = Mesh.askSeen || new Set();
+      if (Mesh.askSeen.size > 500) Mesh.askSeen.clear();
+      for (const a of asks) {
+        if (!Mesh.askSeen.has(a.id)) { Mesh.askSeen.add(a.id); notifyAsk(a); }
+      }
       syncAskDots(asks);
       const cid = Mesh.chatId;
       // peer-session requests are chatless — show them in whatever chat is
@@ -839,9 +856,17 @@ function renderAskBar(chatId, asks, timers) {
       // R43: the harness sends a friendly verb phrase ("write a file") —
       // the raw tool id stays reachable as the hover title
       : `${esc(meshDn(a.agent))} <span class="kind-tag">agent</span> wants to <b title="${esc(a.tool)}">${esc(a.label || "use " + a.tool)}</b>`;
-    // a repair mutation ALWAYS asks — no "always allow" shortcut for it
-    const always = repair ? "" :
+    // a repair mutation ALWAYS asks — no "always allow" shortcut for it.
+    // V85 honesty: an outside-workspace path NEVER gets a standing grant
+    // (V83 — "always allow Read" must not become "read any file"), so
+    // offering the button there was a lie ("always allow seems not to
+    // work"); a hint says why instead.
+    const outside = a.scope === "outside";
+    const always = (repair || outside) ? "" :
       `<button class="ask-always">${peer ? "Always allow this peer" : "Always allow here"}</button>`;
+    const scopeNote = outside
+      ? `<div class="hint ask-scope-note">Files outside the agent's own folder ask every time</div>`
+      : "";
     // a question with agent-offered options renders them as a STACKED list
     // (Claude-Code-style, Q28/R44) — each row a label + optional description
     // line; "Other…" reveals the free-text escape
@@ -859,7 +884,7 @@ function renderAskBar(chatId, asks, timers) {
         <button class="primary ask-allow">Allow</button>
         ${always}
         <button class="danger-item ask-deny">Deny</button>
-      </div>` : `
+      </div>${scopeNote}` : `
       ${opts ? `<div class="ask-opts">
         ${a.options.map(optRow).join("")}
         <button class="ask-opt ask-other"><span class="ask-opt-label">Other…</span></button>
@@ -876,20 +901,33 @@ function renderAskBar(chatId, asks, timers) {
           <div class="ask-detail">${esc(a.detail || "")}</div>
           ${answerUi}
         </div>
+        <button class="ask-close" title="Dismiss — the agent is told no one answered" aria-label="Dismiss">${ICONS.close}</button>
       </div>`;
   }).join("");
   bar.querySelectorAll(".ask-card").forEach((card) => {
     const a = asks.find((x) => x.id === card.dataset.ask);
     if (!a) return;
+    // V85: acting on a card kills it INSTANTLY and remembers the id — the
+    // old grey-out resurrected on the next poll (the harness's doc lags
+    // the verdict by a round trip) and read as "didn't record". A failed
+    // POST rolls the memory back so the card returns with a toast.
     const send = async (verdict, text) => {
-      card.classList.add("ask-done");        // grey out while it lands
+      (Mesh.askDone = Mesh.askDone || new Map()).set(a.id, Date.now());
+      card.remove();
+      Mesh.askKey = "";                      // repaint on the next tick
       const r = await api("/api/mesh/answer_ask", {
         agent: a.agent, ask_id: a.id, verdict, text: text || "",
         tool: a.tool, chat: a.chat_id, kind: a.kind, peer: a.peer,
       });
-      if (r.error) { toast(r.error, true); card.classList.remove("ask-done"); }
-      Mesh.askKey = "";                      // repaint on the next tick
+      if (r.error) { toast(r.error, true); Mesh.askDone.delete(a.id); Mesh.askKey = ""; }
     };
+    // V85: Close = dismiss locally, no verdict — the harness times the ask
+    // out (deny) on its own; the card never falls right back
+    card.querySelector(".ask-close")?.addEventListener("click", () => {
+      (Mesh.askDone = Mesh.askDone || new Map()).set(a.id, Date.now());
+      card.remove();
+      Mesh.askKey = "";
+    });
     card.querySelector(".ask-allow")?.addEventListener("click", () => send("allow"));
     card.querySelector(".ask-always")?.addEventListener("click", () => send("always"));
     // deny is two-stage (Claude-Code-style, Q28): the second stage offers an

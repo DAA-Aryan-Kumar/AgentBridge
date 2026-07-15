@@ -187,11 +187,44 @@ def agent_start(app, req, mesh) -> dict:
     return {"ok": True, "agent": name}
 
 
+def runner_state(app, mesh, name: str):
+    """V109 process truth: is @name's harness runner alive? True/False when
+    it is hosted on THIS machine (local heartbeat + live pid — the direct
+    channel, no message inference); None when hosted elsewhere (the caller
+    falls back to doc-age heuristics)."""
+    from ..core.runstate import runner_alive
+
+    acc = mesh.directory.get(name)
+    hosted_on = acc.agent.machine if acc and acc.agent else ""
+    if not hosted_on or hosted_on != app.machine:
+        return None
+    return runner_alive(app.home, name)
+
+
+def _ask_expired(doc: dict, a: dict, slack_s: float = 60.0) -> bool:
+    """Fallback ghost filter for agents this machine can't process-check:
+    an ask past its own timeout (doc write time + expires_in_s + slack)
+    was already denied-by-timeout on the harness side — never show it."""
+    from .api_messages import _age_s
+
+    age = _age_s(doc.get("updated", ""))
+    if age is None:
+        return False
+    try:
+        return age > float(a.get("expires_in_s") or 120.0) + slack_s
+    except (TypeError, ValueError):
+        return False
+
+
 @authed
 def asks(app, req, mesh) -> dict:
     """Pending permission asks + questions AND scheduled wake-up timers
     across MY agents (owner-only, R18/R19.5) — the chat view polls this to
-    raise the approval popup, chip the chat's timers, and dot the sidebar."""
+    raise the approval popup, chip the chat's timers, and dot the sidebar.
+    V109: an ask is only as real as its run — a locally-hosted agent whose
+    runner process is dead contributes NO asks (process truth beats the
+    stale doc), and a remote agent's asks drop once past their own
+    timeout."""
     chat = (req.params.get("chat") or "").strip()
     out = []
     timers = []
@@ -199,6 +232,7 @@ def asks(app, req, mesh) -> dict:
         acc = mesh.directory.get(name)
         if not (acc and acc.agent and acc.agent.owner == mesh.user):
             continue
+        alive = runner_state(app, mesh, name)
         doc = mesh.tx.get_doc(f"status/asks/{name}.json")
         pending = doc.get("asks") if isinstance(doc, dict) else None
         for a in pending or []:
@@ -206,6 +240,10 @@ def asks(app, req, mesh) -> dict:
                 continue
             if chat and a.get("chat_id") != chat:
                 continue
+            if alive is False:
+                continue     # the runner is gone — this prompt is a ghost
+            if alive is None and _ask_expired(doc, a):
+                continue     # remote agent: past its own timeout = decided
             out.append({**a, "agent": name})
         hdoc = mesh.tx.get_doc(f"status/{name}_harness.json")
         for t in (hdoc.get("timers") if isinstance(hdoc, dict) else None) or []:
@@ -217,8 +255,9 @@ def asks(app, req, mesh) -> dict:
                            "chat_id": t.get("chat_id"),
                            "at_ns": t.get("at_ns"), "note": t.get("note")})
         # peer harness-access requests awaiting this owner (R22) — chatless,
-        # so they only surface in the unfiltered poll (the whole-page sweep)
-        if not chat:
+        # so they only surface in the unfiltered poll (the whole-page sweep).
+        # Served by the runner's loop, so a dead local runner = ghosts too.
+        if not chat and alive is not False:
             pdoc = mesh.tx.get_doc(f"status/peer_pending/{name}.json")
             for a in (pdoc.get("awaiting") if isinstance(pdoc, dict)
                       else None) or []:

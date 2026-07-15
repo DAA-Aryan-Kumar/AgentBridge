@@ -61,13 +61,16 @@ def bridge_state(app: GuiApp, req) -> dict:
     }
 
 
-def _live_by_chat(mesh) -> dict[str, list[dict]]:
+def _live_by_chat(app: GuiApp, mesh) -> dict[str, list[dict]]:
     """V66: who is typing / which agent run is mid-flight, per chat — one
     pass over the mirror's status docs (free; no cloud call rides this).
     Membership is applied by the CALLER: only chats already in the viewer's
     own list get annotated, so nothing leaks about rooms they aren't in.
     Thresholds mirror the in-chat feed: typing heartbeats go stale at 12s,
-    a run silent for 10+ minutes is a ghost."""
+    a run silent for 10+ minutes is a ghost. V109: a "running" doc from a
+    locally-hosted agent whose runner PROCESS is dead is a ghost NOW, not
+    in ten minutes — process truth beats the stale doc."""
+    from .api_agents import runner_state
     from .api_messages import _age_s
 
     live: dict[str, list[dict]] = {}
@@ -99,6 +102,8 @@ def _live_by_chat(mesh) -> dict[str, list[dict]]:
             if age is not None and age > 600:
                 continue
             who = doc.get("agent") or leaf[: -len("_run.json")]
+            if runner_state(app, mesh, who) is False:
+                continue
             live.setdefault(cid, []).append(
                 {"user": who,
                  "activity": " ".join(str(doc.get("activity") or "").split())[:80]})
@@ -150,7 +155,7 @@ def state(app: GuiApp, req) -> dict:
         users[name] = entry
     out["users"] = users
     chats = []
-    live = _live_by_chat(mesh)
+    live = _live_by_chat(app, mesh)
     for snap in mesh.chats_for():
         overview = mesh.chat_overview(snap.id)
         entry = chat_json(snap, overview=overview)

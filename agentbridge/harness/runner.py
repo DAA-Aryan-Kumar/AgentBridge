@@ -33,6 +33,7 @@ from pathlib import Path
 from .. import __version__
 from ..core.config import DEFAULT_HOME, load_app_config
 from ..core.models import ChatKind, UserKind
+from ..core.runstate import clear_beat, write_beat
 from ..mesh import authz
 from ..core.timekit import new_id, utcnow_iso
 from ..mesh.sealer import E2EESealer
@@ -695,6 +696,14 @@ class AgentRunner:
                 "no responder configured — attach_cli_responder() or inject "
                 "one; use --dry-run to inspect what would trigger")
         self.mesh.start()  # outbox flusher + presence heartbeat
+        # V85/V109 boot hygiene: a previous process that died mid-ask left
+        # its asks doc advertising prompts nobody can answer — a starting
+        # runner has none pending by definition, so reset it. The local
+        # heartbeat (process truth for the GUI) starts beating here too.
+        from .broker import PermissionBroker
+
+        PermissionBroker.clear_stale(self.mesh.tx, self.agent)
+        write_beat(self.home, self.agent)
         try:  # R25: warm the cache, then populate tenure + re-sign redactions
             self.mesh.sync.sync_once()
             self.mesh.harden_startup()
@@ -722,6 +731,7 @@ class AgentRunner:
                         break
                 return
             while not self._stop.is_set():
+                write_beat(self.home, self.agent)   # V109: process truth
                 self.tick()
                 if time.monotonic() - announced > 1800:
                     announced = time.monotonic()
@@ -754,6 +764,7 @@ class AgentRunner:
         resp_close = getattr(self.responder, "close", None)
         if callable(resp_close):
             resp_close()   # e.g. the CLI responder's qdrant path lock
+        clear_beat(self.home, self.agent)   # V109: read dead immediately
         self.mesh.sync.stop()
         self.mesh.close()
 

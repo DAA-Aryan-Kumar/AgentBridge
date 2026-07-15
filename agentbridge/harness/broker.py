@@ -89,7 +89,8 @@ def _inside(target: str, workspace: Path) -> bool:
 class Ask:
     def __init__(self, agent: str, chat_id: str, kind: str, tool: str,
                  detail: str, input_hash: str, timeout_s: float,
-                 label: str = "", options: list | None = None) -> None:
+                 label: str = "", options: list | None = None,
+                 scope: str = "") -> None:
         self.id = new_id("ask")
         self.agent = agent
         self.chat_id = chat_id
@@ -98,9 +99,14 @@ class Ask:
         self.detail = detail
         self.label = label        # friendly verb phrase ("write a file", R43)
         self.options = options or []  # a question's offered choices (R43/Q28)
+        self.scope = scope        # "outside" = per-path ask; no standing grant
         self.input_hash = input_hash
         self.created = utcnow_iso()
         self.expires_at = time.time() + timeout_s
+        # V85/V109: a run tearing down withdraws its asks — the blocked
+        # ask() loops see the flag and return instead of waiting out the
+        # timeout, and the doc stops advertising a prompt nobody can answer
+        self.withdrawn = False
 
     def to_doc(self) -> dict:
         doc = {"id": self.id, "chat_id": self.chat_id, "kind": self.kind,
@@ -111,6 +117,8 @@ class Ask:
             doc["label"] = self.label
         if self.options:
             doc["options"] = self.options
+        if self.scope:
+            doc["scope"] = self.scope  # the GUI hides "Always allow" for it
         return doc
 
 
@@ -124,6 +132,12 @@ class PermissionBroker:
         self._lock = threading.Lock()
         self._pending: dict[str, Ask] = {}
         self._denied: dict[str, str] = {}   # input_hash -> deny message (per process)
+        # V85: an "always allow" takes effect NOW, not next run — the owner
+        # said always and the very next call re-asking read as broken. The
+        # persisted rule (agent.harness["approvals"]) covers future
+        # processes; this covers the rest of this one. Same constraint as
+        # approvals: never consulted for an outside-workspace path (V83).
+        self._grants: set[tuple[str, str]] = set()   # (tool, chat_id)
 
     # -------------------------------------------------------------- policy
     def decide(self, *, chat_id: str, workspace: Path, tool: str,
@@ -149,6 +163,11 @@ class PermissionBroker:
         if not outside:
             if tool in (auto_allow or ()):
                 return True, ""
+            with self._lock:
+                granted = (tool, chat_id) in self._grants \
+                    or (tool, "*") in self._grants
+            if granted:
+                return True, ""
             for rule in approvals or []:
                 if rule.get("tool") == tool and \
                         rule.get("chat") in ("*", chat_id):
@@ -163,7 +182,11 @@ class PermissionBroker:
             tool_input, default=str).split())[:MAX_DETAIL]
         verdict, note = self.ask(chat_id=chat_id, kind="permission",
                                  tool=tool, detail=detail[:MAX_DETAIL],
-                                 input_hash=digest, timeout_s=timeout_s)
+                                 input_hash=digest, timeout_s=timeout_s,
+                                 scope="outside" if outside else "")
+        if verdict == "always" and not outside:
+            with self._lock:
+                self._grants.add((tool, chat_id))
         if verdict in ("allow", "always"):
             return True, ""
         with self._lock:
@@ -173,7 +196,7 @@ class PermissionBroker:
     # ----------------------------------------------------------- the pipe
     def ask(self, *, chat_id: str, kind: str, tool: str, detail: str,
             input_hash: str = "", timeout_s: float = 120.0,
-            options: list | None = None) -> tuple[str, str]:
+            options: list | None = None, scope: str = "") -> tuple[str, str]:
         """Publish one ask and wait for the owner. Returns
         ``(verdict, text)`` — verdict allow|always|deny|timeout for
         permissions, answer|timeout for questions (text = the reply/reason).
@@ -183,13 +206,16 @@ class PermissionBroker:
         label = (self.docs.ask_phrase(tool)
                  if self.docs is not None and kind == "permission" else "")
         a = Ask(self.agent, chat_id, kind, tool, detail, input_hash,
-                timeout_s, label=label, options=options)
+                timeout_s, label=label, options=options, scope=scope)
         with self._lock:
             self._pending[a.id] = a
             self._publish()
         try:
             deadline = a.expires_at
             while time.time() < deadline:
+                if a.withdrawn:   # the run is gone — nobody needs this answer
+                    return "timeout", ("the run ended before an answer "
+                                       "arrived")
                 ans = self._answer_for(a.id)
                 if ans is not None:
                     verdict = str(ans.get("verdict") or "deny")
@@ -212,7 +238,35 @@ class PermissionBroker:
 
     def pending(self) -> list[dict]:
         with self._lock:
-            return [a.to_doc() for a in self._pending.values()]
+            return [a.to_doc() for a in self._pending.values()
+                    if not a.withdrawn]
+
+    def withdraw(self, chat_id: str) -> int:
+        """V85/V109: a run tearing down takes its asks with it — the doc
+        stops advertising them NOW (the GUI popup dies with the run, not
+        two minutes later) and every blocked ``ask()`` returns on its next
+        poll tick. Chat-scoped: parallel runs in other chats keep theirs."""
+        with self._lock:
+            hit = [a for a in self._pending.values()
+                   if a.chat_id == chat_id and not a.withdrawn]
+            for a in hit:
+                a.withdrawn = True
+            if hit:
+                self._publish()
+        return len(hit)
+
+    @classmethod
+    def clear_stale(cls, tx, agent: str) -> None:
+        """Boot hygiene (V85: 'persists after a fleet restart'): a process
+        that died mid-ask left its asks doc advertising prompts no one can
+        answer. A starting runner has no pending asks by definition — reset
+        the doc to empty. Best-effort."""
+        try:
+            tx.put_doc(ASK_DOC.format(agent=agent), {
+                "agent": agent, "updated": utcnow_iso(), "asks": [],
+            })
+        except Exception:  # noqa: BLE001 — hygiene never blocks a boot
+            pass
 
     # ------------------------------------------------------------- plumbing
     def _publish(self) -> None:
@@ -220,7 +274,8 @@ class PermissionBroker:
         try:
             self.tx.put_doc(ASK_DOC.format(agent=self.agent), {
                 "agent": self.agent, "updated": utcnow_iso(),
-                "asks": [a.to_doc() for a in self._pending.values()],
+                "asks": [a.to_doc() for a in self._pending.values()
+                         if not a.withdrawn],
             })
         except Exception:  # noqa: BLE001 — a status write never breaks a run
             pass

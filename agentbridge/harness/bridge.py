@@ -730,6 +730,13 @@ class BridgeServer:
             return "forgot: " + "; ".join(r["text"] for r in removed)
 
     def __exit__(self, *exc) -> None:
+        # V85/V109: the run is over (posted, stopped, or crashed) — take its
+        # pending asks with it, so the owner's popup dies with the run and
+        # any thread still blocked in broker.ask() returns promptly.
+        try:
+            self.broker.withdraw(self.chat_id)
+        except Exception:  # noqa: BLE001 — teardown never raises
+            pass
         if self._server is not None:
             self._server.should_exit = True
         if self._thread is not None:

@@ -272,6 +272,13 @@ def livefeed(app, req, mesh) -> dict:
                 continue
             if age is not None and age > 7200:
                 continue  # a run that died without a finish write
+            # V109: a locally-hosted agent whose runner process is DEAD is
+            # not running, whatever its last doc write said (process truth)
+            from .api_agents import runner_state
+
+            who = doc.get("agent") or leaf[: -len("_run.json")]
+            if runner_state(app, mesh, who) is False:
+                continue
             feeds.append({**doc, "age_s": age})
         elif leaf.startswith("typing_"):
             if not doc.get("user") or doc["user"] == mesh.user:

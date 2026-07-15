@@ -1792,6 +1792,30 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       hijack path; session restore stays password-free. delete_account
       threads its verified pw through. +3 HTTP assertions; live-verified.
 
+- [x] **R83 — the permission-prompt overhaul (V109 + V85). DONE
+      2026-07-16 (v0.24.162), rig + live verified.** Aryan's architecture
+      call shipped: the app asks the HARNESS for run state directly —
+      a local heartbeat file (`core/runstate.py`; pid + stamp, rewritten
+      every runner loop pass, removed on clean exit; zero cloud, never
+      the SingleInstance lock, whose probe could knock a booting runner
+      into cooldown; never `os.kill(pid,0)` on Windows — it TERMINATES).
+      `runner_state()` gates `/api/mesh/asks`, the in-chat livefeed and
+      the V66 sidebar line: a locally-hosted agent with a dead runner
+      contributes no asks and no "running" bubble; remote agents fall
+      back to the ask's own timeout / doc age. Lifecycle hygiene: a
+      starting runner RESETS its asks doc; a run tearing down WITHDRAWS
+      its asks (bridge __exit__ → broker.withdraw; blocked ask() threads
+      release on the next tick — Stop clears the prompt in seconds, not
+      at the 120s timeout). Fragility fixes riding it: the GUI remembers
+      answered/dismissed ask ids (instant card death, no resurrect — the
+      "2–3 tries" killer), a Close button (dismiss, no verdict),
+      "always allow" honesty (outside-path asks carry scope=outside —
+      no button, a why-note instead) + in-process grants (an "always"
+      applies NOW, chat-scoped, never outside), desktop notifications
+      for new asks. V100 answered: CC's own permission prompts ride the
+      SAME broker via --permission-prompt-tool; V86 stays open.
+      +7 broker tests, +3 endpoint tests. 483 tests, 24/24 modules.
+
 - [x] **R82 — Restart app in Updates (V113). DONE 2026-07-16
       (v0.24.161), rig + live verified.** One button restarts the whole
       app: `/api/app_restart` spawns a detached helper

@@ -380,7 +380,9 @@ def test_asks_surface_and_answer_roundtrip(rig):
     rig.signup()
     rig.post("/api/mesh/create_agent", username="helper", display="Helper")
     tx = FolderTransport(rig.root)
-    # the harness would write this doc; simulate one pending ask
+    # the harness would write this doc; simulate one pending ask — and its
+    # RUNNER's heartbeat (V109: an ask without a live run is a ghost)
+    _beat(rig, "helper")
     tx.put_doc("status/asks/helper.json", {
         "agent": "helper", "asks": [
             {"id": "ask1", "chat_id": "c1", "kind": "permission",
@@ -515,6 +517,90 @@ def test_state_carries_sidebar_liveliness(rig):
     })
     st = rig.get("/api/mesh/state")
     assert not any(f.get("typing") for f in chat_of(st, cid).get("live", []))
+
+
+def _beat(rig, agent, *, age_s=0.0, pid=None):
+    """Write a local runner heartbeat for the rig's home (V109 tests)."""
+    import json as _json
+    import os
+    import time
+
+    p = rig.app.home / "harness" / f"runstate_{agent}.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(_json.dumps({
+        "agent": agent, "pid": os.getpid() if pid is None else pid,
+        "updated": time.time() - age_s,
+    }), encoding="utf-8")
+    return p
+
+
+def test_asks_are_gated_by_process_truth(rig):
+    """V109: an ask is only as real as its run. A locally-hosted agent with
+    no live runner (no/stale heartbeat, dead pid) contributes NO asks; a
+    fresh heartbeat with a live pid revives them; a remote agent falls back
+    to the ask's own timeout."""
+    rig.signup()
+    rig.post("/api/mesh/create_agent", username="helper")   # machine=guibox
+    ask = {"id": "ask-1", "chat_id": "c1", "kind": "permission",
+           "tool": "Read", "detail": "x", "created": utcnow_iso(),
+           "expires_in_s": 120}
+    rig.app.mesh.tx.put_doc("status/asks/helper.json", {
+        "agent": "helper", "updated": utcnow_iso(), "asks": [ask]})
+
+    # dead runner (no heartbeat at all): the prompt is a ghost
+    assert rig.get("/api/mesh/asks")["asks"] == []
+    # fresh heartbeat + live pid: the prompt is real
+    _beat(rig, "helper")
+    assert [a["id"] for a in rig.get("/api/mesh/asks")["asks"]] == ["ask-1"]
+    # stale heartbeat: dead again — a reused pid can't fake life
+    _beat(rig, "helper", age_s=3600)
+    assert rig.get("/api/mesh/asks")["asks"] == []
+    # dead pid with a fresh stamp: still dead
+    _beat(rig, "helper", pid=999999999)
+    assert rig.get("/api/mesh/asks")["asks"] == []
+
+    # a REMOTE agent (hosted elsewhere): process truth is unknowable here,
+    # so the ask's own timeout decides
+    rig.app.mesh.tx.put_doc("users/farbot.json", {
+        "name": "farbot", "kind": "agent", "display": "Farbot",
+        "created": "2026-01-01T00:00:00Z", "active": True,
+        "agent": {"owner": "aryan", "machine": "elsewhere", "harness": {}},
+    })
+    rig.app.mesh.tx.put_doc("status/asks/farbot.json", {
+        "agent": "farbot", "updated": utcnow_iso(),
+        "asks": [{**ask, "id": "ask-2"}]})
+    assert [a["id"] for a in rig.get("/api/mesh/asks")["asks"]] == ["ask-2"]
+    rig.app.mesh.tx.put_doc("status/asks/farbot.json", {
+        "agent": "farbot", "updated": "2020-01-01T00:00:00Z",
+        "asks": [{**ask, "id": "ask-2", "expires_in_s": 60}]})
+    assert rig.get("/api/mesh/asks")["asks"] == []
+
+
+def test_run_lines_need_a_live_runner(rig):
+    """V109: a 'running' feed doc from a locally-hosted agent whose runner
+    process is dead is a ghost NOW — the sidebar live line and the in-chat
+    livefeed both drop it (was: up to 10 minutes of 'running' after a
+    crash)."""
+    rig.signup()
+    rig.post("/api/mesh/create_agent", username="helper")
+    cid = rig.post("/api/mesh/create_chat", name="RunTruth",
+                   members=[])["chat"]["id"]
+    rig.app.mesh.tx.put_doc("status/helper_run.json", {
+        "state": "running", "agent": "helper", "chat_id": cid,
+        "updated": utcnow_iso(), "activity": "Working on it"})
+
+    def chat_of(state):
+        return next(c for c in state["chats"] if c["id"] == cid)
+
+    # dead runner: no live line, no feed
+    assert "live" not in chat_of(rig.get("/api/mesh/state"))
+    assert rig.get("/api/mesh/livefeed", id=cid)["feeds"] == []
+    # live runner: both surface
+    _beat(rig, "helper")
+    live = chat_of(rig.get("/api/mesh/state")).get("live", [])
+    assert any(f.get("user") == "helper" for f in live)
+    feeds = rig.get("/api/mesh/livefeed", id=cid)["feeds"]
+    assert feeds and feeds[0]["agent"] == "helper"
 
 
 # ------------------------------------------------- harness surfaces (R15)

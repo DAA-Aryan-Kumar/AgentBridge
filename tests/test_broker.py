@@ -875,3 +875,114 @@ def test_context_and_files_parity_c(tmp_path):
     finally:
         agent.close()
         owner.close()
+
+
+# ------------------------------------------------- V85/V109: prompt lifecycle
+def test_withdraw_releases_a_blocked_ask_and_clears_the_doc(tmp_path):
+    """A run tearing down takes its asks with it: the blocked ask() returns
+    on its next poll tick (not at the 30s timeout) and the published doc
+    stops advertising the prompt."""
+    tx, b, ws = make(tmp_path)
+    out = {}
+
+    def run():
+        out["result"] = b.decide(
+            chat_id="c1", workspace=ws, tool="Monitor",
+            tool_input={"cmd": "curl example.com"},
+            auto_allow=[], approvals=[], timeout_s=30)
+
+    t = threading.Thread(target=run)
+    t.start()
+    deadline = time.time() + 5
+    while time.time() < deadline:      # wait for the ask to publish
+        doc = tx.docs.get("status/asks/helper.json") or {}
+        if doc.get("asks"):
+            break
+        time.sleep(0.02)
+    t0 = time.time()
+    assert b.withdraw("c1") == 1
+    doc = tx.docs.get("status/asks/helper.json") or {}
+    assert doc.get("asks") == []       # withdrawn NOW, not at timeout
+    t.join(timeout=5)
+    assert not t.is_alive()
+    assert time.time() - t0 < 3        # released promptly
+    ok, msg = out["result"]
+    assert not ok and "run ended" in msg
+
+
+def test_withdraw_is_chat_scoped(tmp_path):
+    tx, b, ws = make(tmp_path)
+    for cid in ("c1", "c2"):
+        threading.Thread(target=lambda c=cid: b.decide(
+            chat_id=c, workspace=ws, tool="Monitor",
+            tool_input={"cmd": c}, auto_allow=[], approvals=[],
+            timeout_s=1.5), daemon=True).start()
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        doc = tx.docs.get("status/asks/helper.json") or {}
+        if len(doc.get("asks") or []) == 2:
+            break
+        time.sleep(0.02)
+    assert b.withdraw("c1") == 1
+    doc = tx.docs.get("status/asks/helper.json") or {}
+    left = doc.get("asks") or []
+    assert len(left) == 1 and left[0]["chat_id"] == "c2"
+
+
+def test_always_verdict_applies_immediately_in_process(tmp_path):
+    """V85 ('always allow seems not to work'): the persisted rule used to
+    apply only from the NEXT run's settings — the broker now honors the
+    grant for the rest of this process, so the very next call is silent."""
+    tx, b, ws = make(tmp_path)
+    answer(tx, "always")
+    ok, _ = b.decide(chat_id="c1", workspace=ws, tool="Monitor",
+                     tool_input={"cmd": "one"}, auto_allow=[], approvals=[],
+                     timeout_s=5)
+    assert ok
+    tx.docs.pop("status/asks/helper_answers.json", None)
+    ok, _ = b.decide(chat_id="c1", workspace=ws, tool="Monitor",
+                     tool_input={"cmd": "two — different input"},
+                     auto_allow=[], approvals=[], timeout_s=0.2)
+    assert ok                          # no ask, no timeout: the grant held
+    ok, _ = b.decide(chat_id="OTHER", workspace=ws, tool="Monitor",
+                     tool_input={"cmd": "three"}, auto_allow=[], approvals=[],
+                     timeout_s=0.2)
+    assert not ok                      # grant is chat-scoped
+
+
+def test_outside_path_ask_carries_scope_and_always_grants_nothing(tmp_path):
+    """V83/V85 honesty: an outside-workspace path never earns a standing
+    grant — the doc says so (scope=outside, the GUI hides the button), and
+    even an 'always' verdict is treated as allow-once."""
+    tx, b, ws = make(tmp_path)
+    outside = str(tmp_path / "elsewhere" / "a.txt")
+    seen = {}
+
+    def watch():
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            doc = tx.docs.get("status/asks/helper.json") or {}
+            if doc.get("asks"):
+                seen.update(doc["asks"][0])
+                return
+            time.sleep(0.02)
+
+    threading.Thread(target=watch, daemon=True).start()
+    answer(tx, "always")
+    ok, _ = b.decide(chat_id="c1", workspace=ws, tool="Read",
+                     tool_input={"file_path": outside},
+                     auto_allow=[], approvals=[], timeout_s=5)
+    assert ok and seen.get("scope") == "outside"
+    # a DIFFERENT outside path still asks (times out closed here)
+    ok, _ = b.decide(chat_id="c1", workspace=ws, tool="Read",
+                     tool_input={"file_path": str(tmp_path / "elsewhere" / "b.txt")},
+                     auto_allow=[], approvals=[], timeout_s=0.2)
+    assert not ok
+
+
+def test_clear_stale_resets_a_leftover_asks_doc(tmp_path):
+    tx, _, _ = make(tmp_path)
+    tx.docs["status/asks/helper.json"] = {
+        "agent": "helper", "asks": [{"id": "ask-ghost", "chat_id": "c1"}]}
+    PermissionBroker.clear_stale(tx, "helper")
+    assert tx.docs["status/asks/helper.json"]["asks"] == []

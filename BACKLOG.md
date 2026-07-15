@@ -1371,17 +1371,29 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
   the fleet runs the slower legacy mode (~30× cheaper than before;
   delta mode is another ~10× on top). Also killed at cutover: a stray
   SECOND fleet (uv python) that had been doubling all traffic.
-- [ ] **V85 Permission-prompt fragility (cluster)** — the prompt is
-  "very fragile": takes 2–3 tries for a decision to record; persists
-  after a fleet restart until another prompt replaces it (closing the
-  app/chat is the only clear); STOPPING an agent should clear its
-  prompt; add a Close button; Enter in the deny-message box sends;
-  loading slider while the decision is sent; "always allow" seems not to
-  work (keeps asking — grants one file at a time? [note: R74 changed
-  outside-path approvals — re-check]); the always-approved list exists
-  but the Monitor ask still fires (respected only next round?);
-  notifications for permission prompts; the prompt must PUSH messages
-  (not overlay the composer) and not fall right back when dismissed.
+- [x] **V85 Permission-prompt fragility (cluster)** → **DONE R83
+  (v0.24.162, rig + live verified)**, riding V109's architecture. Item
+  by item: "2–3 tries to record" = the card grey-out un-greyed while the
+  harness's doc lagged the verdict → the GUI now REMEMBERS
+  answered/dismissed ask ids (Mesh.askDone) — acting kills the card
+  instantly and it never resurrects (a failed POST rolls back with a
+  toast; the "loading slider" ask is moot). "Persists after a fleet
+  restart" = boot hygiene (a starting runner resets its asks doc) +
+  process truth (below). "Stopping should clear it" = the bridge
+  teardown WITHDRAWS the run's asks (doc cleared now; blocked ask()
+  threads release on their next tick, not at the 120s timeout). Close
+  button added (dismiss locally, no verdict — harness times out on its
+  own). Enter-in-deny-note already existed (live-verified). "Always
+  allow seems not to work" was TWO real things: (a) outside-workspace
+  paths NEVER get standing grants by design (V83) yet the button was
+  offered — the ask doc now carries scope=outside, the GUI hides the
+  button and says "files outside the agent's own folder ask every
+  time"; (b) a granted "always" only applied from the NEXT run's
+  settings — the broker now honors it in-process immediately
+  (chat-scoped, never for outside paths). Desktop notifications for new
+  asks (master switch + permission gated; category gates don't apply).
+  The bar was already in-flow (pushes, never overlays) — verified.
+  V86 (CC-tool JSON rendering) stays open, its own round.
 - [ ] **V86 CC-tool JSON handling** — when claude uses Monitor / other
   Claude-Code tools, CC returns a JSON the app shows raw. Handle the
   common ones via config (friendly rendering), print the JSON for the
@@ -1433,9 +1445,14 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
   model/harness-specific; make the per-agent config approachable.
 - [ ] **V99 Skills & plugins** — LATER, after a thorough app check
   (Aryan's explicit "later on").
-- [ ] **V100 Question (answer): how does the app handle permission
-  prompts from Claude Code ITSELF** (vs the mesh broker)? — folds into
-  V85/V86; answer from code when that round runs.
+- [x] **V100 Question: how does the app handle permission prompts from
+  Claude Code ITSELF** → ANSWERED from code (R83): there is no second
+  prompt system. The claude preset launches the CLI with
+  `--permission-prompt-tool` pointed at the per-run bridge's `approve`
+  tool, so every permission decision Claude Code would have asked its
+  own user for lands in the SAME PermissionBroker → ask doc → GUI popup
+  pipeline (R18). What the CLI auto-allows internally never reaches the
+  broker (that's the preset blocklist/auto_allow layer's job).
 ### Aryan's self-notes, second batch (2026-07-15 evening, source: his
 ### "message yourself" chat — swept 2026-07-16). Not hurried.
 
@@ -1461,14 +1478,21 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
   memory).
 - [ ] **V108 Ellipsis for long messages in permission prompts** (19:04) —
   3-dots/clamp when the quoted message is long.
-- [ ] **V109 ⚠ Permission-prompt overhaul escalation** (19:08) — "very
-  unusable": the ghost prompt lingers after the agent already stopped;
-  the running indicator is unstable; a closed prompt easily confuses
-  "stopped" with "not responding". Aryan's design ask: **the app should
-  talk to the HARNESS DIRECTLY to know whether an agent runs** (process
-  truth, e.g. runner liveness/lock or a local channel) rather than
-  inferring from mesh messages — "a useful fix for all connectors".
-  Merge into the V85 cluster as its architecture; V85's UI fixes ride it.
+- [x] **V109 ⚠ Permission-prompt overhaul escalation** (19:08) →
+  **DONE R83 (v0.24.162)** — Aryan's architecture shipped: the app asks
+  the HARNESS directly. The channel is a local heartbeat file
+  (`<home>/harness/runstate_<agent>.json`: pid + stamp, rewritten every
+  runner loop pass, removed on clean exit — `core/runstate.py`; zero
+  cloud traffic, works for every connector since it never touches the
+  transport). The GUI's `runner_state()` = fresh beat AND live pid
+  (ctypes on Windows — never `os.kill(pid,0)`, which TERMINATES there);
+  deliberately not the SingleInstance lock (probing one can knock a
+  booting runner into the supervisor's cooldown). Applied everywhere
+  run-liveness was being inferred from mesh docs: `/api/mesh/asks`
+  (a locally-hosted agent with a dead runner contributes NO asks;
+  remote agents fall back to the ask's own timeout), the in-chat
+  livefeed and the V66 sidebar line (a "running" doc from a dead
+  runner is a ghost NOW, not in 10 minutes).
 
 - [x] **V110 Retire the "Performance / Check for news" knob in About**
   (Aryan asked 2026-07-16 whether the section still makes sense; Claude's

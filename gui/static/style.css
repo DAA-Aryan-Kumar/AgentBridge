@@ -491,11 +491,19 @@ h1 {
 #ask-bar { display: flex; flex-direction: column; gap: 8px; padding: 0 14px; }
 #ask-bar:not(:empty) { padding-bottom: 8px; }
 .ask-card {
-  display: flex; gap: 10px; align-items: flex-start;
+  display: flex; gap: 10px; align-items: flex-start; position: relative;
   background: var(--panel); border: 1px solid var(--border);
   border-left: 3px solid var(--accent); border-radius: 12px;
   padding: 10px 12px; box-shadow: 0 4px 14px rgba(0, 0, 0, .08);
 }
+/* V85: dismiss without a verdict — the harness times the ask out itself */
+.ask-close {
+  position: absolute; top: 6px; right: 6px; padding: 4px;
+  background: none; border: none; color: var(--text-faint);
+  cursor: pointer; border-radius: 6px; line-height: 0;
+}
+.ask-close:hover { color: var(--text); background: var(--hover); }
+.ask-scope-note { margin: 6px 0 0; }
 .ask-avatar { width: 28px; height: 28px; font-size: 12px; flex: none; }
 .ask-main { min-width: 0; flex: 1; }
 .ask-head { font-size: 13.5px; }

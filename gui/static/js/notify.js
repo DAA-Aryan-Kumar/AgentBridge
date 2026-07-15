@@ -105,6 +105,28 @@ export function handleNotifyFrame(frame) {
   } catch { /* the platform refused (e.g. no service worker on this OS) */ }
 }
 
+// V85: permission prompts deserve a ping — a run is BLOCKED on the owner,
+// and a prompt behind an unfocused window used to wait out its whole
+// timeout unseen. Master switch + web permission apply; the DM/group
+// category gates deliberately don't (an approval isn't a chat message).
+export function notifyAsk(a) {
+  if (!notifyPrefs.enabled) return;
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  if (document.hasFocus() && a.chat_id === Mesh.chatId) return; // looking at it
+  const what = a.kind === "question" ? "asks you a question"
+    : a.kind === "peer" ? "has a pending harness request"
+    : `wants to ${a.label || "use " + (a.tool || "a tool")}`;
+  try {
+    const toast = new Notification("Approval needed", {
+      body: `${meshDn(a.agent)} ${what}`, tag: `ab-ask-${a.id}`,
+    });
+    toast.onclick = () => {
+      window.focus();
+      if (a.chat_id) location.hash = `#/chats/${a.chat_id}`;
+    };
+  } catch { /* the platform refused — the in-app card still shows */ }
+}
+
 // taskbar signal: "(3) AgentBridge" while anything is unread. Muted chats
 // don't count — a muted group must not pin a number to the taskbar forever.
 export function updateTitleBadge() {
