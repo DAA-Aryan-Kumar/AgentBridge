@@ -161,6 +161,13 @@ class TransportProfile:
 6. Byte/query counters exposed (`transfer_stats()`) so the About panel —
    and a soak test — can SEE the cost. Verification of a connector round
    includes a measured idle-hour and active-hour budget.
+7. **No steady-state writer without a change guard.** An IDLE fleet must
+   produce zero pokes (a 90s hint-meter check is part of sign-off). The
+   R76 soak caught `PeerService._publish_pending` rewriting its doc — with
+   a fresh `updated` stamp — on every 5s tick forever: one such writer
+   pins every mirror at the fallback floor and defeats all the idle
+   economics above. Status docs write when their CONTENT moves
+   (`publish_status`'s `_last_doc` pattern), never on a timer.
 
 ## 5. Schema migration (one dashboard paste)
 
@@ -194,15 +201,37 @@ fits the 5 GB tier. Beyond that, in order:
    against a separate "Cached Egress" bucket (observed at <1% while raw
    egress hit 857%); E2EE blobs are ciphertext so CDN caching is safe.
 
-## 7. Verification protocol for this round
+## 7. Verification protocol for this round — RESULTS (2026-07-15)
 
-Unit: delta apply (update/delete/revive, ordering, write-guard), legacy
-fallback, hint classes + trailing edge, presence staleness math, blob
-cache, `hosted_agents` transport reuse. Live (single fleet, migrated
-schema): one short test per feature — post/reply (agent + human), **edit +
-delete-for-everyone of a days-old message propagating cross-process**,
-reactions/pins/stars, receipts + unread settle, settings propagation,
-presence dots + Delivered ticks, avatars (second hit = disk cache), file
-upload + inline image + open, timers firing, key rotation on leave — plus
-a measured idle window with `transfer_stats()` before/after proving the
-egress drop, and a Supabase dashboard check the next day.
+Unit: 466 tests pass (delta apply/ordering/write-guard, legacy fallback +
+live upgrade, hint classes + trailing edge, presence profile + flip pokes,
+blob cache, `hosted_agents` tx reuse, idle-tick publish guards).
+
+Live (single fleet on v0.24.152, pre-migration legacy mode, throwaway
+scratch room deleted after): **17/17** —
+- agent mention → reply: **18.1 s** end-to-end ("EGRESS-OK");
+- cross-process propagation via a second-process probe mirror: new chat
+  15 s, edit 7 s, delete-for-everyone 11 s, reaction 12 s, pin 13 s,
+  meta rename 10 s, read-state ≤1 s (all ≤ the legacy hint-floor design;
+  delta mode makes these poke-fast after the paste);
+- read model applies the edit + tombstone; avatar and attachment second
+  hits cost **+0 storage bytes** (disk cache, persists across processes);
+- Connection panel renders mode/warning/traffic; zero console errors.
+
+Idle soak: the first soak measured ~57 MB/h on the GUI alone and the hint
+meter showed **33 pokes/90 s from an idle fleet** — which caught the
+`peer_pending` steady writer (checklist item 7 above). After the guard:
+**0 pokes in 90 s** (only the poke-free 30 s presence beats move), and a
+clean 10.7-minute idle window measured **14.3 MB/h for the GUI process**
+(63 queries — exactly the modeled 45 s full pull + log tick + presence
+writes; ~183 KB/pull, repr-approximated).
+
+**Read the idle number honestly:** legacy mode ≈ 14 MB/h × ~4
+mirror-bearing processes ≈ 1.4 GB/day fleet-idle — a ~15× cut from the
+21 GB/day fire, which buys DAYS, not a subscription cycle. The delta
+migration replaces those full pulls with ~1 KB empty cursor queries
+(idle fleet <1 GB/MONTH, activity-proportional beyond that) — **the
+dashboard paste is the actual fix; legacy mode is the tourniquet.**
+
+Still pending: the dashboard SQL paste (flips legacy → delta; the
+Connection panel confirms), and a Supabase usage-page check the next day.
