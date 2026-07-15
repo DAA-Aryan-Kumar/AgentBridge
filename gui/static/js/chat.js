@@ -150,16 +150,38 @@ function connectionRows(s) {
       <dt>Folder synced</dt><dd>${c.shared_ok ? "✓ Yes" : "✗ No — check OneDrive"}</dd>
       <dt>Sync client</dt><dd>${c.sync_client == null ? "Unknown" : c.sync_client ? "✓ Running" : "✗ Not running"}</dd>`;
   }
-  // cloud: warm mirror = connected; warm but long past the refresh cadence
-  // (4s, backoff caps at 60s) = the refresher is failing, serving cached
+  // cloud: warm mirror = connected; warm but long past the safety-poll
+  // cadence (45s idle, backoff caps at 60s) = the refresher is failing,
+  // serving cached
   const m = c.mirror || {};
-  const stale = m.age_s != null && m.age_s > 90;
+  const stale = m.age_s != null && m.age_s > 120;
   const status = !m.warm ? "Connecting…"
     : stale ? "⚠ Reconnecting — showing cached data"
       : "✓ Connected";
+  // R76: how this mirror stays fresh — incremental (delta cursor) or full
+  // snapshots (the pre-migration schema), plus the metered-traffic meter
+  let syncRow = "";
+  if (m.mode === "delta") {
+    syncRow = `<dt>Sync</dt><dd>✓ Incremental${
+      m.hints_suspect ? " · ⚠ live hints degraded (polling)" : ""}</dd>`;
+  } else if (m.warm && m.mode === "full") {
+    syncRow = `<dt>Sync</dt><dd>⚠ Full refresh — run the latest
+      docs/supabase_schema.sql to enable incremental sync</dd>`;
+  }
+  let trafficRow = "";
+  const t = m.transfer;
+  if (t && t.queries != null) {
+    const mb = ((t.rx_bytes || 0) + (t.blob_bytes || 0)) / 1048576;
+    const hrs = t.since ? Math.max((Date.now() / 1000 - t.since) / 3600, 0.01)
+      : 0;
+    trafficRow = `<dt>Cloud traffic</dt><dd>${t.queries.toLocaleString()}
+      queries · ≈${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB this
+      session${hrs ? ` (${(mb / hrs).toFixed(1)} MB/h)` : ""}</dd>`;
+  }
   return `
     <dt>Cloud mesh</dt><dd>${status}</dd>
-    ${c.host ? `<dt>Project</dt><dd class="mono">${esc(c.host)}</dd>` : ""}`;
+    ${c.host ? `<dt>Project</dt><dd class="mono">${esc(c.host)}</dd>` : ""}
+    ${syncRow}${trafficRow}`;
 }
 V.connectionRows = connectionRows;
 

@@ -828,16 +828,21 @@ def supervise(agent: str, argv: list[str]) -> None:
             return
 
 
-def hosted_agents(root, machine: str) -> list[str]:
+def hosted_agents(root, machine: str, *, tx=None) -> list[str]:
     """Agents whose accounts name THIS machine as home (active or not — the
     active flag is a runtime hold, and a held agent still syncs; a DELETED
     agent — ``deactivated`` set — gets no runner, R56/V49). An agent set to
     adapter "none" (MCP-only, Q21) runs no local CLI — it connects through
-    mesh-cli on its own, so no runner is spawned for it."""
+    mesh-cli on its own, so no runner is spawned for it.
+
+    R76 (V84): a repeated caller MUST pass a shared ``tx`` — building a
+    transport per call leaked one mirror refresh daemon + one realtime
+    socket every ``supervise_all`` rescan, which is what melted the Supabase
+    free tier (docs/SCALING.md §1)."""
     from ..mesh.directory import Directory
     from ..transport import make_transport
 
-    directory = Directory(make_transport(root))
+    directory = Directory(tx if tx is not None else make_transport(root))
     out = []
     for name in directory.names():
         acc = directory.get(name)
@@ -861,13 +866,22 @@ def supervise_all(root, machine: str, argv: list[str],
     respawned as long as its agent is still hosted here. A stand-aside
     exit (another instance owns the agent, e.g. a GUI-started runner)
     retries on a slow leash instead of hot-looping."""
+    from ..transport import make_transport
+
     passthru = [a for a in argv if a != "--all"]
     children: dict[str, subprocess.Popen] = {}
     cooldown: dict[str, float] = {}      # name -> not-before (monotonic)
     first = True
+    # ONE transport for every rescan (R76): the per-call construction here
+    # leaked a mirror + realtime socket every 30s — the V84 egress fire
+    tx = make_transport(root)
     try:
         while True:
-            agents = hosted_agents(root, machine)
+            try:
+                agents = hosted_agents(root, machine, tx=tx)
+            except Exception:  # noqa: BLE001 — cloud blip: keep supervising
+                agents = []
+                first = False
             if first and not agents:
                 print(f"no agents are hosted on this machine ({machine}) — "
                       f"create or adopt one in Settings; this launcher "
@@ -896,6 +910,10 @@ def supervise_all(root, machine: str, argv: list[str],
     except KeyboardInterrupt:
         for c in children.values():
             c.terminate()
+    finally:
+        close = getattr(tx, "close", None)
+        if callable(close):
+            close()
     return 0
 
 

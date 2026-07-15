@@ -73,6 +73,38 @@ def test_stale_device_stops_counting(world, monkeypatch):
     assert meshes["aryan"].presence.presence_of("fable")["online"] is False
 
 
+def test_metered_profile_paces_presence_and_flips_poke():
+    """R76 (SCALING.md §3): on a metered transport beats slow to the
+    profile's cadence and never poke; a FLIP (sign-in/out) pokes hint_now
+    so it still shows promptly."""
+    from agentbridge.mesh.presence import PresenceService
+    from agentbridge.transport.base import TransportProfile
+
+    class MeteredStub:
+        profile = TransportProfile(metered=True, presence_beat_s=30.0,
+                                   presence_stale_s=120.0)
+
+        def __init__(self):
+            self.docs = {}
+            self.pokes = 0
+
+        def put_doc(self, path, data):
+            self.docs[path] = data
+
+        def hint_now(self):
+            self.pokes += 1
+
+    tx = MeteredStub()
+    p = PresenceService(tx, privacy=None, user="fable", machine="box")
+    assert p.beat_s == 30.0 and p.stale_s == 120.0
+    assert p.heartbeat(online=True) is True     # first beat = a flip (None→True)
+    assert tx.pokes == 1
+    assert p.heartbeat(online=True) is False    # throttled, no poke
+    assert tx.pokes == 1
+    assert p.heartbeat(online=False) is True    # sign-out flip pokes again
+    assert tx.pokes == 2
+
+
 def test_presence_matrix_gating(world):
     meshes, _ = world
     fable = meshes["fable"]

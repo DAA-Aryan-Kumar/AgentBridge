@@ -58,6 +58,14 @@ class Janitor:
                 out["bytes"] += size
             except Exception:  # noqa: BLE001 — one chat never blocks the sweep
                 continue
+        # R76: hard-drop doc tombstones old enough that every mirror has
+        # long seen them ride the delta feed (stragglers heal via reconcile)
+        purge = getattr(self.mesh.tx, "purge_deleted_docs", None)
+        if callable(purge):
+            try:
+                purge(30.0)
+            except Exception:  # noqa: BLE001 — next sweep retries
+                pass
         try:
             self.mesh.store.cache_doc(LAST_DOC, {
                 "at_ns": time.time_ns(), **out})

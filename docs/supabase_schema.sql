@@ -52,3 +52,48 @@ language sql stable as $$
 $$;
 
 -- Storage: the app creates the private bucket itself ("ab-mesh").
+
+-- ---------------------------------------------------------------------------
+-- R76 (V84, the egress round) — incremental doc sync. Idempotent; paste the
+-- whole file again (or just this section) and Run. Until this lands the app
+-- runs in a slower legacy full-snapshot mode and the Connection panel says so.
+--
+-- Every insert/update gets a globally monotonic `seq` from one sequence, so
+-- "what changed since seq X?" is one indexed query (the docs twin of the
+-- ab_logs id feed). Deletes become SOFT (deleted=true, seq bumped) so they
+-- ride the same feed; the app purges old tombstones and heals via periodic
+-- full reconciles.
+
+alter table public.ab_docs add column if not exists seq bigint not null default 0;
+alter table public.ab_docs add column if not exists deleted boolean not null default false;
+
+create sequence if not exists public.ab_docs_ver;
+
+create or replace function public.ab_docs_touch() returns trigger
+language plpgsql as $$
+begin
+  new.seq := nextval('public.ab_docs_ver');
+  new.updated := now();
+  return new;
+end $$;
+
+drop trigger if exists ab_docs_touch on public.ab_docs;
+create trigger ab_docs_touch before insert or update on public.ab_docs
+  for each row execute function public.ab_docs_touch();
+
+-- backfill: assign a seq to every pre-migration row (no-op update fires the
+-- trigger; rerunning skips rows that already have one)
+update public.ab_docs set deleted = deleted where seq = 0;
+
+create index if not exists ab_docs_delta on public.ab_docs (root, seq);
+
+-- tombstones must not resurrect chat ids in the listing helper
+create or replace function public.ab_chat_ids(p_root text)
+returns table (chat_id text)
+language sql stable as $$
+  select distinct chat_id from public.ab_logs where root = p_root
+  union
+  select distinct split_part(path, '/', 2)
+  from public.ab_docs
+  where root = p_root and path like 'chats/%' and not deleted
+$$;

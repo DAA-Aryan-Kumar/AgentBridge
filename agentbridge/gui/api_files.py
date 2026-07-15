@@ -36,6 +36,53 @@ def stage_dir(app):
     return d
 
 
+# ------------------------------------------------- blob disk cache (R76/V84)
+# Content-addressed by the PLAINTEXT sha256 (the signed record / avatar
+# marker), so a metered transport pays Storage egress once per content
+# version per machine instead of on every render/hard-reload. Trust model:
+# the cache lives beside the keystore on the member's own disk — same trust.
+_CACHE_CAP_BYTES = 500 * 1024 * 1024
+
+def _cache_dir(app):
+    d = app.home / "gui_cache" / "blobs"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _cache_get(app, sha: str) -> bytes | None:
+    if not sha or not re.fullmatch(r"[a-f0-9]{16,64}", sha):
+        return None
+    f = _cache_dir(app) / sha
+    try:
+        return f.read_bytes() if f.is_file() else None
+    except OSError:
+        return None
+
+
+def _cache_put(app, sha: str, data: bytes) -> None:
+    if not sha or not re.fullmatch(r"[a-f0-9]{16,64}", sha) or not data:
+        return
+    d = _cache_dir(app)
+    tmp = d / f".{sha}.tmp"
+    try:
+        tmp.write_bytes(data)
+        tmp.replace(d / sha)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        return
+    try:  # bound the cache: drop oldest-touched entries beyond the cap
+        entries = [(f.stat().st_mtime, f.stat().st_size, f)
+                   for f in d.iterdir() if f.is_file()]
+        total = sum(s for _, s, _ in entries)
+        for _, size, f in sorted(entries):
+            if total <= _CACHE_CAP_BYTES:
+                break
+            f.unlink(missing_ok=True)
+            total -= size
+    except OSError:
+        pass
+
+
 # ------------------------------------------------------------------ upload
 @authed
 def upload(app, req, mesh, raw: bytes) -> dict:
@@ -101,16 +148,21 @@ def file(app, req, mesh):
     rec = _find_file_record(mesh, chat_id, blob_id)  # gates membership too
     if rec is None:
         return {"error": "file not found"}
-    raw = _open_blob(mesh, chat_id, blob_id)
+    sha = str(rec.get("sha256") or "")
+    raw = _cache_get(app, sha)               # R76: Storage pays once per sha
     if raw is None:
-        return {"error": "file not available"}
-    if rec.get("sha256") and hashlib.sha256(raw).hexdigest() != rec["sha256"]:
-        return {"error": "file failed verification"}
+        raw = _open_blob(mesh, chat_id, blob_id)
+        if raw is None:
+            return {"error": "file not available"}
+        if sha and hashlib.sha256(raw).hexdigest() != sha:
+            return {"error": "file failed verification"}
+        _cache_put(app, sha, raw)
     name = safe_name(rec.get("name") or blob_id)
     ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
     return Response(body=raw, ctype=ctype, headers={
         "Content-Disposition": f'inline; filename="{name}"',
-        "Cache-Control": "private, max-age=3600",
+        # a blob id names ONE immutable upload — safe to cache long
+        "Cache-Control": "private, max-age=604800",
     })
 
 
@@ -129,18 +181,29 @@ def avatar(app, req):
             return {"error": "unknown user"}
         if not mesh.profile_allows("photo", target, mesh.user):
             return {"error": "not available"}
-        data = mesh.tx.get_blob(P.avatar(target))
+        acc = mesh.directory.get(target)
+        sha = str(((acc.avatar if acc else None) or {}).get("sha256") or "")
+        data = _cache_get(app, sha)          # R76: Storage pays once per sha
+        if data is None:
+            data = mesh.tx.get_blob(P.avatar(target))
+            _cache_put(app, sha, data or b"")
     elif chat_id:
         snap = mesh.snapshot(chat_id)
         if not snap.is_member(mesh.user) or not snap.avatar:
             return {"error": "not available"}
-        data = mesh.tx.get_blob(P.chat_avatar(chat_id))
+        sha = str(snap.avatar or "")
+        data = _cache_get(app, sha)
+        if data is None:
+            data = mesh.tx.get_blob(P.chat_avatar(chat_id))
+            _cache_put(app, sha, data or b"")
     else:
         return {"error": "user or chat required"}
     if not data:
         return {"error": "no photo"}
+    # the URL is sha-versioned (&v=), so the bytes behind it never change
     return Response(body=data, ctype="image/jpeg",
-                    headers={"Cache-Control": "private, max-age=86400"})
+                    headers={"Cache-Control": "private, max-age=31536000, "
+                                              "immutable"})
 
 
 # ----------------------------------------------------------------- avatars

@@ -23,7 +23,7 @@ from .privacy import PrivacyService
 
 __all__ = ["PresenceService", "HEARTBEAT_S", "STALE_S"]
 
-HEARTBEAT_S = 12.0   # beat cadence (HANDOFF: ~10-15s)
+HEARTBEAT_S = 12.0   # free-transport beat cadence (HANDOFF: ~10-15s)
 STALE_S = 40.0       # ~3 missed beats -> the device no longer counts as online
 
 
@@ -37,6 +37,13 @@ class PresenceService:
         self.user = user
         self.machine = machine
         self.app = app
+        # R76: the transport's profile paces presence (docs/SCALING.md §3).
+        # On a metered driver beats slow to ~30s and heartbeats never poke
+        # (the safety poll carries them); STALE must exceed beat + worst
+        # poll + margin or everyone flickers offline between polls.
+        prof = getattr(tx, "profile", None)
+        self.beat_s = float(getattr(prof, "presence_beat_s", HEARTBEAT_S))
+        self.stale_s = float(getattr(prof, "presence_stale_s", STALE_S))
         self._last_write_ns = 0
         self._last_online: bool | None = None
         self._stop = threading.Event()
@@ -48,8 +55,9 @@ class PresenceService:
         flag flips, when a beat interval elapsed, or when forced. Returns
         whether a write happened (sync-churn discipline)."""
         now = time.time_ns()
-        due = (now - self._last_write_ns) >= int(HEARTBEAT_S * 1e9)
-        if not (force or due or online != self._last_online):
+        due = (now - self._last_write_ns) >= int(self.beat_s * 1e9)
+        flipped = online != self._last_online
+        if not (force or due or flipped):
             return False
         self.tx.put_doc(
             P.presence(self.user, self.machine),
@@ -64,6 +72,11 @@ class PresenceService:
         )
         self._last_write_ns = now
         self._last_online = online
+        if flipped:
+            # sign-in/out should show promptly even though beats never poke
+            poke = getattr(self.tx, "hint_now", None)
+            if callable(poke):
+                poke()
         return True
 
     def offline(self) -> None:
@@ -73,9 +86,10 @@ class PresenceService:
         except Exception:  # noqa: BLE001 — shutdown must never wedge
             pass
 
-    def start(self, interval: float = HEARTBEAT_S) -> None:
+    def start(self, interval: float | None = None) -> None:
         if self._thread and self._thread.is_alive():
             return
+        interval = self.beat_s if interval is None else interval
         self._stop.clear()
 
         def loop() -> None:
@@ -106,7 +120,7 @@ class PresenceService:
         online = False
         last_seen = ""
         last_seen_ns = 0
-        stale_floor = time.time_ns() - int(STALE_S * 1e9)
+        stale_floor = time.time_ns() - int(self.stale_s * 1e9)
         for path in self.tx.list_docs("presence"):
             doc = self.tx.get_doc(path)
             if not isinstance(doc, dict) or doc.get("user") != user:

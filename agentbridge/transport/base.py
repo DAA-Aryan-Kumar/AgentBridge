@@ -35,10 +35,29 @@ local, and both degrade gracefully when absent:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-__all__ = ["Transport", "Watcher"]
+__all__ = ["Transport", "TransportProfile", "Watcher"]
+
+
+@dataclass(frozen=True)
+class TransportProfile:
+    """A connector's declared ECONOMICS (R76 — docs/SCALING.md §4). Every
+    cadence in the app reads from here; no caller may hard-code a poll rate.
+    The synced-folder defaults keep today's behaviour: polling a local folder
+    is free, so nothing slows down. A metered (cloud API) driver declares
+    itself and the mirror/sync/presence layers adapt: hint-woken pulls with
+    slow safety polls instead of fast fixed loops."""
+
+    metered: bool = False          # polls cost real quota (egress/requests)?
+    supports_doc_delta: bool = False  # get_docs_delta(cursor) implemented?
+    idle_poll_s: float = 4.0       # safety poll while hints look healthy
+    fallback_poll_s: float = 4.0   # poll while hints are absent/suspect
+    reconcile_s: float = 0.0       # full-snapshot healing interval (0 = never)
+    presence_beat_s: float = 12.0  # presence heartbeat write cadence
+    presence_stale_s: float = 40.0  # >= beat + worst poll + margin
 
 
 class Watcher:
@@ -63,6 +82,16 @@ class Transport(ABC):
     # pushes every attachment to each member's machine; an API store has its
     # own service limits. The GUI names this limit in the too-large dialog.
     max_upload_bytes: int = 512 * 1024 * 1024
+
+    # the declared economics (R76) — see TransportProfile above. The default
+    # is the free-local-poll profile; a metered driver MUST override this.
+    profile: TransportProfile = TransportProfile()
+
+    def suggest_poll_s(self, default: float) -> float:
+        """The safety-poll cadence a hint-woken loop should use right now.
+        Free transports keep the caller's default; a metered driver's mirror
+        wrapper answers from its profile + live hint health (cache.py)."""
+        return default
 
     # ------------------------------------------------------------------ docs
     @abstractmethod
@@ -94,6 +123,23 @@ class Transport(ABC):
             if value is not _absent:
                 out[path] = value
         return out
+
+    # OPTIONAL fast path (R76): an incremental doc feed, the docs twin of
+    # ``changed_logs``. A driver that can answer "which docs changed since
+    # cursor X?" sets ``profile.supports_doc_delta`` and implements both of
+    # these; the mirror cache then refreshes by delta instead of re-pulling
+    # the full snapshot (docs/SCALING.md).
+    def snapshot_docs(self) -> tuple[dict[str, Any], int]:
+        """Every live doc plus the delta cursor the snapshot is current AT.
+        May RAISE on failure (same contract as ``get_docs``)."""
+        return self.get_docs(""), 0
+
+    def get_docs_delta(self, cursor: int) -> tuple[dict[str, Any], set[str], int]:
+        """``(changed, deleted_paths, new_cursor)`` for docs newer than the
+        opaque ``cursor``. ``changed`` maps path -> new value; ``deleted``
+        names docs removed since. May RAISE on failure — the caller retries
+        with the same cursor (idempotent by construction)."""
+        raise NotImplementedError(f"{type(self).__name__} has no doc delta feed")
 
     # ----------------------------------------------------------- chats / logs
     @abstractmethod

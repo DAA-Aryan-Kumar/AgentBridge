@@ -159,7 +159,11 @@ class SyncEngine:
         """Blocking loop: watcher hint OR poll timeout -> rescan. Call
         ``stop()`` from another thread to exit. A failing pass never kills
         the loop (a cloud transport can throw after its retries — the next
-        tick heals)."""
+        tick heals).
+
+        ``poll_s`` is the caller's cadence on a FREE transport; a metered
+        one answers ``suggest_poll_s`` with its profile's slow safety poll
+        (R76) — pokes keep message latency instant either way."""
         watcher = self.tx.watch()
         try:
             while not self._stop.is_set():
@@ -169,7 +173,7 @@ class SyncEngine:
                     new = 0
                 if new and on_new:
                     on_new(new)
-                watcher.wait(poll_s)
+                watcher.wait(self.tx.suggest_poll_s(poll_s))
         finally:
             watcher.close()
 

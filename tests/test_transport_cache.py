@@ -237,8 +237,9 @@ def test_mirror_status_reports_warmth_and_age(mirror):
     age; after a pull = warm with a fresh age; a failed refresh keeps warm
     (still serving the last snapshot) while the age keeps growing."""
     inner, tx = mirror
-    assert tx.mirror_status() == {"warm": False, "age_s": None,
-                                  "refresh_s": 30.0}
+    st0 = tx.mirror_status()
+    assert st0["warm"] is False and st0["age_s"] is None \
+        and st0["refresh_s"] == 30.0
     inner.put_doc("users/a.json", {"v": 1})
     tx.get_doc("users/a.json")   # first read warms the mirror
     st = tx.mirror_status()
@@ -377,6 +378,164 @@ def test_supabase_root_is_wrapped(tmp_path):
     assert isinstance(tx, CachingTransport)
     assert tx.scheme == "supabase"
     assert tx.root == "team"
+
+
+# ------------------------------------------- R76 delta refresh + cadence
+
+from agentbridge.transport.base import TransportProfile  # noqa: E402
+
+
+class DeltaTransport(BulkTransport):
+    """BulkTransport + the R76 doc delta feed (a seq journal) and a metered
+    profile — the supabase shape the mirror adapts to."""
+
+    profile = TransportProfile(
+        metered=True, supports_doc_delta=True,
+        idle_poll_s=45.0, fallback_poll_s=10.0, reconcile_s=21600.0,
+        presence_beat_s=30.0, presence_stale_s=120.0)
+
+    def __init__(self):
+        super().__init__()
+        self.reads["get_docs_delta"] = 0
+        self.seq = 0
+        self.journal: dict[str, tuple[int, bool]] = {}  # path -> (seq, dead)
+        self.on_delta = None       # fires MID-pull (the local-write race)
+        self.delta_broken = False  # simulates the legacy schema
+
+    def put_doc(self, path, data):
+        super().put_doc(path, data)
+        self.seq += 1
+        self.journal[path] = (self.seq, False)
+
+    def delete_doc(self, path):
+        super().delete_doc(path)
+        self.seq += 1
+        self.journal[path] = (self.seq, True)
+
+    def snapshot_docs(self):
+        return self.get_docs(""), self.seq
+
+    def get_docs_delta(self, cursor):
+        if self.delta_broken:
+            raise NotImplementedError("legacy schema")
+        self.reads["get_docs_delta"] += 1
+        if self.fail:
+            raise ConnectionError("cloud unreachable")
+        changed, deleted, last = {}, set(), int(cursor)
+        for path, (seq, dead) in sorted(self.journal.items(),
+                                        key=lambda kv: kv[1][0]):
+            if seq <= cursor:
+                continue
+            last = max(last, seq)
+            if dead:
+                deleted.add(path)
+                changed.pop(path, None)
+            else:
+                changed[path] = self.docs[path]
+                deleted.discard(path)
+        if self.on_delta is not None:
+            self.on_delta()        # a local write lands while the pull is out
+        return changed, deleted, last
+
+
+@pytest.fixture
+def delta_mirror():
+    inner = DeltaTransport()
+    return inner, CachingTransport(inner, refresh_s=45.0, auto_refresh=False)
+
+
+def test_delta_tick_applies_changes_without_a_full_pull(delta_mirror):
+    inner, tx = delta_mirror
+    inner.put_doc("users/a.json", {"v": 1})
+    tx.refresh()                                   # one full snapshot
+    assert inner.reads["get_docs"] == 1
+    inner.put_doc("users/a.json", {"v": 2})        # another process writes
+    inner.put_doc("users/b.json", {"v": 1})
+    inner.delete_doc("users/a.json")
+    assert tx._refresh_tick() is True
+    assert inner.reads["get_docs"] == 1            # NO second snapshot
+    assert inner.reads["get_docs_delta"] == 1
+    assert tx.get_doc("users/a.json", default="gone") == "gone"
+    assert tx.get_doc("users/b.json")["v"] == 1
+    assert tx.list_docs("users") == ["users/b.json"]
+
+
+def test_delta_meta_tombstone_drops_the_chat_id(delta_mirror):
+    inner, tx = delta_mirror
+    inner.put_doc("chats/c1/meta.json", {"id": "c1"})
+    inner.put_doc("chats/c1/state/u.json", {"read": 1})
+    tx.refresh()
+    assert tx.list_chat_ids() == ["c1"]
+    inner.delete_doc("chats/c1/state/u.json")
+    inner.delete_doc("chats/c1/meta.json")
+    tx._refresh_tick()
+    assert tx.list_chat_ids() == []
+
+
+def test_local_write_survives_a_racing_delta(delta_mirror):
+    inner, tx = delta_mirror
+    inner.put_doc("users/a.json", {"v": 1})
+    tx.refresh()
+    inner.put_doc("users/a.json", {"v": 2})        # remote change to fetch
+    # while THIS delta pull is in flight the local process writes v=3 — the
+    # apply must keep the newer local write, not the older pulled row
+    inner.on_delta = lambda: tx.put_doc("users/a.json", {"v": 3})
+    tx._refresh_tick()
+    inner.on_delta = None
+    assert tx.get_doc("users/a.json")["v"] == 3
+    # the next tick converges (our write re-rides the journal)
+    tx._refresh_tick()
+    assert tx.get_doc("users/a.json")["v"] == 3
+
+
+def test_reconcile_due_forces_a_full_snapshot(delta_mirror):
+    inner, tx = delta_mirror
+    inner.put_doc("users/a.json", {"v": 1})
+    tx.refresh()
+    assert inner.reads["get_docs"] == 1
+    tx._last_full = time.monotonic() - tx.profile.reconcile_s - 1
+    tx._refresh_tick()
+    assert inner.reads["get_docs"] == 2            # full pull, not delta
+    assert inner.reads["get_docs_delta"] == 0
+
+
+def test_legacy_schema_full_pulls_are_floored(delta_mirror):
+    """Mid-migration (profile claims delta, schema says no): poke bursts
+    must not become a full snapshot per poke — the fallback cadence floors
+    them; delta resumes the moment the schema serves it."""
+    inner, tx = delta_mirror
+    inner.delta_broken = True
+    inner.put_doc("users/a.json", {"v": 1})
+    tx.refresh()
+    assert inner.reads["get_docs"] == 1
+    tx._refresh_tick()                             # poke lands right after
+    assert inner.reads["get_docs"] == 1            # floored: no pull
+    tx._last_full = time.monotonic() - tx.profile.fallback_poll_s - 1
+    tx._refresh_tick()
+    assert inner.reads["get_docs"] == 2            # due again: full pull
+    inner.delta_broken = False                     # the migration lands
+    inner.put_doc("users/a.json", {"v": 2})
+    tx._refresh_tick()
+    assert inner.reads["get_docs"] == 2            # delta serves it now
+    assert tx.get_doc("users/a.json")["v"] == 2
+
+
+def test_suggest_poll_adapts_to_hint_health(delta_mirror):
+    inner, tx = delta_mirror
+    assert tx.suggest_poll_s(4.0) == 45.0          # metered + hints healthy
+    tx._suspect_until = time.monotonic() + 60
+    assert tx.suggest_poll_s(4.0) == 10.0          # watchdog tripped
+    free = CachingTransport(BulkTransport(), refresh_s=30.0,
+                            auto_refresh=False)
+    assert free.suggest_poll_s(4.0) == 4.0         # free transports keep it
+
+
+def test_mirror_status_reports_the_sync_mode(delta_mirror):
+    inner, tx = delta_mirror
+    inner.put_doc("users/a.json", {"v": 1})
+    tx.refresh()
+    st = tx.mirror_status()
+    assert st["mode"] == "delta" and st["hints_suspect"] is False
 
 
 # ---------------------------- the hot-path collapse (why this round exists) --
