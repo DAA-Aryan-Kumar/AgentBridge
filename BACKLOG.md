@@ -1618,6 +1618,29 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
   so the next failure is diagnosable. Live-verified with two
   consecutive endpoint restarts (his exact scenario).
 
+- [ ] **V120 Sidebar cut-off in the narrow-desktop window** (self chat
+  21:53) — the sidebar's default width was widened once, so between the
+  lowest tolerable desktop width and the mobile breakpoint the chats
+  get cut off. Fix the responsive gap.
+- [ ] **V121 Agent-running visibility, round 2** (self chat 21:54,
+  post-R83: "even after that round, its hard to tell if an agent is
+  running, especially if the chat closes; the working messages still
+  seem unstable") — the in-chat bubble dies with the chat view and the
+  5s run-feed lane + throttle may read as flicker. Needs a live
+  observation session: what exactly feels unstable, then likely a
+  persistent per-agent "running" surface (sidebar/global) fed by the
+  V109 process truth rather than doc cadence.
+- [ ] **V122 ⚠ Restart app, round 3** (self chat 23:07+23:09, on
+  v0.24.165 WITH the V119 fix): "nothing prints on the terminal but
+  terminal still opens, and the app still signs out"; his own
+  diagnosis: "sign out is due to the time taken by some component of
+  the app to load" — the reloaded page renders the AUTH surface while
+  something warms up (mesh state without user?), and SOME window still
+  flashes. Instrument the boot (which component is slow; what the
+  frontend sees per phase), keep the boot cover up until the session
+  resolves, and find the remaining window source (conhost from a
+  console-exe child?). Third strike on this feature — next GUI round.
+
 - [ ] **V101 Feed the hint watchdog from the LOG side too** (found in the
   R76 post-migration probe, 2026-07-15, during a degraded-realtime spell:
   agent reply 150.8s vs the 18.1s baseline). The R76 watchdog only trips

@@ -180,5 +180,22 @@ bypasses row security`.
   and rejected: no password means the rotating refresh token IS the
   credential, and our multi-process fleet (GUI + harness + workers each
   sign in independently) would race the rotation into family revocation.
-- Post-paste: *(pending Aryan's paste + toggle — run `join` +
-  `rls_probe.py` and record the matrix here.)*
+- Post-paste + post-toggle (2026-07-16): **the cutover is live on
+  Aryan's machine.** Two more live failures hardened `join` on the way:
+  (1) his first joins ran before the paste and died between sign-up and
+  claim, orphaning auth users with lost passwords → join is now
+  idempotent (credential installed BEFORE the claim; reruns sign in and
+  resume; every failure names its fix); (2) the claim's default
+  `returning=representation` must pass the SELECT policy, whose
+  membership lookup cannot see the row being born in that same
+  statement → `returning="minimal"` is load-bearing on the claim.
+  Verified end-to-end: member smoke green on every lane (global docs
+  read/write/delete, 163 chat docs, logs, the `ab_chat_ids` RPC showing
+  exactly the app's 8 chats, storage listing); fleet restarted onto the
+  member credential — `Access · Member (aryan)`, delta mode, warm,
+  message posted and read back, both agent runners beating (the
+  machine's credential covers its agents because an agent's responsible
+  member is always pulled into the agent's chats — the product
+  invariant the model leans on); the matrix with a scratch `join`ed
+  identity: global lanes visible, **Aryan's chats 0 docs / 0 logs,
+  foreign root 0** — the wall holds. Scratch identity revoked.

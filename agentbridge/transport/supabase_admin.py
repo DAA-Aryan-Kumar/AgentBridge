@@ -95,25 +95,82 @@ def join_mesh(env: dict[str, str], username: str, root: str,
               env_path: Path) -> None:
     """The whole join, on the new member's machine: self-signup (the
     password is generated HERE, written into supabase.env, never shown)
-    then self-claim the username. Fails cleanly if the name is taken (the
-    PK arbitrates — same first-come rule as the app directory)."""
+    then self-claim the username. IDEMPOTENT — rerunning after any
+    failure resumes where it stopped (the first live run died between
+    sign-up and claim because the SQL wasn't pasted yet, orphaning an
+    auth user whose password was already lost; never again):
+
+    1. an existing LOCAL credential is reused (no second auth user);
+    2. the credential is installed BEFORE the claim, so a failed claim
+       never strands a working sign-in;
+    3. a claim that already exists as OURS is success, not an error.
+    """
     client = _client(env, admin=False)
     email = _member_email(username, root)
-    password = secrets.token_urlsafe(24)
-    res = client.auth.sign_up({"email": email, "password": password})
-    user = getattr(res, "user", None)
-    if user is None:
-        raise SystemExit("sign-up refused — is email signup enabled (and "
-                         "confirmation OFF) in the project's Auth settings?")
+
+    # 1. a working session — reuse the local credential if we have one
+    session = None
+    password = env.get("SUPABASE_MEMBER_PASSWORD", "")
+    if env.get("SUPABASE_MEMBER_EMAIL", "").lower() == email.lower() and password:
+        try:
+            session = client.auth.sign_in_with_password(
+                {"email": email, "password": password})
+        except Exception:  # noqa: BLE001 — stale local creds; sign up fresh
+            session = None
+    if session is None:
+        password = secrets.token_urlsafe(24)
+        res = client.auth.sign_up({"email": email, "password": password})
+        if getattr(res, "user", None) is None:
+            raise SystemExit(
+                "sign-up refused — is email signup enabled (and "
+                "confirmation OFF) in the project's Auth settings?")
+        if getattr(res, "session", None) is None:
+            # an existing email returns a userless-session stub
+            # (anti-enumeration) — or confirmations are still ON
+            raise SystemExit(
+                f"{email} already has an auth user this machine holds no "
+                f"password for (a half-finished join, or confirmations "
+                f"were ON). Ask the owner to run: supabase_admin revoke "
+                f"{username} — then rerun join.")
+        session = res
+
+    # 2. the credential works — install it NOW (a failed claim below must
+    #    never strand a working sign-in with a lost password again)
+    _write_env_lines(env_path, email, password)
+
+    # 3. claim the username (the PK arbitrates; ours-already = done).
+    #    returning="minimal" is LOAD-BEARING: the default representation
+    #    return must pass the SELECT policy too, and its membership lookup
+    #    cannot see the row being born in this same statement (42501 on a
+    #    perfectly valid claim — the second live failure).
+    uid = session.user.id
     try:
         client.table("ab_members").insert({
-            "root": root, "username": username, "uid": user.id,
-        }).execute()
-    except Exception as e:  # noqa: BLE001 — surface the taken-name case
-        if "duplicate" in str(e).lower() or "23505" in str(e):
-            raise SystemExit(f"@{username} is already claimed on {root}")
-        raise
-    _write_env_lines(env_path, email, password)
+            "root": root, "username": username, "uid": uid,
+        }, returning="minimal").execute()
+    except Exception as e:  # noqa: BLE001 — classify, always with the creds safe
+        msg = str(e)
+        mine = []
+        try:
+            mine = (client.table("ab_members").select("uid")
+                    .eq("root", root).eq("username", username)
+                    .execute().data or [])
+        except Exception:  # noqa: BLE001
+            pass
+        if mine and str(mine[0].get("uid")) == str(uid):
+            pass  # already claimed by us — a rerun, not a conflict
+        elif "does not exist" in msg or "42P01" in msg:
+            raise SystemExit(
+                "the ab_members table is missing — paste "
+                "docs/supabase_schema.sql first, then rerun join "
+                "(your credential is installed and will be reused)")
+        elif "duplicate" in msg.lower() or "23505" in msg:
+            raise SystemExit(f"@{username} is already claimed on {root} "
+                             f"by someone else")
+        else:
+            raise SystemExit(
+                f"claim failed ({msg[:120]}) — your credential is "
+                f"installed; rerun join after fixing the cause")
     print(f"@{username} joined {root}; credential installed into {env_path}")
     print("restart the app — the Connection panel should say "
           f"'Member ({username})'")
