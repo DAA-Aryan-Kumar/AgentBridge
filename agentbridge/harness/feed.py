@@ -20,9 +20,28 @@ import time
 from ..core.timekit import utcnow_iso
 from ..transport.base import Transport
 
-__all__ = ["RunFeed", "write_harness_doc", "record_tasks"]
+__all__ = ["RunFeed", "write_harness_doc", "record_tasks", "write_waiting"]
 
 _THROTTLE_S = 1.5
+
+
+def write_waiting(tx: Transport, agent: str, chat_id: str, activity: str) -> None:
+    """V71: surface that a run is HELD on the attachment sync barrier — the
+    message line synced ahead of its blob, so the run is deferred until the
+    bytes arrive. Written as a normal ``running`` run-feed doc so the GUI
+    livefeed shows the agent's activity line ("Waiting for the attachment…")
+    instead of nothing — a large file no longer reads as a frozen agent. The
+    real run overwrites this the moment the blob lands (or the grace expires
+    and it proceeds); a stale one ages out with every other run feed."""
+    try:
+        tx.put_doc(f"status/{agent}_run.json", {
+            "state": "running", "agent": agent, "chat_id": chat_id,
+            "started": utcnow_iso(), "updated": utcnow_iso(),
+            "turns": 0, "activity": " ".join((activity or "").split())[:120],
+            "recent": [], "draft": "", "steps": [], "waiting": True,
+        })
+    except Exception:  # noqa: BLE001 — a status write never blocks handling
+        pass
 
 
 class RunFeed:

@@ -1100,10 +1100,17 @@ security items below (V79–V82 are part of it per his framing).
   janitor reclaims a blob, does the agent's undo-delete / fetch_file
   fail silently or gracefully say "file not found"? Answer from code;
   make it graceful if it isn't.
-- [ ] **V71 "Waiting for attachment to sync" visible note** (approved
-  follow-up to V64) — the live feed/status should say the run is
-  waiting on the attachment barrier so a large file never reads as a
-  frozen agent.
+- [x] **V71 "Waiting for attachment to sync" visible note** (R72) —
+  the R55/V36 attachment sync barrier deferred a run SILENTLY (no feed
+  write), so a large file read as a frozen agent. Now `_process_group`
+  writes a run feed (`feed.write_waiting`) with state "running" +
+  activity "Waiting for the attachment '<name>' to finish syncing"
+  while it defers — the GUI livefeed already renders a running feed's
+  activity line, so the requester sees the agent waiting on the file,
+  not frozen. The real run overwrites it the moment the blob lands (or
+  the grace expires and it proceeds); a stale one ages out like any run
+  feed. +1 test (the barrier-defer test now asserts the visible feed).
+  447 tests. Frontend needed no change (reuses the activity render).
 - [x] **V72 REGRESSION (investigated FIRST): no agents reply in Aryan's
   test group** (R66) — the V62 pause was INNOCENT (`agents_paused:
   False`, gates default honest). Root cause = the **lost-trigger race**:

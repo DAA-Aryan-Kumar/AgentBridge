@@ -1756,6 +1756,14 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       message drops the entry and counts). Frontend-only, 24/24; live-
       verified the exact race on a 2-account rig.
 
+- [x] **R72 — "waiting for attachment to sync" visible note. DONE
+      2026-07-15 (v0.24.147).** BACKLOG V71. The R55/V36 sync barrier
+      deferred a run silently; now it writes a run feed (state "running"
+      + "Waiting for the attachment '<name>' to finish syncing") while
+      deferring, so the requester sees the agent waiting, not frozen.
+      Reuses the existing livefeed activity render (no frontend change);
+      +1 test. 447 tests.
+
 | Backlog item (source) | Covered in |
 |---|---|
 | Settings overhaul: messaging-permission model (HANDOFF #1) | R6 |

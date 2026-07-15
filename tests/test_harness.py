@@ -674,6 +674,11 @@ def test_attachment_sync_barrier_defers_until_blob_lands(hrig):
     turn(hrig, runner, snap.id)
     assert responder.calls == []                      # deferred, not run
     assert runner.queue._pending()                    # still queued
+    # V71: the wait is VISIBLE — a running feed with a "waiting" activity so
+    # the requester sees the agent is waiting on the file, not frozen
+    feed = runner.mesh.tx.get_doc("status/helper_run.json")
+    assert feed and feed.get("state") == "running" and feed.get("waiting")
+    assert "syncing" in feed.get("activity", "") and "report.bin" in feed["activity"]
 
     sealed = hrig.owner.sealer.seal_blob(snap.id, "fx1.bin", b"hello")
     hrig.owner.tx.put_blob(f"chats/{snap.id}/files/fx1.bin", sealed)

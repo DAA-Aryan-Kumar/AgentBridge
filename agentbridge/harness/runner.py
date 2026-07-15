@@ -38,7 +38,7 @@ from ..core.timekit import new_id, utcnow_iso
 from ..mesh.sealer import E2EESealer
 from ..mesh.service import Mesh
 from .conversation import ConversationManager
-from .feed import RunFeed, record_tasks, write_harness_doc
+from .feed import RunFeed, record_tasks, write_harness_doc, write_waiting
 from .peer import PeerService
 from .perf import RunTimings
 from .queue import WorkGroup, WorkItem, WorkQueue
@@ -391,6 +391,11 @@ class AgentRunner:
             # Defer (slot-free) while a recent blob is still syncing.
             waiting = self._blob_syncing(chat_id, transcript)
             if waiting:
+                # V71: make the wait VISIBLE — the requester sees "waiting for
+                # the attachment", not a frozen agent, while the blob syncs
+                write_waiting(
+                    self.mesh.tx, self.agent, chat_id,
+                    f"Waiting for the attachment '{waiting}' to finish syncing")
                 self.queue.release(group, retry_in_s=self.poll_s * 3)
                 return
             # the reply slot is claimed ATOMICALLY before the run (parallel
