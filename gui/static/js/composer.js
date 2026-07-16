@@ -290,6 +290,7 @@ export function initComposer(chatId, members) {
         if (r.error) { toast(r.error, true); return; }
       }
       cancelEdit(chatId);   // restores the interrupted draft + send icon
+      playSendBlip();   // V89: saving an edit is a send — same chirp
       V.renderChats(true);
       return;
     }
@@ -335,11 +336,10 @@ export function initComposer(chatId, members) {
     }
   });
   // attach: browser file input (works everywhere, including mobile) —
-  // files upload to a local staging area, then ride the next post
-  $("#mesh-attach-btn").addEventListener("click", () => $("#mesh-file").click());
-  $("#mesh-file").addEventListener("change", async (e) => {
-    const files = [...e.target.files];
-    e.target.value = "";
+  // files upload to a local staging area, then ride the next post.
+  // stageFiles is shared with paste (V89) so both lanes get the same
+  // size pre-check + server backstop handling.
+  const stageFiles = async (files) => {
     // pre-check against the connector's cap so a too-big file never uploads;
     // a central acknowledge popup names the limit (round 14)
     const limit = Mesh.state?.max_upload_bytes;
@@ -354,7 +354,8 @@ export function initComposer(chatId, members) {
       });
     }
     for (const f of okFiles) {
-      const r = await fetch(`/api/mesh/upload?name=${encodeURIComponent(f.name)}`,
+      const name = f.name || `pasted-${Date.now()}.png`;
+      const r = await fetch(`/api/mesh/upload?name=${encodeURIComponent(name)}`,
         { method: "POST", body: f });
       const j = await r.json();
       if (j.error) {
@@ -367,5 +368,28 @@ export function initComposer(chatId, members) {
       draft.atts.push(j);
     }
     renderMeshPending(chatId);
+  };
+  $("#mesh-attach-btn").addEventListener("click", () => $("#mesh-file").click());
+  $("#mesh-file").addEventListener("change", async (e) => {
+    const files = [...e.target.files];
+    e.target.value = "";
+    await stageFiles(files);
+  });
+  // V89: pasting an image (screenshot, copied picture) stages it like an
+  // attached file — WhatsApp/Telegram muscle memory. Text pastes are left
+  // to the browser; a mixed clipboard (e.g. copied from Word) prefers the
+  // text so prose never turns into a surprise image.
+  body.addEventListener("paste", (e) => {
+    const items = [...(e.clipboardData?.items || [])];
+    if (items.some((i) => i.kind === "string"
+        && (i.type === "text/plain" || i.type === "text/html"))
+        && e.clipboardData.getData("text/plain").trim()) {
+      return;   // real text on the clipboard: normal paste wins
+    }
+    const files = items.filter((i) => i.kind === "file")
+      .map((i) => i.getAsFile()).filter(Boolean);
+    if (!files.length) return;
+    e.preventDefault();
+    stageFiles(files);
   });
 }

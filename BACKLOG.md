@@ -1488,9 +1488,26 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
   truncation here, bold in preview, a shared FORMATTER refactored out;
   can't dismiss/stop the alert; wakeup doesn't PUSH messages (appears
   above the last message).
-- [ ] **V89 Composer (cluster)** — can't paste images; chirp doesn't
+- [x] **V89 Composer (cluster)** — can't paste images; chirp doesn't
   play on message EDIT; (+ the disabled-send-button hover-highlight from
-  V50-era) = 3 composer fixes.
+  V50-era) = 3 composer fixes. → **DONE R102 (v0.24.184)**.
+  (1) Pasting an image stages it exactly like an attached file — the
+  file-input staging refactored into a shared stageFiles() (same size
+  pre-check + server backstop on both lanes); a clipboard with real
+  text keeps the browser's normal paste (mixed Word-style clipboards
+  prefer prose, never a surprise image); a nameless pasted screenshot
+  becomes pasted-<ts>.png. Live-verified on a rig: synthesized image
+  paste → chip ("pasted-….png · 70 B ✕") → send → attachment posted,
+  pending cleared; text paste left un-hijacked (defaultPrevented
+  false). (2) Saving an edit now plays the send chirp (one line in the
+  proven edit branch; pref-gated as ever, default off — not
+  live-audio-tested). (3) A DISABLED button no longer lights up on
+  hover: `button:disabled:hover` + primary/dark variants placed AFTER
+  the globals so they win WITHOUT raising the globals' specificity
+  (the theme-tile/accent-dot/read-more overrides are balanced against
+  bare button:hover — the recurring trap documented in style.css).
+  Rules confirmed live in the CSSOM. Frontend 24/24; python untouched
+  (no suite delta).
 - [ ] **V90 Shared FORMATTER + loading-slider convention** — one
   formatter applied everywhere agents write (sidebar, timer text,
   permission prompt); a standing frontend method: a loading slider on

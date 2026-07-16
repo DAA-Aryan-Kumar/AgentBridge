@@ -752,6 +752,18 @@ button.primary {
 }
 button.primary:hover { background: var(--accent-hover); }
 button:disabled { opacity: .45; cursor: default; }
+/* V89 (a V50-era papercut): a DISABLED button must not light up on hover —
+   the affordance lies (the greyed send button glowed like it would work).
+   Placed after the globals with :disabled added so it wins in both themes
+   WITHOUT raising the globals' specificity (the theme tiles/accent dots/
+   read-more overrides are balanced against the bare button:hover). */
+button:disabled:hover, [data-theme="dark"] button:disabled:hover {
+  background: var(--surface);
+}
+button.primary:disabled:hover,
+[data-theme="dark"] button.primary:disabled:hover {
+  background: var(--accent);
+}
 
 /* password/email were missing here, so they fell back to the browser default
    (white box in dark mode — user-reported 2026-07-11) */
