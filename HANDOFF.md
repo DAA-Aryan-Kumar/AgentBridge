@@ -6,6 +6,10 @@ codebase; **REWRITE_PLAN.md** + the project memory hold the round-by-round
 history; **ARCHITECTURE.md** is the deep "how it works". This file is "where are
 we right now."
 
+> **Moving machines?** See **`TRANSFER.md`** — macOS bring-up, the
+> `akode2803` remote, the non-git local state to recreate, and re-homing the
+> agents. (Repo ownership changed to `akode2803` 2026-07-16.)
+
 ## Where we are (v2, 2026-07-13)
 
 **The backend rewrite is essentially complete.** v2 (`agentbridge/`) is LIVE and
