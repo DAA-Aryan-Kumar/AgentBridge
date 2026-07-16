@@ -235,10 +235,19 @@ def app_restart(app, req, mesh) -> dict:
     flags = 0
     if sys.platform == "win32":
         flags = (subprocess.DETACHED_PROCESS
-                 | subprocess.CREATE_NEW_PROCESS_GROUP)
-    subprocess.Popen(cmd, creationflags=flags, close_fds=True,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     stdin=subprocess.DEVNULL)
+                 | subprocess.CREATE_NEW_PROCESS_GROUP
+                 | 0x08000000)   # CREATE_NO_WINDOW — belt for console exes
+    spawn = dict(close_fds=True, stdout=subprocess.DEVNULL,
+                 stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+    # V122: the helper must OUTLIVE this process tree. Under the uv shim
+    # the fleet may live inside a Job Object whose teardown kills every
+    # descendant — the 05:02 helper died mid-run exactly this way, leaving
+    # the fleet down. CREATE_BREAKAWAY_FROM_JOB (0x01000000) escapes the
+    # job; a job that forbids breakaway refuses the spawn, so fall back.
+    try:
+        subprocess.Popen(cmd, creationflags=flags | 0x01000000, **spawn)
+    except OSError:
+        subprocess.Popen(cmd, creationflags=flags, **spawn)
     # shut down AFTER this response has flushed to the client
     threading.Timer(0.8, server.shutdown).start()
     return {"ok": True, "note": "Restarting — back in a few seconds"}

@@ -27,6 +27,13 @@ async function refresh(rerender) {
   renderChrome();
   if (rerender) PAGES[App.page]();
   else if (App.page === "chats" && Mesh.state?.user) V.renderChats(false);
+  // V122: the server came back (App.state just fetched fine) but this page
+  // never got a mesh state — a reload that landed during a restart's down
+  // window used to sit on the dropped boot cover forever, reading as a
+  // sign-out. Kick a full chats render; its own fetch fills Mesh.state.
+  else if (App.page === "chats" && !Mesh.state) {
+    Promise.resolve(V.renderChats(true)).catch(() => {});
+  }
   // signed out (R53): watch for a session appearing OUTSIDE the auth page —
   // another window, setup assist, the CLI. Never re-render the auth page
   // from the poll (it would clobber half-typed fields); flip only when a
@@ -234,7 +241,9 @@ window.addEventListener("hashchange", route);
     if (!b) return;
     const t0 = Date.now();
     (function tick() {
-      if (!Mesh.state && App.page === "chats" && Date.now() - t0 < 15000) {
+      // V122: 45s cap — a restart's down window runs ~20s, and dropping the
+      // cover onto a bare shell mid-boot read as "the app signed out"
+      if (!Mesh.state && App.page === "chats" && Date.now() - t0 < 45000) {
         setTimeout(tick, 80); return;
       }
       b.classList.add("done");

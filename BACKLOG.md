@@ -1630,16 +1630,34 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
   observation session: what exactly feels unstable, then likely a
   persistent per-agent "running" surface (sidebar/global) fed by the
   V109 process truth rather than doc cadence.
-- [ ] **V122 ⚠ Restart app, round 3** (self chat 23:07+23:09, on
-  v0.24.165 WITH the V119 fix): "nothing prints on the terminal but
-  terminal still opens, and the app still signs out"; his own
-  diagnosis: "sign out is due to the time taken by some component of
-  the app to load" — the reloaded page renders the AUTH surface while
-  something warms up (mesh state without user?), and SOME window still
-  flashes. Instrument the boot (which component is slow; what the
-  frontend sees per phase), keep the boot cover up until the session
-  resolves, and find the remaining window source (conhost from a
-  console-exe child?). Third strike on this feature — next GUI round.
+- [x] **V122 ⚠ Restart app, round 3** → **DONE R85 (v0.24.167)**. The
+  breadcrumb log earned its keep — it caught FOUR distinct causes:
+  (1) **the sign-out was real and PERMANENT**: `restore()` treated a
+  transiently unreadable directory (cold cloud transport at boot) as
+  "account gone" and DELETED the session file — a network blip at boot
+  = hard sign-out. Now only authoritative evidence unlinks (directory
+  readable, account genuinely absent/inactive); blind or failed
+  restores keep the session and self-heal via a background retry (the
+  frontend already flips to chats when the user appears). restore()
+  never raises anymore. (2) **the 05:02 helper died mid-run**
+  (truncated log; job-object teardown of the uv-shim tree is the prime
+  suspect) → the endpoint now spawns the helper with
+  CREATE_BREAKAWAY_FROM_JOB (+ CREATE_NO_WINDOW belt) with a
+  no-breakaway fallback, and the helper logs its fleet-scan count so a
+  truncation pinpoints the line. (3) **a restart could never resurrect
+  a dead harness** ("relaunch only if one was running") — the live
+  fleet ran AGENTLESS for ~40 min across his three restarts; main-app
+  restarts now ALWAYS relaunch `harness --all`. (4) frontend hardening:
+  a reload landing in the ~20s down window used to drop the boot cover
+  (15s cap) onto a bare shell and deadlock with Mesh.state null — cap
+  is 45s, a null-state recovery branch kicks a full render when the
+  server returns, and mid-restart fetch failures neither clobber state
+  nor throw unhandled rejections. Boot phases instrumented live: down
+  ~1s after click, port closed ~21s, FIRST answers already user=aryan +
+  warm — no transient signed-out state server-side. RIDERS: the About
+  Access row was built but never interpolated (Aryan's report — one
+  `${authRow}` fix, rig-verified for member/service/failed states) and
+  the "Start the mesh" empty state lost its bridge-era copy.
 
 - [ ] **V101 Feed the hint watchdog from the LOG side too** (found in the
   R76 post-migration probe, 2026-07-15, during a degraded-realtime spell:

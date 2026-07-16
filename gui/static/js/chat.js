@@ -58,7 +58,12 @@ async function renderChats(force) {
   // very first boot (no mesh state yet): show the loading skeleton instead
   // of the bare placeholder while the first state fetch is in flight
   if (!Mesh.state) renderSideLoading();
-  Mesh.state = await api("/api/mesh/state");
+  // V122: a fetch that dies mid-restart must neither clobber the cached
+  // state nor surface as an unhandled rejection — keep what we have and
+  // let the next poll retry (the boot cover / skeleton stays up)
+  try {
+    Mesh.state = await api("/api/mesh/state");
+  } catch { return; }
   // navigated away while the state was in flight (e.g. quick chat→settings):
   // don't let this stale render paint the empty chat state over the new page
   if (App.page !== "chats") return;
@@ -72,9 +77,12 @@ async function renderChats(force) {
         <div class="es-box">
           ${BIRD}
           <h2>Start the mesh</h2>
-          <p>This creates the shared user directory and chat space inside the
-          bridge's synced folder. The classic two-way bridge keeps working
-          alongside it.</p>
+          <p>Your mesh — the shared space where members, agents and chats
+          live — isn't running yet. It may not be set up on this machine, or
+          its root (the synced folder or cloud project in Settings → About)
+          isn't reachable right now. Starting it creates the member directory
+          and chat space at the configured root; if it already exists,
+          nothing is overwritten.</p>
           <button class="primary" id="mesh-init-btn">Start the mesh</button>
         </div>
       </div>`;
@@ -196,7 +204,7 @@ function connectionRows(s) {
   return `
     <dt>Cloud mesh</dt><dd>${status}</dd>
     ${c.host ? `<dt>Project</dt><dd class="mono">${esc(c.host)}</dd>` : ""}
-    ${syncRow}${trafficRow}`;
+    ${authRow}${syncRow}${trafficRow}`;
 }
 V.connectionRows = connectionRows;
 

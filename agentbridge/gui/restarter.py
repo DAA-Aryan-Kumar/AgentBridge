@@ -170,10 +170,10 @@ def main(argv: list[str] | None = None) -> int:
     _log("old gui gone (or wait expired)")
 
     # 2. clear what's left of THIS instance's fleet (the harness tree, a
-    #    wedged GUI); remember whether a harness was part of it
-    had_harness = False
-    for pid, cmd in _fleet_procs(scope):
-        had_harness = had_harness or "agentbridge.harness" in cmd
+    #    wedged GUI)
+    procs = _fleet_procs(scope)
+    _log(f"fleet scan: {len(procs)} proc(s)")   # V122: pinpoint truncations
+    for pid, cmd in procs:
         _log(f"kill {pid}: {cmd[:120]}")
         try:
             os.kill(pid, signal.SIGTERM)
@@ -183,12 +183,16 @@ def main(argv: list[str] | None = None) -> int:
     time.sleep(1.0)  # let killed processes release their locks/ports
 
     # 3. relaunch: the GUI first (same args, window suppressed), then the
-    #    harness if one had been running (main app only — see module doc)
+    #    harness. V122: the main app ALWAYS gets its harness back — the old
+    #    "only if one was running" rule meant a restart could never
+    #    resurrect an already-dead harness, which is exactly when the
+    #    button gets pressed (the live fleet ran agentless for 40 minutes
+    #    across three restarts). Scoped (rig) restarts still skip it.
     if "--no-browser" not in gui_args:
         gui_args.append("--no-browser")
     try:
         _spawn([exe, "-m", "agentbridge.gui", *gui_args], args.cwd)
-        if had_harness and not scope:
+        if not scope:
             time.sleep(2.0)
             _spawn([exe, "-m", "agentbridge.harness", "--all"], args.cwd)
     except Exception as e:  # noqa: BLE001 — the log is the whole point

@@ -1792,6 +1792,30 @@ Rounds are elastic: split when big (rule 5), merge when trivial.
       hijack path; session restore stays password-free. delete_account
       threads its verified pw through. +3 HTTP assertions; live-verified.
 
+- [x] **R85 — restart round 3 (V122) + RLS cutover live. DONE
+      2026-07-16 (v0.24.167).** The R82 breadcrumb log caught four real
+      causes behind "terminal opens + the app signs out": restore()
+      DELETED the session file on a transiently unreadable directory
+      (network blip at boot = permanent sign-out; now only authoritative
+      evidence unlinks, transient blindness self-heals via a background
+      retry and restore never raises); the 05:02 helper died mid-run
+      (job-object teardown suspect → CREATE_BREAKAWAY_FROM_JOB with
+      fallback + scan-count breadcrumb); a restart could never resurrect
+      a DEAD harness — the fleet ran agentless ~40 min across three
+      restarts (main restarts now always relaunch harness --all); and a
+      reload landing in the ~20s down window dropped the 15s boot cover
+      onto a bare shell then deadlocked on null state (45s cap +
+      recovery branch + rejection-proof fetches). Boot instrumented
+      live: first answers post-restart already carry the user — the
+      server never serves a transient signed-out state. Riders: the
+      About "Access" row was built but never interpolated (one-line
+      fix, rig-verified all three states) and the "Start the mesh"
+      empty state finally dropped its bridge-era copy. Also this round:
+      the R84 cutover went LIVE (member:aryan; join hardened twice by
+      live failures; the wall verified with a scratch member), and the
+      AVD's non-join was diagnosed (alive on .166, still service —
+      needs one `join aryanonavd` rerun).
+
 - [x] **R84 — per-member Supabase RLS (trust model v2.2). BUILT
       2026-07-16 (v0.24.165); cutover = Aryan's dashboard toggle + SQL
       paste (nothing breaks at any step — the R76 pattern).** Two designs
