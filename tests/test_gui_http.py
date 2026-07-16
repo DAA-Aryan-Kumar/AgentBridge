@@ -46,6 +46,22 @@ def test_signup_login_logout(rig):
     assert ok["ok"] and "recovery_code" not in ok  # keys already exist
 
 
+def test_login_refused_while_signed_in(rig):
+    """V130 (V124's twin): login swapped the session — and claimed this
+    machine's agents — needing only the CALLER's own credentials. Now it
+    refuses; the legitimate swap composes as password logout → login."""
+    rig.signup()
+    rig.peer_account("mallory", password="mallory-pw1")
+    out = rig.post("/api/mesh/login", username="mallory",
+                   password="mallory-pw1")
+    assert "sign out first" in out.get("error", "")
+    assert rig.get("/api/mesh/state")["user"] == "aryan"    # session intact
+    assert rig.post("/api/mesh/logout", password="hexagon")["ok"]
+    out = rig.post("/api/mesh/login", username="mallory",
+                   password="mallory-pw1")
+    assert out["ok"] and out["user"] == "mallory"           # signed-out path
+
+
 def test_restoring_flag_and_cold_directory_login(rig, monkeypatch):
     """V125: a session file + a blind restore in flight reads as
     `restoring` in both state payloads (the frontend holds the boot surface
@@ -164,8 +180,10 @@ def test_migrated_login_upgrades_auth_and_keys(rig):
     doc = rig.app._tx0.get_doc("users/vet.json")
     assert doc["auth"]["algo"] == "scrypt"
     assert doc["keys"]["sign_pub"] and doc["keys"]["wrapped_priv"]
-    # second login: nothing left to upgrade
-    rig.post("/api/mesh/logout")
+    # second login: nothing left to upgrade. (The logout must be a real,
+    # password-gated one — V130 made login refuse while a session exists,
+    # so the old passwordless logout + re-login no longer works.)
+    assert rig.post("/api/mesh/logout", password="hexagon")["ok"]
     again = rig.post("/api/mesh/login", username="vet", password="hexagon")
     assert again["ok"] and "recovery_code" not in again
 

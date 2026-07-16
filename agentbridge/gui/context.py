@@ -228,6 +228,20 @@ class GuiApp:
         return {"ok": True, "user": name, "recovery_code": code}
 
     def login(self, name: str, password: str) -> dict:
+        with self._lock:
+            # V130 (V124's twin): login was a session swap needing only the
+            # CALLER's credentials — a passer-by with their own account
+            # could adopt this machine (and claim its agents) without the
+            # signed-in user's password. The UI never offers login while
+            # signed in; the legitimate swap is logout (password) → login.
+            if self.mesh is not None:
+                raise ValidationError("Already signed in — sign out first")
+            return self._login_locked(name, password)
+
+    def _login_locked(self, name: str, password: str) -> dict:
+        """The login body — the caller holds ``self._lock`` (V130 keeps the
+        signed-out guard and the adopt in ONE lock span, so no session can
+        appear between the check and the swap)."""
         acc = self.directory0.get(name)
         if acc is None:
             # V125: a cold transport (boot warm-up, network blip) makes the
@@ -246,23 +260,21 @@ class GuiApp:
         if acc is None or not acc.active or acc.auth is None:
             # agents and deleted accounts fail exactly like a bad password
             raise ValidationError("Wrong username or password")
-        with self._lock:
-            mesh = self._build(name)
-            if not mesh.verify_password(name, password):
-                mesh.close()  # a failed login never drops the old session
-                raise ValidationError("Wrong username or password")
-            # first v2 sign-in of a migrated account: scrypt + identity keys
-            code = mesh.accounts.upgrade_login(name, password)
-            if mesh.keystore.load(name) is None:
-                mesh.accounts.unlock(password)  # new machine: unwrap + cache
-            try:
-                # D19: login claims; the facade posts the V69 owner-changed
-                # departure pills before ownership moves
-                mesh.claim_machine_agents()
-            except Exception:  # noqa: BLE001 — claiming must not block login
-                pass
-            self._detach()
-            self._adopt(mesh)
+        mesh = self._build(name)
+        if not mesh.verify_password(name, password):
+            mesh.close()  # a failed login never drops anything
+            raise ValidationError("Wrong username or password")
+        # first v2 sign-in of a migrated account: scrypt + identity keys
+        code = mesh.accounts.upgrade_login(name, password)
+        if mesh.keystore.load(name) is None:
+            mesh.accounts.unlock(password)  # new machine: unwrap + cache
+        try:
+            # D19: login claims; the facade posts the V69 owner-changed
+            # departure pills before ownership moves
+            mesh.claim_machine_agents()
+        except Exception:  # noqa: BLE001 — claiming must not block login
+            pass
+        self._adopt(mesh)
         out = {"ok": True, "user": name}
         if code:
             out["recovery_code"] = code

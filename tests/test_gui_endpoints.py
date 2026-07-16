@@ -300,7 +300,9 @@ def test_profile_privacy_and_blocks(rig):
 def test_change_password_and_relogin(rig):
     rig.signup()
     rig.post("/api/mesh/change_password", old="hexagon", new="heptagon")
-    rig.post("/api/mesh/logout")
+    # V130: the logout must be real (new password) — a signed-in login is
+    # refused now, so the re-login below needs a genuinely dropped session
+    assert rig.post("/api/mesh/logout", password="heptagon")["ok"]
     assert "error" in rig.post("/api/mesh/login", username="aryan",
                                password="hexagon")
     assert rig.post("/api/mesh/login", username="aryan",

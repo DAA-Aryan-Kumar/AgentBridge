@@ -1844,7 +1844,7 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
   (Test note: hidden preview tabs throttle setInterval toward 1/min —
   the sweep fires late in a background window; visible windows sweep
   every 5s. Harmless: the lock covers the API regardless.)
-- [ ] **V128 livefeed without `id` skips the membership filter**
+- [x] **V128 livefeed without `id` skips the membership filter**
   (found preparing the V121 observation, 2026-07-16): GET
   /api/mesh/livefeed with no chat id returns every running agent's
   run-feed doc mesh-wide — chat_id + activity lines from rooms the
