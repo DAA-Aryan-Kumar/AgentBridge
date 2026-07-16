@@ -1809,20 +1809,24 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
   in-app switch path) assumed the UI flow; the endpoint doesn't. Fix:
   refuse login while a session exists ("Already signed in — sign out
   first"), exactly like V124; the UI never offers signed-in login.
-- [ ] **V129 A run that dies without a finish write haunts the chat**
+- [x] **V129 A run that dies without a finish write haunts the chat**
   (Aryan, screenshot 2026-07-16: DM shows "Reading the conversation
   (no updates for 10 min)" while the agent is online and idle — he had
-  stopped Claude much earlier and the kill orphaned the run):
-  status/<agent>_run.json is written at run start; a killed runner
-  never writes the finish, so state stays "running". V109's process
-  truth only checks the RUNNER process — a relaunched harness is
-  alive, so the orphaned doc shows as a working bubble until the
-  600s ghost cutoff. "Online" (beat) and the bubble (run doc) were
-  both honest about different things. Fix in the harness (owning
-  module): on boot and between runs, reap the agent's own run doc —
-  if it claims "running" but this process isn't running it, finish it
-  as interrupted. Check the stop path too (a stop that kills mid-run
-  should finish the doc as "Stopped").
+  stopped Claude much earlier and the kill orphaned the run) →
+  **DONE R94 (v0.24.176)**. status/<agent>_run.json is written at run
+  start; a killed runner never writes the finish, so state stayed
+  "running" and V109's process truth couldn't clear it (the relaunched
+  harness IS alive — it checks the RUNNER, not the RUN). Fix in the
+  owning module: feed.reap_orphan_run() finishes an orphaned doc as
+  "interrupted" + records it in the run history. Called at boot (a
+  starting runner runs nothing by definition — the V85/V109 hygiene
+  rationale) and every loop tick with the in-flight chat set (heals a
+  hard thread death inside a living process too). V71 `waiting` docs
+  are spared (the durable queue owns them). The stop path was already
+  clean (RunStopped → finish "stopped"; stop-at-claim finishes too) —
+  the haunting came only from process kills. Verified: unit test +
+  scratch-mesh integration (planted orphan, responder-less
+  AgentRunner(once=True) boot flipped it to interrupted). Suite 507.
 - [x] **V127 Auto-lock fires right after signing in** (Aryan, direct
   chat 2026-07-16, "minor — but make sure no regressions") → **DONE
   R92 (v0.24.174)**. The idle clock (main.js lastActive) only bumped
