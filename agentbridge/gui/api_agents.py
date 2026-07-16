@@ -175,15 +175,17 @@ def agent_start(app, req, mesh) -> dict:
                          f"— start it from there"}
     if str(acc.agent.harness.get("adapter") or "") == "none":
         return {"error": f"@{name} is MCP-only — it has no runner to start"}
+    from ..core.spawn import windowless_kwargs
+
     cmd = [sys.executable, "-m", "agentbridge.harness", name, "--supervise",
            "--root", str(app.root), "--home", str(app.home),
            "--machine", app.machine]
-    flags = 0
-    if os.name == "nt":  # no console window popping over the app
-        flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
-    subprocess.Popen(cmd, creationflags=flags, close_fds=True,
+    # V122: windowless_kwargs carries CREATE_NO_WINDOW AND the SW_HIDE
+    # startupinfo — flags alone left the uv shim's console grandchild
+    # popping a visible Windows Terminal
+    subprocess.Popen(cmd, close_fds=True,
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL)
+                     stderr=subprocess.DEVNULL, **windowless_kwargs(detach=True))
     return {"ok": True, "agent": name}
 
 

@@ -239,6 +239,13 @@ def app_restart(app, req, mesh) -> dict:
                  | 0x08000000)   # CREATE_NO_WINDOW — belt for console exes
     spawn = dict(close_fds=True, stdout=subprocess.DEVNULL,
                  stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+    if sys.platform == "win32":
+        # SW_HIDE startupinfo (V122): flags don't reach the uv shim's own
+        # console grandchild — the show state does (the visible-terminal fix)
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0
+        spawn["startupinfo"] = si
     # V122: the helper must OUTLIVE this process tree. Under the uv shim
     # the fleet may live inside a Job Object whose teardown kills every
     # descendant — the 05:02 helper died mid-run exactly this way, leaving

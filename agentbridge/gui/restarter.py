@@ -125,6 +125,20 @@ def _wait_gone(pid: int, timeout_s: float) -> None:
         time.sleep(0.5)
 
 
+def _hidden_startupinfo():
+    """SW_HIDE startupinfo (V122): creation FLAGS only cover the direct
+    child — the uv shim's own console-subsystem grandchild inherits the
+    STARTUPINFO show state instead, and a default one popped a visible
+    Windows Terminal per fleet spawn (the 'terminal opens' reports).
+    This is the programmatic twin of Start-Process -WindowStyle Hidden."""
+    if sys.platform != "win32":
+        return None
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = 0  # SW_HIDE
+    return si
+
+
 def _spawn(cmd: list[str], cwd: str) -> None:
     flags = _NO_WINDOW
     if sys.platform == "win32":
@@ -132,7 +146,7 @@ def _spawn(cmd: list[str], cwd: str) -> None:
                   | subprocess.CREATE_NEW_PROCESS_GROUP)
     _log("spawn: " + " ".join(cmd))
     subprocess.Popen(cmd, cwd=cwd or None, creationflags=flags,
-                     close_fds=True,
+                     close_fds=True, startupinfo=_hidden_startupinfo(),
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                      stdin=subprocess.DEVNULL)
 

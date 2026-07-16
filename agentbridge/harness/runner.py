@@ -829,6 +829,8 @@ class SingleInstance:
 def supervise(agent: str, argv: list[str]) -> None:
     """Keep an agent's harness alive with capped-backoff restarts (v1 model):
     rc 0 = clean stop, rc 3 = another harness owns this agent — stand aside."""
+    from ..core.spawn import windowless_kwargs
+
     child = [sys.executable, "-m", "agentbridge.harness",
              *[a for a in argv if a != "--supervise"]]
     print(f"[supervisor] @{agent}: keeping the harness up — Ctrl+C to stop")
@@ -836,7 +838,7 @@ def supervise(agent: str, argv: list[str]) -> None:
     while True:
         started = time.time()
         try:
-            rc = subprocess.call(child)
+            rc = subprocess.call(child, **windowless_kwargs())
         except KeyboardInterrupt:
             return
         if rc == 0:
@@ -924,9 +926,12 @@ def supervise_all(root, machine: str, argv: list[str],
             for name in agents:
                 if name in children or now < cooldown.get(name, 0.0):
                     continue
+                from ..core.spawn import windowless_kwargs
+
                 children[name] = subprocess.Popen(
                     [sys.executable, "-m", "agentbridge.harness",
-                     name, "--supervise", *passthru])
+                     name, "--supervise", *passthru],
+                    **windowless_kwargs())
                 spawned.append(name)
             if spawned:
                 print(f"[harness] supervising {len(children)} agent(s): "
