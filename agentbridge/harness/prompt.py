@@ -168,7 +168,17 @@ class PromptPack:
                 when=last.get("finished", ""),
                 doing=f" (while: {doing})" if doing else ""))
         if delivery.kind == "timer":
-            lines.append(self.text("context_wakeup", note=delivery.note))
+            # V88: a wake-up firing well past its time (the harness was
+            # offline) says so — the agent re-checks relevance and the
+            # CURRENT time instead of acting on a stale plan
+            if delivery.late_s > 600:
+                late = (f"{delivery.late_s / 3600:.1f} hours"
+                        if delivery.late_s >= 3600
+                        else f"{int(delivery.late_s // 60)} minutes")
+                lines.append(self.text("context_wakeup_late",
+                                       note=delivery.note, late=late))
+            else:
+                lines.append(self.text("context_wakeup", note=delivery.note))
         for t in delivery.triggers:
             if t.reason == "reaction":
                 # V92: say WHAT was reacted to — the breadcrumb itself renders

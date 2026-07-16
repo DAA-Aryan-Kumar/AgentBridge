@@ -17,7 +17,11 @@ retrieval, peer harness access + repair mutations, the Supabase cloud transport,
 a stress/soak pass with a 40× read-latency fix, and the R25 security review.
 
 - **Version:** `agentbridge/__init__.py` `__version__` (moved here from
-  `gui/__init__.py` in R26). Currently **v0.24.186** (R104: the owner
+  `gui/__init__.py` in R26). Currently **v0.24.187** (R105: recurring
+  wake-ups — schedule_timer takes repeat 'daily'/'weekly:mon,wed'/
+  'monthly:15'; fires re-arm the next occurrence, dismissing the chip
+  ends the series; a wake-up firing late says so and tells the agent
+  to re-check the time; R104: the owner
   can dismiss an agent's scheduled wake-up from the chat's timer chip —
   the harness consumes the cancel, and the dismissal lands in the run
   history so the agent's next run knows (V88 part 1 + V87's

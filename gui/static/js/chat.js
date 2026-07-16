@@ -908,11 +908,22 @@ function renderAskBar(chatId, asks, timers) {
     }
     const note = (t.note || "").replace(/\s+/g, " ");
     const shown = note.length > 140 ? note.slice(0, 140) + "…" : note;
+    // V88: a recurring wake-up says so — mirrors timers.repeat_label
+    const rep = t.repeat && t.repeat.kind === "daily" ? "repeats daily"
+      : t.repeat && t.repeat.kind === "weekly"
+      ? "repeats weekly" + ((t.repeat.days || []).length
+        ? " on " + t.repeat.days.map((d) =>
+            ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][d]).join(", ")
+        : "")
+      : t.repeat && t.repeat.kind === "monthly"
+      ? `repeats monthly on day ${t.repeat.day}` : "";
     return `<div class="timer-chip" data-timer="${esc(t.id || "")}"
         data-agent="${esc(t.agent || "")}" title="${esc(note)}">
       ${ICONS.clock} ${esc(meshDn(t.agent))} checks back
-      ${at ? "at " + esc(at) : "soon"}${shown ? " — " + esc(shown) : ""}
-      <button class="timer-x" title="Dismiss this wake-up — the agent is told"
+      ${at ? "at " + esc(at) : "soon"}${rep ? " · " + esc(rep) : ""}${shown ? " — " + esc(shown) : ""}
+      <button class="timer-x" title="${rep
+        ? "Dismiss this recurring wake-up (ends the series) — the agent is told"
+        : "Dismiss this wake-up — the agent is told"}"
         aria-label="Dismiss this wake-up">${ICONS.close}</button>
     </div>`;
   }).join("");

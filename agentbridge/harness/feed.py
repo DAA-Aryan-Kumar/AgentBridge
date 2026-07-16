@@ -200,7 +200,9 @@ def write_harness_doc(tx: Transport, agent: str, *, queue: list[dict],
             "timers": [
                 {"id": t.get("id"), "chat_id": t.get("chat_id"),
                  "at_ns": t.get("at_ns"), "note": t.get("note"),
-                 "created": t.get("created")}
+                 "created": t.get("created"),
+                 # V88: the chip says "repeats daily" etc.
+                 **({"repeat": t["repeat"]} if t.get("repeat") else {})}
                 for t in timers[:50]
             ],
         })

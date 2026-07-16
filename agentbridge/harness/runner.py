@@ -445,7 +445,10 @@ class AgentRunner:
                 self.queue.rate_refund(chat_id)
                 self.queue.finish(group, "stopped-by-owner")
                 if group.kind == "timer":
-                    self.timers.pop(group.items[0].key.split("timer:", 1)[-1])
+                    # V88: a stop ends THE RUN, not a recurring series —
+                    # dismissing the chip is how the owner ends the series
+                    self.timers.pop(group.items[0].key.split("timer:", 1)[-1],
+                                    reschedule=True)
                 feed.finish("stopped", "Stopped by your member")
                 self.publish_status()
                 return
@@ -541,7 +544,9 @@ class AgentRunner:
         body, no_reply = clean_reply(reply.body)
         timer_ids = self.timers.add_from_reply(chat_id, reply.timers)
         if group.kind == "timer":
-            self.timers.pop(group.items[0].key.split("timer:", 1)[-1])
+            # V88: fired — a recurring timer re-arms for its next occurrence
+            self.timers.pop(group.items[0].key.split("timer:", 1)[-1],
+                            reschedule=True)
         if no_reply or not body:
             self.queue.rate_refund(chat_id)  # a silent run costs no slot
             self.queue.finish(group, "no_reply")
@@ -620,7 +625,8 @@ class AgentRunner:
         feed.finish("error", f"Run failed: {type(err).__name__}")
         self.queue.finish(group, f"error:{type(err).__name__}")
         if group.kind == "timer":
-            self.timers.pop(group.items[0].key.split("timer:", 1)[-1])
+            self.timers.pop(group.items[0].key.split("timer:", 1)[-1],
+                            reschedule=True)   # V88: the series survives
         if not settings.error_notices:
             self.queue.rate_refund(group.chat_id)  # nothing was posted
             return

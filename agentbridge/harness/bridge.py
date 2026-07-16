@@ -631,7 +631,7 @@ class BridgeServer:
 
         @mcp.tool(structured_output=False)
         def schedule_timer(minutes: float = 0, note: str = "",
-                           at: str = "") -> str:
+                           at: str = "", repeat: str = "") -> str:
             """Wake yourself up in this chat later — a human 'remembers a
             task'; this is yours (V55). Give ``minutes`` (relative) OR
             ``at`` (absolute time: 'HH:MM' = its next occurrence,
@@ -639,11 +639,16 @@ class BridgeServer:
             YOUR MACHINE's timezone — which may differ from the person
             you're helping (V74), so the confirmation states the exact
             local time it will fire and you should relay that if a member
-            asked for a wall-clock time. Write ``note`` as a FULL brief for
+            asked for a wall-clock time. ``repeat`` (V88) makes it
+            RECURRING: 'daily', 'weekly:mon,wed', or 'monthly:15' — each
+            firing re-arms the next occurrence at the same wall-clock
+            time; your member can dismiss the series from the chat's chip
+            (you'll be told). Write ``note`` as a FULL brief for
             your future self — it starts fresh and sees only this note plus
             the chat, so include what to do, for whom, and what done looks
             like. Every timer is visible to your responsible member."""
-            from .timers import parse_at, when_local as _when
+            from .timers import parse_at, parse_repeat, repeat_label
+            from .timers import when_local as _when
 
             if len(self.timers) >= MAX_TIMERS_PER_RUN:
                 return "timer limit for this run reached"
@@ -654,6 +659,11 @@ class BridgeServer:
             if not text:
                 return ("write the note — your future run starts from it "
                         "(what to do, for whom, what done looks like)")
+            rep = parse_repeat(repeat)
+            if str(repeat or "").strip() and rep is None:
+                return ("couldn't read that recurrence — use 'daily', "
+                        "'weekly:mon,wed', or 'monthly:15'")
+            suffix = f" ({repeat_label(rep)})" if rep else ""
             if str(at or "").strip():
                 at_ns = parse_at(at)
                 if at_ns is None:
@@ -661,8 +671,9 @@ class BridgeServer:
                             "'YYYY-MM-DD HH:MM', or ISO")
                 if at_ns <= time.time_ns() + int(30 * 1e9):
                     return "that time is already past — pick a future one"
-                self.timers.append({"at_ns": at_ns, "note": text})
-                return f"scheduled: a wake-up at {_when(at_ns)}"
+                self.timers.append({"at_ns": at_ns, "note": text,
+                                    **({"repeat": rep} if rep else {})})
+                return f"scheduled: a wake-up at {_when(at_ns)}{suffix}"
             try:
                 mins = float(minutes)
             except (TypeError, ValueError):
@@ -670,9 +681,11 @@ class BridgeServer:
             if mins <= 0:
                 return "give minutes (a number) or at (a time)"
             in_s = max(30.0, mins * 60.0)
-            self.timers.append({"in_s": in_s, "note": text})
+            self.timers.append({"in_s": in_s, "note": text,
+                                **({"repeat": rep} if rep else {})})
             fires = _when(time.time_ns() + int(in_s * 1e9))
-            return f"scheduled: a wake-up in {in_s / 60:.0f} min (at {fires})"
+            return (f"scheduled: a wake-up in {in_s / 60:.0f} min "
+                    f"(at {fires}){suffix}")
 
         if self.timer_svc is not None:
             timer_svc = self.timer_svc

@@ -14,6 +14,7 @@ context file, the feed lines) belongs to the R17 prompt manager (prompt.py).
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 
 from ..core.models import ChatKind, Message, UserKind
@@ -64,6 +65,10 @@ class Delivery:
     recent_runs: list[dict] = field(default_factory=list)
     timers: list[dict] = field(default_factory=list)
     other_timers: int = 0
+    # V88: how late a wake-up fires past its scheduled time (0 = on time) —
+    # a harness that was offline fires the backlog late, and the prompt
+    # warns the agent to re-check relevance instead of acting on stale plans
+    late_s: float = 0.0
 
 
 class ConversationManager:
@@ -121,6 +126,8 @@ class ConversationManager:
             transcript=transcript,
             triggers=triggers,
             note=group.items[0].note if group.kind == "timer" else "",
+            late_s=(max(0.0, (time.time_ns() - int(group.items[0].ns)) / 1e9)
+                    if group.kind == "timer" else 0.0),
             created_by=genesis.from_ if genesis else "",
             created_at=genesis.ts if genesis else "",
             permissions=({k: getattr(v, "value", v)

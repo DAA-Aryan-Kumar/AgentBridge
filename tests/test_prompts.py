@@ -114,6 +114,20 @@ def test_prompt_timer_task(tmp_path):
     assert "ctx.md" in p                             # timers still get context
 
 
+def test_wakeup_late_warning(tmp_path):
+    """V88 part 2: a wake-up firing well past its scheduled time (the
+    harness was offline) warns the agent to re-check relevance and the
+    current time; an on-time one keeps the plain line."""
+    pack = PromptManager(tmp_path / "nohome").for_agent(acc())
+    late = pack.context_text(
+        delivery(kind="timer", note="check the export", late_s=3 * 3600.0),
+        {})
+    assert "LATE" in late and "3.0 hours" in late and "check the export" in late
+    on_time = pack.context_text(
+        delivery(kind="timer", note="check the export", late_s=30.0), {})
+    assert "LATE" not in on_time and "check the export" in on_time
+
+
 def test_step_line_shows_search_query_and_trims_dangling(tmp_path):
     """V93: the web-search activity line displays WHAT it's searching for
     (it used to drop the query — "Searching the web" with no term). When a

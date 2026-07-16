@@ -23,6 +23,7 @@
   "context_header": "Chat: {chat_name} ({chat_kind})",
   "context_members": "Members: {members}",
   "context_wakeup": "Scheduled wake-up: {note}",
+  "context_wakeup_late": "Scheduled wake-up, firing {late} LATE (you were likely offline at the scheduled time): {note} — re-check what time it is now and whether this still needs doing before you act.",
   "context_pinned": "[PINNED by @{by}] (id {id}) {body}",
   "context_stopped": "IMPORTANT: your previous run in this chat was STOPPED by your responsible member at {when}{doing} — your reply was never posted. A stop means they did not want that run to continue: do not resume or retry that work unless the conversation below asks for it. If you reply now, you may acknowledge the stop in a few words, then follow the conversation.",
   "context_interrupted": "Note: your previous run in this chat was interrupted at {when}{doing} — the app or agent restarted mid-run and your reply was never posted. Re-read the conversation below and pick up only what still needs you.",

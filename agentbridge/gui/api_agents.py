@@ -282,7 +282,10 @@ def asks(app, req, mesh) -> dict:
                 continue
             timers.append({"agent": name, "id": t.get("id"),
                            "chat_id": t.get("chat_id"),
-                           "at_ns": t.get("at_ns"), "note": t.get("note")})
+                           "at_ns": t.get("at_ns"), "note": t.get("note"),
+                           # V88: only recurring timers carry the key
+                           **({"repeat": t["repeat"]}
+                              if t.get("repeat") else {})})
         # peer harness-access requests awaiting this owner (R22) — chatless,
         # so they only surface in the unfiltered poll (the whole-page sweep).
         # Served by the runner's loop, so a dead local runner = ghosts too.

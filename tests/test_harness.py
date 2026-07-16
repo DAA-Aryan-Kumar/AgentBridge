@@ -842,6 +842,55 @@ def test_delivery_lists_this_chats_timers_only(hrig):
     assert "1 wake-up(s) scheduled in other chats" in ctx
 
 
+def test_repeat_parsing_and_occurrence_math():
+    """V88 part 2: recurrence specs and the schedule-anchored occurrence
+    math (catch-up past a long offline stretch; month-length clamp)."""
+    import datetime as dt
+    import time as _t
+
+    from agentbridge.harness.timers import (next_occurrence, parse_repeat,
+                                            repeat_label)
+
+    assert parse_repeat("daily") == {"kind": "daily"}
+    assert parse_repeat("weekly:mon,wed") == {"kind": "weekly", "days": [0, 2]}
+    assert parse_repeat("weekly:0,2") == {"kind": "weekly", "days": [0, 2]}
+    assert parse_repeat("monthly:15") == {"kind": "monthly", "day": 15}
+    assert parse_repeat("weekly:") is None
+    assert parse_repeat("bogus") is None and parse_repeat("") is None
+    assert repeat_label({"kind": "daily"}) == "repeats daily"
+    assert "Mon, Wed" in repeat_label({"kind": "weekly", "days": [0, 2]})
+    # catch-up: a 3-days-stale anchor advances past NOW in one call
+    now = _t.time_ns()
+    nxt = next_occurrence(now - int(3 * 86400e9), {"kind": "daily"},
+                          now_ns=now)
+    assert nxt and now < nxt <= now + int(86400e9)
+    # monthly clamp: a day-31 anchor lands on Feb's last day, no crash
+    jan31 = int(dt.datetime(2026, 1, 31, 9, 0).timestamp() * 1e9)
+    nxt = next_occurrence(jan31, {"kind": "monthly", "day": 31},
+                          now_ns=jan31 + 1)
+    d = dt.datetime.fromtimestamp(nxt / 1e9)
+    assert (d.month, d.day) == (2, 28) and d.hour == 9
+
+
+def test_recurring_timer_rearms_on_fire_ends_on_dismiss(hrig):
+    """V88 part 2: the FIRE-side pop re-arms a repeating wake-up at its next
+    occurrence under the SAME id (the owner's chip stays one thing); the
+    dismiss/cancel pop ends the series."""
+    import time as _t
+
+    runner = hrig.make_runner(Scripted())
+    snap = hrig.owner.create_chat("Recur", members=["helper"])
+    tid = runner.timers.set(snap.id, _t.time_ns() - int(60e9),
+                            "daily standup ping", repeat="daily")
+    t = runner.timers.pop(tid, reschedule=True)      # the fire-path pop
+    assert t and t["repeat"] == {"kind": "daily"}
+    left = runner.timers.snapshot()
+    assert len(left) == 1 and left[0]["id"] == tid   # same id, re-armed
+    assert left[0]["at_ns"] > _t.time_ns()           # strictly in the future
+    runner.timers.pop(tid)                           # dismissal: series ends
+    assert runner.timers.snapshot() == []
+
+
 def test_owner_timer_dismiss_notifies_the_agent(hrig):
     """V88: the owner's dismissal (GUI ✕ → cancel doc) pops the timer AND
     lands a "dismissed" entry in the run history — the same tail R99 feeds

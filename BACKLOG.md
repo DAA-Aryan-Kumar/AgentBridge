@@ -1505,10 +1505,21 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
   Verified: endpoint test (owner gate, id merge), harness test (pop +
   history note + recent-runs carry), live rig journey (chip → ✕ →
   instant removal → cancel doc on the transport). Suite 522.
-  REMAINING (part 2): RECURRING timers (days-of-week/day-of-month/
-  date), late-fire warning ("fired while offline — re-check
-  relevance"), timers formatted like pins, bold in preview, wakeup
-  doesn't PUSH messages, edit-in-place (vs dismiss+reschedule).
+  **PART 2 (recurring + late-fire) DONE R105 (v0.24.187)**:
+  schedule_timer gains `repeat` ('daily' / 'weekly:mon,wed' /
+  'monthly:15'); the FIRE-side pop re-arms the next occurrence under
+  the SAME id (schedule-anchored — no drift from a late fire; catch-up
+  skips a long offline stretch in one bounded pass; monthly clamps
+  Jan-31 → Feb-28), while dismiss/cancel end the series (the chip's ✕
+  tooltip says so); a stop ends the RUN, never the series. A wake-up
+  firing >10 min late tells the agent so ("firing {late} LATE… re-check
+  what time it is now") via delivery.late_s + context_wakeup_late.
+  Chips show "· repeats weekly on Mon, Wed"; the asks/harness-doc
+  projections carry `repeat` only when present. Verified: occurrence-
+  math unit tests (parse, catch-up, month clamp), re-arm/dismiss
+  semantics, late/on-time prompt lines, live rig chip render. Suite
+  525. REMAINING (part 3, GUI polish): timers formatted like pins,
+  bold in preview, wakeup doesn't PUSH messages, edit-in-place.
 - [x] **V89 Composer (cluster)** — can't paste images; chirp doesn't
   play on message EDIT; (+ the disabled-send-button hover-highlight from
   V50-era) = 3 composer fixes. → **DONE R102 (v0.24.184)**.
