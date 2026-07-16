@@ -456,6 +456,39 @@ def test_asks_surface_and_answer_roundtrip(rig):
 
 
 # ----------------------------------------------------------- typing + feeds
+def test_livefeed_no_id_is_membership_filtered(rig):
+    """V128: the no-id lane (all my chats) applies the same membership
+    filter as the per-chat path — a run doc or typing heartbeat in a room
+    the caller isn't a member of must never surface (visibility =
+    membership, the one invariant)."""
+    rig.signup()
+    rig.peer_account("fable")
+    rig.peer_account("cara")
+    mine = rig.post("/api/mesh/create_chat", name="Mine",
+                    members=["fable"])["chat"]["id"]
+    with rig.peer_mesh("fable") as pm:
+        theirs = pm.create_chat("Theirs", ["cara"]).id
+    tx = rig.app.mesh.tx
+    now = utcnow_iso()
+    tx.put_doc("status/helper_run.json", {
+        "state": "running", "agent": "helper", "chat_id": mine,
+        "updated": now, "activity": "visible"})
+    tx.put_doc("status/hermit_run.json", {
+        "state": "running", "agent": "hermit", "chat_id": theirs,
+        "updated": now, "activity": "secret"})
+    tx.put_doc("status/typing_cara.json", {
+        "user": "cara", "chat_id": theirs, "updated": now})
+    feeds = rig.get("/api/mesh/livefeed")["feeds"]
+    who = {f["agent"] for f in feeds}
+    assert "helper" in who           # my chat's run shows
+    assert "hermit" not in who       # a not-my-room run never leaks
+    assert "cara" not in who         # nor their typing heartbeat
+    assert not any("secret" in str(f.get("activity", "")) for f in feeds)
+    # the per-chat path still answers for my own room
+    feeds = rig.get("/api/mesh/livefeed", id=mine)["feeds"]
+    assert {f["agent"] for f in feeds} == {"helper"}
+
+
 def test_typing_and_livefeed(rig):
     rig.signup()
     rig.peer_account("fable")

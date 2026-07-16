@@ -258,6 +258,22 @@ def livefeed(app, req, mesh) -> dict:
     chat_id = req.params.get("id", "")
     if chat_id and not mesh.snapshot(chat_id).is_member(mesh.user):
         return {"feeds": []}  # never leak who's typing where
+
+    # V128: the no-id lane filters by membership PER FEED — without this,
+    # every run doc mesh-wide leaked its chat_id + activity line to any
+    # member (visibility = membership, the one invariant)
+    member_of: dict[str, bool] = {}
+
+    def _mine(cid: str) -> bool:
+        if chat_id and cid == chat_id:
+            return True  # the with-id path proved membership above
+        if cid not in member_of:
+            try:
+                member_of[cid] = mesh.snapshot(cid).is_member(mesh.user)
+            except Exception:  # noqa: BLE001 — unreadable chat = not mine
+                member_of[cid] = False
+        return member_of[cid]
+
     feeds = []
     for path in mesh.tx.list_docs("status"):
         doc = mesh.tx.get_doc(path)
@@ -268,7 +284,8 @@ def livefeed(app, req, mesh) -> dict:
         if leaf.endswith("_run.json"):
             if doc.get("state") != "running":
                 continue
-            if chat_id and doc.get("chat_id") != chat_id:
+            cid = doc.get("chat_id") or ""
+            if (chat_id and cid != chat_id) or not _mine(cid):
                 continue
             if age is not None and age > 7200:
                 continue  # a run that died without a finish write
@@ -283,7 +300,8 @@ def livefeed(app, req, mesh) -> dict:
         elif leaf.startswith("typing_"):
             if not doc.get("user") or doc["user"] == mesh.user:
                 continue
-            if chat_id and doc.get("chat_id") != chat_id:
+            cid = doc.get("chat_id") or ""
+            if (chat_id and cid != chat_id) or not _mine(cid):
                 continue
             if age is None or age > 12:
                 continue  # heartbeat every ~3s while typing; stale = stopped

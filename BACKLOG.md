@@ -1743,14 +1743,71 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
   landed around it. Irony: the fix couldn't ship through the button it
   fixes (the .172 rail blocked its own update) — that pull was the last
   manual one.
-- [ ] **V121 Agent-running visibility, round 2** (self chat 21:54,
+- [x] **V121 Agent-running visibility, round 2** (self chat 21:54,
   post-R83: "even after that round, its hard to tell if an agent is
   running, especially if the chat closes; the working messages still
-  seem unstable") — the in-chat bubble dies with the chat view and the
-  5s run-feed lane + throttle may read as flicker. Needs a live
-  observation session: what exactly feels unstable, then likely a
-  persistent per-agent "running" surface (sidebar/global) fed by the
-  V109 process truth rather than doc cadence.
+  seem unstable") → **CLOSED not-reproducible (2026-07-16)**. Aryan
+  retested thoroughly in a live observation session and nothing
+  reproduces: "I have probably falsely flagged it or maybe making the
+  running items more real time had an impact" — most likely the
+  R83 stabilization + V109 process truth fixed it between the report
+  and the retest. No code change. Reopen with a fresh observation if
+  it resurfaces. (The observation prep DID surface a real hole:
+  /api/mesh/livefeed without an `id` skips the membership filter and
+  returns every running agent's activity line mesh-wide — no frontend
+  caller uses that lane today, but it leaks activity from rooms the
+  caller isn't in. Logged as V128.)
+- [ ] **V125 Post-restart warm-up reads as a sign-out** (Aryan, direct
+  chat 2026-07-16; also part of why "restart app does not work" felt
+  broken): after an app restart the cloud connector takes a while to
+  connect; V122's restore correctly keeps the session and self-heals,
+  but during the warm-up /api/state has user:null so the frontend
+  shows the SIGN-IN page — reads as "the app signed me out". Manual
+  sign-in during the window fails (directory unreadable) until it
+  recovers, then the session restores by itself. Fix: expose a
+  "restoring" signal in /api/state while a session file exists and the
+  background restore is still retrying; frontend shows the boot/
+  connecting screen instead of the auth page; login during warm-up
+  should say "still connecting" instead of a misleading failure.
+- [ ] **V126 Slow .pyw double-click start** (Aryan, direct chat
+  2026-07-16): launching via the .pyw shows nothing for a while —
+  ideally the app window + loading screen appear immediately and the
+  heavy pieces (cloud transport warm-up etc.) load in the background.
+  Investigate the boot order: what runs between double-click and the
+  first paint, then move it behind the first served page. DECISION
+  (Aryan 2026-07-16): reuse the SAME boot screen for this and V125 —
+  one loading surface for cold start and post-restart reconnect.
+- [ ] **V129 A run that dies without a finish write haunts the chat**
+  (Aryan, screenshot 2026-07-16: DM shows "Reading the conversation
+  (no updates for 10 min)" while the agent is online and idle — he had
+  stopped Claude much earlier and the kill orphaned the run):
+  status/<agent>_run.json is written at run start; a killed runner
+  never writes the finish, so state stays "running". V109's process
+  truth only checks the RUNNER process — a relaunched harness is
+  alive, so the orphaned doc shows as a working bubble until the
+  600s ghost cutoff. "Online" (beat) and the bubble (run doc) were
+  both honest about different things. Fix in the harness (owning
+  module): on boot and between runs, reap the agent's own run doc —
+  if it claims "running" but this process isn't running it, finish it
+  as interrupted. Check the stop path too (a stop that kills mid-run
+  should finish the doc as "Stopped").
+- [ ] **V127 Auto-lock fires right after signing in** (Aryan, direct
+  chat 2026-07-16, "minor — but make sure no regressions"): the idle
+  clock (main.js lastActive) only bumps on real input events, so an
+  AUTOMATIC re-sign-in (V122 restore, zero keystrokes) leaves it
+  running from before the restart — the 5-min window can expire the
+  moment the app becomes usable. Fix: treat auth transitions as
+  activity — bump on successful unlock, login/signup, and the
+  refresh() transition from signed-out to signed-in. Discrete events
+  only, never the poll, so the idle timer keeps working.
+- [ ] **V128 livefeed without `id` skips the membership filter**
+  (found preparing the V121 observation, 2026-07-16): GET
+  /api/mesh/livefeed with no chat id returns every running agent's
+  run-feed doc mesh-wide — chat_id + activity lines from rooms the
+  caller isn't a member of (visibility=membership violation; typing
+  docs in the same lane leak too). No frontend caller hits the no-id
+  lane today (chat.js always passes id). Fix: apply the same
+  membership filter per feed when id is absent.
 - [x] **V122 ⚠ Restart app, round 3** → **DONE R85 (v0.24.167)**. The
   breadcrumb log earned its keep — it caught FOUR distinct causes:
   (1) **the sign-out was real and PERMANENT**: `restore()` treated a

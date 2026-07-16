@@ -16,11 +16,32 @@ import "./members.js";
 import "./forward.js";
 import "./settings.js";
 
+// V127: the idle auto-lock clock. Real input bumps it (listeners in init
+// below), and so do the auth transitions detected in refresh() — an
+// AUTOMATIC re-sign-in (V122 restore) or an unlock arrives with zero
+// keystrokes, and a 5-min window that expired while the app was busy
+// recovering must not lock it the moment it becomes usable.
+let lastActive = Date.now();
+const bumpIdle = () => { lastActive = Date.now(); };
+let prevAuth = { user: null, locked: false };
+// a manual lock raises the cover BEFORE its POST lands — the poll's heal
+// below must not eat that optimistic cover (set/cleared by lockNow)
+let lockPending = false;
+
 async function refresh(rerender) {
   try {
     App.state = await api("/api/state");
   } catch {
     return;  // server unreachable; next poll retries
+  }
+  // V127: signed-out -> signed-in and locked -> unlocked count as activity.
+  // Discrete state deltas only — the poll itself must never bump, or the
+  // idle timer would stop working entirely.
+  const was = prevAuth;
+  prevAuth = { user: App.state.user || null,
+               locked: !!App.state.app_lock?.locked };
+  if ((!was.user && prevAuth.user) || (was.locked && !prevAuth.locked)) {
+    bumpIdle();
   }
   // V111: locked = the lock page and nothing else (no SSE churn, no page
   // renders over it) — the poll keeps watching /api/state, which answers
@@ -29,6 +50,10 @@ async function refresh(rerender) {
     V.renderLockPage();
     return;
   }
+  // V127: the heal promised above, made real — a lock page still up while
+  // the server says unlocked (another window's unlock, the account password
+  // over the API) fades away onto the app rendered below
+  if (!lockPending && document.getElementById("lock")) V.closeLockPage();
   // open/close the SSE stream to match the current server + auth (inert on v1)
   syncRealtime();
   renderChrome();
@@ -264,9 +289,11 @@ window.addEventListener("hashchange", route);
   document.addEventListener("ab:locked", () => V.renderLockPage());
   // manual lock — the settings card's "Lock now" button and Ctrl+L
   const lockNow = async () => {
+    lockPending = true;                    // V127: shield from the poll heal
     V.renderLockPage();                    // cover FIRST, then tell the server
     try { await api("/api/applock/lock", {}); } catch { /* poll heals */ }
     if (App.state?.app_lock) App.state.app_lock.locked = true;
+    lockPending = false;
   };
   window.lockAppNow = lockNow;
   document.addEventListener("keydown", (e) => {
@@ -276,12 +303,11 @@ window.addEventListener("hashchange", route);
       lockNow();
     }
   });
-  // idle auto-lock: user input bumps the clock; a slow sweep compares it
-  // to the owner-set window (0 = manual only)
-  let lastActive = Date.now();
-  const bump = () => { lastActive = Date.now(); };
+  // idle auto-lock: user input bumps the clock (module-scope, V127 — auth
+  // transitions in refresh() bump it too); a slow sweep compares it to the
+  // owner-set window (0 = manual only)
   for (const ev of ["pointerdown", "keydown", "wheel", "mousemove"]) {
-    document.addEventListener(ev, bump, { capture: true, passive: true });
+    document.addEventListener(ev, bumpIdle, { capture: true, passive: true });
   }
   setInterval(() => {
     const lk = App.state?.app_lock;
