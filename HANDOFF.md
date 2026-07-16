@@ -17,7 +17,14 @@ retrieval, peer harness access + repair mutations, the Supabase cloud transport,
 a stress/soak pass with a 40× read-latency fix, and the R25 security review.
 
 - **Version:** `agentbridge/__init__.py` `__version__` (moved here from
-  `gui/__init__.py` in R26). Currently **v0.24.183** (R101: a blocked
+  `gui/__init__.py` in R26). Currently **v0.24.185** (R103: workspaces
+  get a tmp/ scratch convention — named in the prompts, auto-pruned
+  after a week — and `tidy_workspace(paths?)`, the agent's only delete
+  (shell is blocklisted): empties tmp/ or removes named
+  workspace-relative paths, harness-managed files refuse; the V87
+  remainder is assessed in BACKLOG — cross-chat context fetch awaits
+  Aryan's privacy call; R102: composer polish (V89) — paste images,
+  edit chirp, honest disabled hover; R101: a blocked
   DM shows "You blocked @X — Unblock" where the composer sat, strictly
   viewer-side so being blocked never leaks; the code commit raced the
   parallel session's R100 for the .182 label and was renumbered in a

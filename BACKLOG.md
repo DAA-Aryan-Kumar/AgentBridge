@@ -1472,12 +1472,23 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
   COUNT of wake-ups elsewhere (no cross-chat content ever rides a
   run's context — the one invariant applied to self-awareness);
   `cancel_timer(id)` bridge tool (chat-scoped, acts live on the
-  runner's durable timer list). REMAINING: typing-indicator
-  visibility (assess — value unclear at trigger time), the
-  tools-forgetting complaint (→ own round with V98), follow-ups on
-  its own (= V76), fetch context from another chat (privacy design
-  needed), owner-dismiss notifies the agent (rides V88 — the human
-  dismiss surface doesn't exist yet).
+  runner's durable timer list). REMAINING, assessed R103: (a)
+  typing-indicator visibility — recommend SKIP: a run fires on a
+  POSTED message and typing state would be stale by model time;
+  revisit only if V96's group intelligence wants it. (b) the
+  tools-forgetting complaint — R80's `toolset` guide + the read_docs
+  roster cover the documented confusions; what remains pairs with V98
+  (config simplification) and the V114 standing docs item, no code
+  worth shipping alone. (c) fetch context from another chat — NEEDS
+  ARYAN'S PRIVACY CALL before any build: sketch = a
+  `fetch_context(chat, query)` bridge tool gated like global memory
+  (owner policy off / DM-only / everywhere, plus a per-use owner ask),
+  because content flowing BETWEEN chats is exactly the risk class the
+  R20 dm-default memory policy exists for; the agent being a member
+  of both chats does NOT make the flow safe — the SOURCE chat's other
+  members never agreed to it. (d) owner-dismiss notifies the agent —
+  rides V88 (the human dismiss surface doesn't exist yet). (e)
+  follow-ups on its own = V76 (approved, own round).
 - [ ] **V88 Timer polish (cluster)** — edit/delete a timer (agent AND
   human — the AGENT-delete half shipped R99 as `cancel_timer`; the
   human-side edit/delete GUI still doesn't exist); multiple timers
@@ -1561,9 +1572,24 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
 - [ ] **V96 Group reply intelligence** — if the default group reply
   policy becomes "every message", how well can the agent infer the
   intended recipient without a tag? Aim for a seamless-group system.
-- [ ] **V97 Agent workspace temp files** — encourage agents to use
+- [x] **V97 Agent workspace temp files** — encourage agents to use
   workspace temp files; give a CLEANUP TOOL (preferred over a
-  per-prompt reminder that boggles smaller models).
+  per-prompt reminder that boggles smaller models). → **DONE R103
+  (v0.24.185)**. tmp/ is now the declared scratch area: created with
+  the workspace every run, named in the bridge prompt + workspace
+  guide ("put scratch work and intermediates in tmp/"), and week-old
+  leftovers are auto-pruned at run start (`_prune_tmp`, files by age,
+  emptied dirs regardless — deleting a child bumps the parent's mtime
+  on Windows). New `tidy_workspace(paths?)` bridge tool — the agent's
+  ONLY delete (shell is blocklisted, Write/Edit can't remove): no args
+  empties tmp/; named workspace-relative paths delete after a strict
+  resolve-inside-workspace check; context.md/reply.md/MEMORY.md and
+  the inbox refuse as harness-managed; escapes ("../x") refuse.
+  No broker gate — inside the workspace is the agent's own desk (R67
+  gates OUTSIDE paths). Rig-verified with real claude: one run wrote
+  rhymes into tmp/, read them back, called tidy_workspace, replied
+  "tidy" — tmp/ empty on disk, "Tidying its workspace" in the run
+  steps. Suite +2.
 - [ ] **V98 Agent config files — powerful but simple** — a lot is
   model/harness-specific; make the per-agent config approachable.
 - [ ] **V99 Skills & plugins** — LATER, after a thorough app check
