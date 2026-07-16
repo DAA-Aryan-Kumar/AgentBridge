@@ -1562,18 +1562,24 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
 ### Aryan's self-notes, second batch (2026-07-15 evening, source: his
 ### "message yourself" chat — swept 2026-07-16). Not hurried.
 
-- [ ] **V102 Composer disappears for blocked contacts** (18:13) — verify
-  intended: a blocked DM should probably show a "you blocked X" affordance
-  with Unblock, not a vanished composer. TRIAGE R97 (2026-07-16): blocking
-  (privacy.block) does NOT drop DM membership, so the composer's isMember
-  guard in chat.js is not the cause — the "disappears" mechanism needs a
-  live two-user DM + block to pin down (posting raises PermissionDenied
-  "@X is not available"; blocked_between kills the DM both ways). The
-  desired affordance ("you blocked @X · Unblock" where the composer sat)
-  needs a `blocked` flag on the DM chat_json — the main /api/mesh/state
-  doesn't carry blocked today (only /api/mesh/me does). Its own small
-  round: add the flag in serialize.chat_json, render the affordance,
-  verify on a rig.
+- [x] **V102 Composer disappears for blocked contacts** (18:13) →
+  **DONE R101 (v0.24.183; code in e0eb7d2, which raced the parallel
+  session's V92 round for the "R100/.182" label — renumbered in a
+  follow-up bump so Update-now sees it)**. (R97 triage had cleared the composer's
+  isMember guard as the cause — blocking never drops membership; the
+  chat just went mute about the block, sends failing with "@X is not
+  available".) The blocker's view of a blocked DM now swaps the
+  composer for a bar — banned icon + "You blocked <name> — messages
+  can't be sent or received in this chat" + one-tap Unblock that
+  restores the composer in place. /api/mesh/chat's DM meta carries
+  `blocked` = the VIEWER blocked the peer, strictly viewer-side (being
+  blocked BY someone never leaks — the other side keeps the neutral
+  unavailable error; endpoint test asserts the reverse direction stays
+  False and the error never says "block"). chatStructKey includes the
+  flag so a block from the details page or another window swaps this
+  one on the next poll. Live two-user rig journey verified end to end:
+  composer → block → bar → Unblock click → composer back, block list
+  empty. Suite 516 (merged with R99).
 - [x] **V103 Privacy vs DM creation (cluster)** (18:14 + 18:46) — "Allow
   claude to dm me" → **DONE R98 (v0.24.180)**. Two findings: (1) the
   messaging gate ALREADY gates DM *creation* only — post() to an existing

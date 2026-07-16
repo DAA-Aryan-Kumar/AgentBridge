@@ -17,7 +17,11 @@ retrieval, peer harness access + repair mutations, the Supabase cloud transport,
 a stress/soak pass with a 40× read-latency fix, and the R25 security review.
 
 - **Version:** `agentbridge/__init__.py` `__version__` (moved here from
-  `gui/__init__.py` in R26). Currently **v0.24.182** (R100: reactions
+  `gui/__init__.py` in R26). Currently **v0.24.183** (R101: a blocked
+  DM shows "You blocked @X — Unblock" where the composer sat, strictly
+  viewer-side so being blocked never leaks; the code commit raced the
+  parallel session's R100 for the .182 label and was renumbered in a
+  follow-up bump; R100: reactions
   reach the agent — a reaction to its OWN message triggers a nudge run
   (reason `reaction`; the harness opts into the R60 breadcrumbs via
   `messages_for(breadcrumbs=True)`, viewers never see them); the
