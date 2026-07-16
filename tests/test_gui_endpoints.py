@@ -457,6 +457,30 @@ def test_asks_surface_and_answer_roundtrip(rig):
     assert "error" in out
 
 
+def test_dm_blocked_flag_viewer_side_only(rig):
+    """V102: a DM's meta carries `blocked` = the VIEWER blocked the peer
+    (drives the "You blocked @X · Unblock" bar where the composer sat).
+    Being blocked BY the peer never leaks — that side's flag stays False
+    and a send just fails with the neutral unavailable error."""
+    rig.signup()
+    rig.peer_account("sudhir")
+    cid = rig.post("/api/mesh/create_dm", username="sudhir")["chat"]["id"]
+    assert rig.get("/api/mesh/chat", id=cid)["meta"]["blocked"] is False
+    assert rig.post("/api/mesh/block", username="sudhir")["ok"]
+    assert rig.get("/api/mesh/chat", id=cid)["meta"]["blocked"] is True
+    assert rig.post("/api/mesh/unblock", username="sudhir")["ok"]
+    assert rig.get("/api/mesh/chat", id=cid)["meta"]["blocked"] is False
+    # the reverse direction must NOT leak: sudhir blocks aryan — aryan's
+    # flag stays False, but the send fails with the neutral reason
+    with rig.peer_mesh("sudhir") as pm:
+        pm.block("aryan")
+        pm.outbox.flush_once()
+    assert rig.get("/api/mesh/chat", id=cid)["meta"]["blocked"] is False
+    out = rig.post("/api/mesh/post", chat_id=cid, body="hello?")
+    assert "is not available" in out.get("error", "")
+    assert "block" not in out.get("error", "").lower()   # reason never leaks
+
+
 # ----------------------------------------------------------- typing + feeds
 def test_livefeed_no_id_is_membership_filtered(rig):
     """V128: the no-id lane (all my chats) applies the same membership

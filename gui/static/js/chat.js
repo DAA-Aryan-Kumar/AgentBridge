@@ -158,6 +158,7 @@ V.renderChats = renderChats;
 function chatStructKey(chatId, m) {
   return chatId + "|" + !!m.archived + "|" + (m.name || "")
     + "|" + (m.members || []).join(",")
+    + "|" + !!m.blocked                          // V102: composer ↔ blocked bar
     + "|" + (m.avatar ? m.avatar.sha256 : "");   // group photo → repaint header
 }
 
@@ -658,7 +659,12 @@ async function renderMeshChat(force) {
     <div id="pending-area"></div>
     <div id="ask-bar"></div>
     <div id="reply-area"></div>
-    ${!isMember ? "" : `
+    ${!isMember ? "" : meta.blocked ? `
+    <div id="blocked-bar">
+      <span>${ICONS.banned} You blocked ${esc(meshDn(dmPeer || ""))} — messages
+      can't be sent or received in this chat</span>
+      <button class="primary" id="unblock-btn">Unblock</button>
+    </div>` : `
     <div id="composer">
       <div id="composer-pill">
         ${Object.values(ms.users).some((u) => u.kind === "agent"
@@ -772,6 +778,19 @@ async function renderMeshChat(force) {
       // chat menu + home card to the chat-scoped hold above)
     });
   });
+
+  // V102: the blocked bar sits where the composer would — one tap undoes
+  // the block and brings the composer back (the structKey flip rebuilds)
+  const unblockBtn = $("#unblock-btn");
+  if (unblockBtn) {
+    unblockBtn.addEventListener("click", async () => {
+      unblockBtn.disabled = true;
+      const r = await api("/api/mesh/unblock", { username: dmPeer });
+      if (r.error) { toast(r.error, true); unblockBtn.disabled = false; return; }
+      toast(`@${dmPeer} unblocked`, { check: true });
+      renderMeshChat(true);
+    });
+  }
 
   initComposer(chatId, members);
   renderMeshPending(chatId);

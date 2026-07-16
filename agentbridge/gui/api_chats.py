@@ -219,6 +219,14 @@ def chat(app: GuiApp, req, mesh) -> dict:
     # V62: the per-chat agents stand-down flag (shared, any member flips it)
     ctl = mesh.tx.get_doc(f"chats/{chat_id}/control.json")
     meta["agents_paused"] = bool(isinstance(ctl, dict) and ctl.get("paused"))
+    # V102: the blocker's own view of a blocked DM — the frontend swaps the
+    # composer for a "You blocked @X · Unblock" bar. ONLY the viewer's own
+    # block list feeds this; being blocked BY the peer never leaks (the
+    # WhatsApp rule — that side just gets "@X is not available" on send).
+    if meta["kind"] == "dm":
+        other = next((m for m in snap.members if m != me), None)
+        acc = mesh.directory.get(me)
+        meta["blocked"] = bool(other and acc and other in acc.blocked)
     return {
         "meta": meta,
         "messages": payload,
