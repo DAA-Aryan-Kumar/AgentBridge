@@ -8,7 +8,9 @@ we right now."
 
 > **Moving machines?** See **`TRANSFER.md`** — macOS bring-up, the
 > `akode2803` remote, the non-git local state to recreate, and re-homing the
-> agents. (Repo ownership changed to `akode2803` 2026-07-16.)
+> agents. (Repo ownership changed to `akode2803` 2026-07-16; the migration is
+> now fully closed out — `DAA-Aryan-Kumar`'s collaborator access is revoked on
+> all 3 transferred repos and `gh` CLI is logged out of it, see TRANSFER.md §0.)
 
 ## Where we are (v2, 2026-07-13)
 
@@ -21,7 +23,11 @@ retrieval, peer harness access + repair mutations, the Supabase cloud transport,
 a stress/soak pass with a 40× read-latency fix, and the R25 security review.
 
 - **Version:** `agentbridge/__init__.py` `__version__` (moved here from
-  `gui/__init__.py` in R26). Currently **v0.24.187** (R105: recurring
+  `gui/__init__.py` in R26). Currently **v0.24.188** (account-migration
+  fix: the two in-repo hardcodes of the old `DAA-Aryan-Kumar` GitHub owner —
+  `agentbridge/gui/api_updates.py`'s update-check URL and
+  `scripts/avd_clean_install.ps1`'s `$RepoUrl` default — now point at
+  `akode2803`, closing out the TRANSFER.md §0 migration; v0.24.187 (R105: recurring
   wake-ups — schedule_timer takes repeat 'daily'/'weekly:mon,wed'/
   'monthly:15'; fires re-arm the next occurrence, dismissing the chip
   ends the series; a wake-up firing late says so and tells the agent

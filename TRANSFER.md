@@ -19,6 +19,19 @@ Everything through **R105** is on `main`. The per-session `claude/*` worktree
 branches are Windows-local scaffolding — ignore them; `main` is the source of
 truth.
 
+**Account cleanup is now COMPLETE (2026-07-16, same day):** the transfer was a
+GitHub repo transfer (not a delete/recreate), so stars/issues/history carried
+over and the URL redirects from the old owner. `DAA-Aryan-Kumar`'s two other
+personal repos (`Data-Lineage`, `batch04`) were transferred the same way.
+`DAA-Aryan-Kumar` was left as a write-collaborator by GitHub's transfer flow
+(standard behavior) — that access has since been **revoked** on all three
+repos, `gh` CLI on the Windows box is logged out of `DAA-Aryan-Kumar` entirely
+(only `akode2803` remains), and the two places in-repo that hardcoded the old
+owner were fixed: `agentbridge/gui/api_updates.py`'s `RELEASES_LATEST` (the
+update-check URL) and `scripts/avd_clean_install.ps1`'s `$RepoUrl` default.
+`DAA-Aryan-Kumar` is no longer referenced anywhere in this repo or its access
+list.
+
 ## 1. Python environment
 
 Stdlib-only GUI, but the mesh/harness need a few deps. Use a venv named `.venv`

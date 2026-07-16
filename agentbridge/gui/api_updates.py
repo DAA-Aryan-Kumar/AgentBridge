@@ -28,7 +28,7 @@ from .routing import authed
 __all__ = ["GET", "POST", "ver_tuple", "git_check", "peer_check", "repo_root"]
 
 RELEASES_LATEST = ("https://api.github.com/repos/"
-                   "DAA-Aryan-Kumar/AgentBridge/releases/latest")
+                   "akode2803/AgentBridge/releases/latest")
 GIT_TIMEOUT_S = 12.0
 
 _VER_RE = re.compile(r'__version__\s*=\s*"([^"]+)"')

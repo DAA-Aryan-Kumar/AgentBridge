@@ -28,7 +28,7 @@ PowerShell 5.1 compatible. Everything destructive is confirmed first.
 param(
     [string]$Agent    = "coco",
     [string]$RepoDir  = "$env:USERPROFILE\AgentBridge",
-    [string]$RepoUrl  = "https://github.com/DAA-Aryan-Kumar/AgentBridge.git",
+    [string]$RepoUrl  = "https://github.com/akode2803/AgentBridge.git",
     [string]$MeshRoot = "supabase://mesh2",
     [int]$Port        = 7787
 )

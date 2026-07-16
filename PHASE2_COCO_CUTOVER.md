@@ -46,7 +46,7 @@ The worker needs only three things (all stdlib, no `bridge.py`, no `gui/`):
 
 ```powershell
 cd C:\
-git clone https://github.com/DAA-Aryan-Kumar/AgentBridge.git C:\AgentBridgeMesh
+git clone https://github.com/akode2803/AgentBridge.git C:\AgentBridgeMesh
 # later updates:  cd C:\AgentBridgeMesh ; git pull
 ```
 
