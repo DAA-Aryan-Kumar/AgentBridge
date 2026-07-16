@@ -16,6 +16,7 @@ without touching code.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from ..core.config import DEFAULT_HOME
@@ -24,6 +25,38 @@ from .prompt import _friendly_tool_name
 __all__ = ["ToolDocs"]
 
 PACK_FILE = Path(__file__).resolve().parent / "prompts" / "tooldocs.json"
+
+_PART_KEY_RE = re.compile(r"\{(\w+)\}")
+_DETAIL_VAL_MAX = 120
+
+
+def _human_secs(seconds: float) -> str:
+    """5 -> '5s', 300 -> '5 min', 7200 -> '2 h' — the popup's timeout unit."""
+    if seconds < 90:
+        return f"{seconds:g}s"
+    if seconds < 5400:
+        return f"{round(seconds / 60)} min"
+    return f"{round(seconds / 3600)} h"
+
+
+def _detail_fill(tool_input: dict) -> dict[str, str]:
+    """The template's key space: every scalar input value as a compact
+    single-line string, plus a derived ``{timeout}`` humanized from the
+    explicit timeout CC-style tools carry (``timeout_ms``/``timeout_s``;
+    a bare ``timeout`` >= 1000 reads as milliseconds — CC's Bash unit)."""
+    fill: dict[str, str] = {}
+    for k, v in (tool_input or {}).items():
+        if isinstance(v, (dict, list)) or v is None or isinstance(v, bool):
+            continue  # structures/flags don't read well on one line
+        fill[str(k)] = " ".join(str(v).split())[:_DETAIL_VAL_MAX]
+    for key, scale in (("timeout_ms", 1000.0), ("timeout_s", 1.0)):
+        v = (tool_input or {}).get(key)
+        if isinstance(v, (int, float)) and v > 0:
+            fill.setdefault("timeout", _human_secs(v / scale))
+    v = (tool_input or {}).get("timeout")
+    if isinstance(v, (int, float)) and v > 0:
+        fill["timeout"] = _human_secs(v / 1000.0 if v >= 1000 else float(v))
+    return fill
 
 
 def _load_json(path: Path) -> dict:
@@ -68,6 +101,31 @@ class ToolDocs:
         if phrase:
             return phrase
         return f"use {_friendly_tool_name(tool)}" if tool else ""
+
+    def detail_phrase(self, tool: str, tool_input: dict) -> str:
+        """The popup's DETAIL line for a non-path tool call (V86): the
+        entry's ``detail`` template(s) over the call's input — "background
+        work · up to 5s" beats the raw input JSON the popup used to print.
+        ``detail`` is a string or a list of PARTS; a part renders only when
+        every ``{key}`` it names resolves non-empty, and the surviving parts
+        join with ' · '. Returns '' when nothing renders — the broker keeps
+        the raw-JSON fallback (friendly for the common tools via config,
+        honest JSON for the rest)."""
+        entry = self.tools.get(str(tool or "").lower())
+        spec = (entry or {}).get("detail")
+        parts = [spec] if isinstance(spec, str) else list(spec or [])
+        fill = _detail_fill(tool_input or {})
+        out = []
+        for part in parts:
+            part = str(part)
+            keys = _PART_KEY_RE.findall(part)
+            if not keys or not all(fill.get(k) for k in keys):
+                continue
+            try:
+                out.append(part.format(**{k: fill[k] for k in keys}))
+            except (KeyError, IndexError, ValueError):
+                continue  # a malformed template part never breaks an ask
+        return " · ".join(out)
 
     # ------------------------------------------------------------- docs lane
     def catalog(self) -> str:

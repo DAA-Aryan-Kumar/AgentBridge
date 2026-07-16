@@ -1434,11 +1434,31 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
   asks (master switch + permission gated; category gates don't apply).
   The bar was already in-flow (pushes, never overlays) — verified.
   V86 (CC-tool JSON rendering) stays open, its own round.
-- [ ] **V86 CC-tool JSON handling** — when claude uses Monitor / other
-  Claude-Code tools, CC returns a JSON the app shows raw. Handle the
-  common ones via config (friendly rendering), print the JSON for the
-  rest (as now). Take cues from how CC gives explicit timeouts. (This is
-  the "Bash advertised / Monitor tool" confusion.)
+- [x] **V86 CC-tool JSON handling** → **DONE R89 (v0.24.171)**. The raw
+  JSON was the permission popup's DETAIL line: for a non-path tool the
+  broker printed `json.dumps(tool_input)` ("{\"description\": ...,
+  \"timeout_ms\": 5000, ...}"). Now config-driven exactly as asked:
+  tooldocs.json carries a per-tool `detail` template (a string or list
+  of PARTS; a part renders only when every {key} it names is present,
+  parts join with ' · ', and `{timeout}` is DERIVED from
+  timeout_ms/timeout_s/timeout — CC's own explicit-timeout cue). So
+  Monitor reads **"background work · up to 5s · runs sleep 5"** and an
+  UNKNOWN tool still shows the honest input JSON (fallback preserved);
+  an input-less call shows nothing (was a bare "{}"). Added ask phrases
+  + detail templates for the CC toolset (Monitor, ToolSearch,
+  Task/Agent, SendMessage, Task*/BashOutput/KillShell, plan mode).
+  Input shapes probed against the REAL claude CLI (2.1.202). RIDER: a
+  run that ends on max-turns emits an is_error result with `errors` and
+  EMPTY stderr — the failure path used to raise an opaque blank; it now
+  surfaces CC's own reason ("Reached maximum number of turns (60)") via
+  stream_errors(). Backend+config only (the GUI already escapes
+  a.detail). +2 broker tests, +1 adapter test; live-verified on the rig
+  with a real broker ask as scout (Monitor card showed the friendly
+  line in the DOM; FrobTool control showed raw JSON; both verdicts flowed
+  back). Note: V86's sibling self-chat items (permission-prompt close
+  button + deny-enter + loading slider, "always allow" scope, always-
+  approved list, agent-stops-reporting-after-grant) were the V85/V109
+  overhaul — shipped R83/R84.
 - [ ] **V87 Agent short-term memory + self-awareness (cluster)** — the
   agent should see the typing indicator, its OWN tasks list, and
   "remember what it did recently" (short-term memory); access its

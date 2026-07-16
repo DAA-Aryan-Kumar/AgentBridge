@@ -309,6 +309,78 @@ def test_tooldocs_catalog_topic_and_override(tmp_path):
     assert "pin_message" in docs2.catalog()   # the rest of the pack survives
 
 
+def test_detail_phrase_renders_config_templates(tmp_path):
+    """V86: known non-path tools get a config-phrased detail line; parts
+    whose keys are missing drop out; unknown tools render nothing (the
+    broker keeps its raw-JSON fallback)."""
+    from agentbridge.harness.docs import ToolDocs
+
+    docs = ToolDocs.load(tmp_path)
+    # the real Monitor input shape (probed live, claude 2.1.202)
+    assert docs.detail_phrase("Monitor", {
+        "description": "background work", "timeout_ms": 5000,
+        "persistent": False, "command": "sleep 5",
+    }) == "background work · up to 5s · runs sleep 5"
+    assert docs.detail_phrase("Monitor", {"timeout_ms": 300000}) == "up to 5 min"
+    assert docs.detail_phrase("WebSearch", {"query": "supabase rls"}) \
+        == "supabase rls"
+    assert docs.detail_phrase("ToolSearch", {
+        "query": "select:Monitor", "max_results": 1}) == "select:Monitor"
+    assert docs.detail_phrase("Bash", {
+        "command": "git status", "timeout": 120000}) \
+        == "git status · up to 2 min"
+    # no template, or nothing renders -> '' (JSON fallback stays)
+    assert docs.detail_phrase("mcp__github__create_issue", {"title": "x"}) == ""
+    assert docs.detail_phrase("TaskList", {}) == ""
+
+
+def test_ask_detail_friendly_then_json_then_empty(tmp_path):
+    """V86 through the pipe: the published ask carries the friendly detail
+    for a config-known tool, the raw JSON for an unknown one, and NO detail
+    for an input-less call (was a bare '{}')."""
+    from agentbridge.harness.docs import ToolDocs
+
+    tx = FakeTx()
+    b = PermissionBroker(tx, "helper", docs=ToolDocs.load(tmp_path / "home"))
+    ws = tmp_path / "ws"
+    ws.mkdir()
+
+    def deny_and_capture(tool, tool_input):
+        seen: dict = {}
+
+        def run():
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                asks = (tx.docs.get("status/asks/helper.json") or {}).get("asks") or []
+                if asks:
+                    seen.update(asks[0])
+                    tx.docs["status/asks/helper_answers.json"] = {
+                        "answers": {asks[0]["id"]: {"verdict": "deny"}}}
+                    return
+                time.sleep(0.02)
+        t = threading.Timer(0.05, run)
+        t.start()
+        try:
+            b.decide(chat_id="c1", workspace=ws, tool=tool,
+                     tool_input=tool_input, auto_allow=[], approvals=[],
+                     timeout_s=5)
+        finally:
+            t.join()
+        return seen
+
+    seen = deny_and_capture("Monitor", {
+        "description": "background work", "timeout_ms": 5000,
+        "command": "sleep 5"})
+    assert seen["detail"] == "background work · up to 5s · runs sleep 5"
+
+    seen = deny_and_capture("FrobTool", {"knob": 3})
+    assert seen["detail"] == '{"knob": 3}'          # honest JSON, as before
+
+    seen = deny_and_capture("TaskList", {})
+    assert seen["detail"] == ""                     # no more bare '{}'
+    assert seen["label"] == "read its own task list"
+
+
 # ---------------------------------------------------------- the MCP channel
 
 def call_tool(url: str, tool: str, args: dict) -> str:

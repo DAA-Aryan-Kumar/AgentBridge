@@ -40,7 +40,8 @@ from ..retrieval import HistoryIndex, plan_query
 from ..settings import HarnessSettings
 from .registry import Invocation, ModelRegistry, effective_gates
 
-__all__ = ["CliResponder", "extract_step", "reply_from_output"]
+__all__ = ["CliResponder", "extract_step", "reply_from_output",
+           "stream_errors"]
 
 STAGE_TAIL = 30          # messages whose attachments get staged (v1 value)
 STDERR_SNIP = 1200
@@ -83,6 +84,31 @@ def extract_step(obj: dict, fmt: str) -> tuple[str, str, str] | None:
             return ("tool", str(itype), detail)
         return None
     return None
+
+
+def stream_errors(lines: list[str], fmt: str) -> str:
+    """CC's own explicit failure reason out of a finished stream — an
+    is_error result event carries ``errors`` ("Reached maximum number of
+    turns (60)") while stderr is often EMPTY, so the failure path used to
+    raise an opaque blank (V86 probe evidence, claude 2.1.202)."""
+    if fmt != "claude-stream":
+        return ""
+    for line in reversed(lines):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if obj.get("type") == "result":
+            errs = [str(e) for e in obj.get("errors") or [] if e]
+            if errs:
+                return "; ".join(errs)[:300]
+            sub = str(obj.get("subtype") or "")
+            if obj.get("is_error") and sub:
+                return sub.removeprefix("error_").replace("_", " ")
+    return ""
 
 
 def reply_from_output(lines: list[str], fmt: str) -> str:
@@ -241,8 +267,12 @@ class CliResponder:
             # only, never the primary (v1: thinking leaked verbatim once)
             text = reply_file.read_text(encoding="utf-8-sig").strip()
         if rc != 0 or not text:
+            # prefer stderr; else CC's own explicit reason from the stream
+            # ("Reached maximum number of turns") — it was an opaque blank
+            why = err or stream_errors(lines, inv.preset.format) \
+                or "no reply text"
             raise RuntimeError(
-                f"{inv.preset.id} run failed (rc={rc}): {err[:STDERR_SNIP]}")
+                f"{inv.preset.id} run failed (rc={rc}): {why[:STDERR_SNIP]}")
 
         # everything the run left in the outbox rides the reply — except
         # empty files: a model poking at its workdir once shipped a 0-byte

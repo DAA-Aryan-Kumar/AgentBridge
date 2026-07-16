@@ -178,8 +178,15 @@ class PermissionBroker:
         with self._lock:
             if digest in self._denied:   # a retry of a denied intent
                 return False, self._denied[digest]
-        detail = target or " ".join(json.dumps(
+        # the popup's detail line: the path for path tools; a config-phrased
+        # summary for known non-path tools (V86 — "background work · up to
+        # 5s" beats the raw Monitor JSON); the honest input JSON for the
+        # rest; nothing at all for an input-less call (was a bare "{}")
+        friendly = self.docs.detail_phrase(tool, tool_input) if self.docs \
+            else ""
+        detail = target or friendly or (" ".join(json.dumps(
             tool_input, default=str).split())[:MAX_DETAIL]
+            if tool_input else "")
         verdict, note = self.ask(chat_id=chat_id, kind="permission",
                                  tool=tool, detail=detail[:MAX_DETAIL],
                                  input_hash=digest, timeout_s=timeout_s,

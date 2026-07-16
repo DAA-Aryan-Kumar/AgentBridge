@@ -250,6 +250,28 @@ def test_reply_from_output_formats():
     assert reply_from_output(["plain", "text"], "text") == "plain\ntext"
 
 
+def test_stream_errors_surfaces_ccs_reason():
+    """V86 rider: a run that ends on a tool call emits an is_error result
+    with `errors` and NO `result` (probed live, claude 2.1.202) — the
+    failure path surfaces that reason instead of an opaque blank."""
+    from agentbridge.harness.adapters.cli import stream_errors
+
+    maxed = [json.dumps({"type": "result", "subtype": "error_max_turns",
+                         "is_error": True, "stop_reason": "tool_use",
+                         "errors": ["Reached maximum number of turns (60)"]})]
+    assert stream_errors(maxed, "claude-stream") \
+        == "Reached maximum number of turns (60)"
+    assert reply_from_output(maxed, "claude-stream") == ""   # no result text
+    # errors absent: the subtype still names the reason
+    bare = [json.dumps({"type": "result", "subtype": "error_max_turns",
+                        "is_error": True})]
+    assert stream_errors(bare, "claude-stream") == "max turns"
+    # a healthy stream (or another format) says nothing
+    ok = [json.dumps({"type": "result", "result": "fine"})]
+    assert stream_errors(ok, "claude-stream") == ""
+    assert stream_errors(maxed, "codex-jsonl") == ""
+
+
 # ------------------------------------------------------- engine + end-to-end
 
 @pytest.fixture
