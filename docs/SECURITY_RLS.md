@@ -199,3 +199,12 @@ bypasses row security`.
   invariant the model leans on); the matrix with a scratch `join`ed
   identity: global lanes visible, **Aryan's chats 0 docs / 0 logs,
   foreign root 0** — the wall holds. Scratch identity revoked.
+- AVD joined (2026-07-16): `join aryanonavd` ran clean on the second
+  attempt (the first predated the paste and the idempotent rework);
+  member-session read shows the roster `aryan` + `aryanonavd`, and the
+  AVD's machine advert is fresh on 0.24.167 — the whole mesh now runs on
+  member credentials. **The cutover is closed.** Remaining owner-side
+  hygiene: eyeball `Access · Member (aryanonavd)` in the AVD's About
+  panel, then delete its `SUPABASE_SECRET_KEY=` line and restart once
+  (runbook step 6). The secret key now lives only in the dashboard —
+  re-fetch it there for future `seed`/`revoke` runs.

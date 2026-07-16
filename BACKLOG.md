@@ -1370,6 +1370,11 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
   SUPABASE_SECRET_KEY from both machines.** Phase 2: private poke
   channel, per-owner ask lanes, per-doc write ownership, Edge-Function
   join if GoTrue still rejects synthetic emails. +7 tests.
+  **CUTOVER CLOSED 2026-07-16**: both machines joined (`aryan`,
+  `aryanonavd` in ab_members via member-session read; AVD advert fresh
+  on 0.24.167), probe matrix green, scratch identity revoked, local
+  secret key deleted. Only owner hygiene left: AVD About eyeball +
+  delete its SECRET_KEY line (runbook §4 step 6).
 ### Aryan's self-notes polish batch (2026-07-15, source: his "message
 ### yourself" chat) — LOGGED, not hurried. Grouped; build in priority order.
 
