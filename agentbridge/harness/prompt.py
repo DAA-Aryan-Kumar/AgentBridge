@@ -150,6 +150,16 @@ class PromptPack:
         if delivery.chat_kind == "group" and delivery.permissions:
             lines.append("Group permissions: " + ", ".join(
                 f"{k}={v}" for k, v in sorted(delivery.permissions.items())))
+        # V107: the newest outcome in THIS chat was a run that never posted —
+        # say so up top, or the agent re-attempts what its member just refused
+        # (a stop means "stop doing that", and until now the agent never knew).
+        last = delivery.recent_runs[-1] if delivery.recent_runs else {}
+        if last.get("state") in ("stopped", "interrupted"):
+            doing = (last.get("doing") or "").strip()
+            lines.append(self.text(
+                "context_" + last["state"],
+                when=last.get("finished", ""),
+                doing=f" (while: {doing})" if doing else ""))
         if delivery.kind == "timer":
             lines.append(self.text("context_wakeup", note=delivery.note))
         for t in delivery.triggers:
@@ -169,6 +179,32 @@ class PromptPack:
             # tail has its id nowhere else in the context
             lines.append(self.text("context_pinned", by=p.get("by"), body=body,
                                    id=p.get("id", "")))
+        # V87 short-term memory: the agent's own recent runs HERE (factual,
+        # code-built like the trigger lines; the member-facing wording of
+        # each note was already written by the feed)
+        if delivery.recent_runs:
+            lines.append(self.text("context_runs"))
+            for r in delivery.recent_runs:
+                note = " ".join(str(r.get("note") or "").split())[:160]
+                doing = " ".join(str(r.get("doing") or "").split())[:120]
+                lines.append(
+                    f"- [{r.get('finished', '')}] {r.get('state', '')}: {note}"
+                    + (f" (while: {doing})" if doing else ""))
+        # V87 timer list: this chat's pending wake-ups, with the ids
+        # cancel_timer takes; other chats contribute only a count
+        if delivery.timers:
+            from .timers import when_local
+            lines.append(self.text("context_timers"))
+            for t in delivery.timers:
+                note = " ".join(str(t.get("note") or "").split())[:160]
+                try:
+                    fires = when_local(int(t.get("at_ns", 0)))
+                except (ValueError, OSError, OverflowError):
+                    fires = "unknown"
+                lines.append(f"- (id {t.get('id', '')}) fires {fires} — {note}")
+        if delivery.other_timers:
+            lines.append(self.text("context_timers_other",
+                                   n=delivery.other_timers))
         if delivery.recalled:          # retrieval hits from beyond the tail
             lines.append(self.text("context_recall"))
             for m in delivery.recalled:

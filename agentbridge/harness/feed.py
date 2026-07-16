@@ -93,12 +93,18 @@ class RunFeed:
             pass
 
     def finish(self, state: str, note: str | None = None) -> None:
+        # V107: a stop/error note ("Stopped by your member") REPLACES the last
+        # activity line — capture what the run was doing before it's gone, so
+        # the history (and the agent's next-run context) can say it. turns==0
+        # means nothing ran yet ("Starting up…" is not an activity).
+        doing = self.activity if self.turns and note and note != self.activity \
+            else ""
         if note:
             self.activity = note
         self.write(state, force=True)
-        self._append_history(state)
+        self._append_history(state, doing=doing)
 
-    def _append_history(self, state: str) -> None:
+    def _append_history(self, state: str, doing: str = "") -> None:
         """The 'tasks completed by this agent' record (R36): finished runs
         append to status/<agent>_runs.json, newest last, capped. Single
         writer (this agent's machine), so read-modify-write is safe."""
@@ -107,11 +113,16 @@ class RunFeed:
             doc = self.tx.get_doc(path, default={}) or {}
             runs = doc.get("runs") if isinstance(doc, dict) else None
             runs = runs if isinstance(runs, list) else []
-            runs.append({
+            entry = {
                 "chat_id": self.chat_id, "state": state,
                 "started": self.started, "finished": utcnow_iso(),
                 "turns": self.turns, "note": self.activity[:160],
-            })
+            }
+            # only interrupted outcomes need the what-was-it-doing detail;
+            # for a posted reply the note already says everything
+            if doing and state in ("stopped", "error"):
+                entry["doing"] = doing[:120]
+            runs.append(entry)
             self.tx.put_doc(path, {"agent": self.agent, "runs": runs[-20:]})
         except Exception:  # noqa: BLE001 — history must never break a run
             pass
@@ -147,12 +158,17 @@ def reap_orphan_run(tx: Transport, agent: str,
         hdoc = tx.get_doc(hist, default={}) or {}
         runs = hdoc.get("runs") if isinstance(hdoc, dict) else None
         runs = runs if isinstance(runs, list) else []
-        runs.append({
+        entry = {
             "chat_id": doc.get("chat_id", ""), "state": "interrupted",
             "started": doc.get("started", ""), "finished": utcnow_iso(),
             "turns": doc.get("turns", 0),
             "note": "Interrupted — the app or agent restarted mid-run",
-        })
+        }
+        # the orphan doc's activity IS the last thing the run did (V107)
+        doing = str(doc.get("activity") or "")
+        if doing:
+            entry["doing"] = doing[:120]
+        runs.append(entry)
         tx.put_doc(hist, {"agent": agent, "runs": runs[-20:]})
         return True
     except Exception:  # noqa: BLE001 — hygiene never breaks the harness

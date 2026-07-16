@@ -83,7 +83,9 @@ class AgentRunner:
                          home=self.home, app_version=__version__)
         self.queue = WorkQueue(self.mesh.store, agent)
         self.timers = TimerService(self.mesh.store)
-        self.conversation = ConversationManager(self.mesh)
+        # V87: the conversation manager reads the timer list so a run's
+        # context can show this chat's pending wake-ups
+        self.conversation = ConversationManager(self.mesh, timers=self.timers)
         # peer harness access (R22) + repair mutations (R22.5): the runner
         # injects the repair actions so the peer service can only touch this
         # harness's OWN runtime state (its hold, queue, timers) — nothing else
@@ -689,7 +691,8 @@ class AgentRunner:
         from .adapters import CliResponder, ModelRegistry
 
         self.responder = CliResponder(
-            ModelRegistry.load(self.home), self.mesh, self.home)
+            ModelRegistry.load(self.home), self.mesh, self.home,
+            timers=self.timers)  # V87: cancel_timer acts on the live list
 
     def run(self, *, once: bool = False) -> None:
         if self.responder is None and not once:

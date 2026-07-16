@@ -544,6 +544,68 @@ def test_capability_tools_ride_the_agents_own_gates(tmp_path):
         owner.close()
 
 
+def test_cancel_timer_is_chat_scoped_and_live(tmp_path):
+    """V87: cancel_timer removes one of THIS chat's pending wake-ups from
+    the runner's durable list, live; ids from other chats refuse; the tool
+    is absent entirely when no TimerService is bound (bare bridges)."""
+    from agentbridge.harness.timers import TimerService
+
+    root = tmp_path / "mesh2"
+    root.mkdir()
+    home = tmp_path / "home"
+    owner = Mesh(root, "aryan", "devbox", encrypt=True, home=home)
+    owner.accounts.create_human("aryan", "hunter2x")
+    owner.accounts.create_agent("helper")
+    agent = Mesh(root, "helper", "devbox", encrypt=True, home=home)
+    try:
+        chat = owner.create_chat("Main", members=["helper"])
+        other = owner.create_chat("Side", members=["helper"])
+        owner.outbox.flush_once()
+        agent.sync.sync_once([chat.id, other.id])
+
+        svc = TimerService(agent.store)
+        at_ns = time.time_ns() + int(3600 * 1e9)
+        here = svc.set(chat.id, at_ns, "check the deploy")
+        there = svc.set(other.id, at_ns, "other chat's business")
+
+        b = PermissionBroker(agent.tx, "helper")
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        with BridgeServer(b, chat_id=chat.id, workspace=ws, auto_allow=[],
+                          approvals=[], ask_timeout_s=0.3, mesh=agent,
+                          timer_svc=svc) as bridge:
+            out = call_tool(bridge.url, "cancel_timer", {"timer_id": "t-nope"})
+            assert "no pending wake-up" in out
+            out = call_tool(bridge.url, "cancel_timer", {"timer_id": there})
+            assert "another chat" in out
+            out = call_tool(bridge.url, "cancel_timer", {"timer_id": here})
+            assert out.startswith("cancelled:") and "check the deploy" in out
+            assert "UTC" in out                       # V74: unambiguous time
+        assert [t["id"] for t in svc.snapshot()] == [there]
+
+        # no TimerService bound -> the tool isn't offered at all
+        def tool_names(url):
+            async def _run():
+                async with streamablehttp_client(url) as (r, w, _):
+                    async with ClientSession(r, w) as session:
+                        await session.initialize()
+                        res = await session.list_tools()
+                        return [t.name for t in res.tools]
+            return anyio.run(_run)
+
+        with BridgeServer(b, chat_id=chat.id, workspace=ws, auto_allow=[],
+                          approvals=[], ask_timeout_s=0.3,
+                          mesh=agent) as bridge:
+            assert "cancel_timer" not in tool_names(bridge.url)
+        with BridgeServer(b, chat_id=chat.id, workspace=ws, auto_allow=[],
+                          approvals=[], ask_timeout_s=0.3, mesh=agent,
+                          timer_svc=svc) as bridge:
+            assert "cancel_timer" in tool_names(bridge.url)
+    finally:
+        agent.close()
+        owner.close()
+
+
 def test_read_status_tool_is_privacy_gated(tmp_path):
     """R35: the agent can query a member's availability on demand, but only
     the fields that member shares with it."""

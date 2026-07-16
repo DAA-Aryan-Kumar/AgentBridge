@@ -138,11 +138,13 @@ def reply_from_output(lines: list[str], fmt: str) -> str:
 class CliResponder:
     """Resolve (owner config, audience) -> one CLI run -> a Reply."""
 
-    def __init__(self, registry: ModelRegistry, mesh, home: Path | None = None) -> None:
+    def __init__(self, registry: ModelRegistry, mesh, home: Path | None = None,
+                 timers=None) -> None:
         self.registry = registry
         self.mesh = mesh
         self.agent = mesh.user
         self.home = Path(home) if home else DEFAULT_HOME
+        self.timer_svc = timers  # V87: the runner's TimerService (or None)
         self.prompts = PromptManager(self.home)
         self.docs = ToolDocs.load(self.home)   # R43: manual + popup phrases
         self.broker = PermissionBroker(mesh.tx, self.agent, docs=self.docs)
@@ -225,7 +227,7 @@ class CliResponder:
                     # H6/R41: the per-chat override resolves here, so the
                     # bridge's memory gate sees the effective policy
                     global_memory=settings.global_memory_for(delivery.chat_id),
-                    docs=self.docs,
+                    docs=self.docs, timer_svc=self.timer_svc,
                 ))
                 mcp_config = bridge.mcp_config()
                 # the inner CLI must out-wait the owner-answer window

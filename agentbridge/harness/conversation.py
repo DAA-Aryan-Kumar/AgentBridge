@@ -56,12 +56,21 @@ class Delivery:
     created_by: str = ""
     created_at: str = ""
     permissions: dict = field(default_factory=dict)   # groups only
+    # V87/V107 self-awareness: the agent's own recent run outcomes in THIS
+    # chat (from its run history — what it did, and whether its last run was
+    # stopped/interrupted before the reply posted) and its pending wake-ups
+    # for this chat. Other chats contribute only a COUNT — a run's context
+    # must never carry another chat's content (visibility = membership).
+    recent_runs: list[dict] = field(default_factory=list)
+    timers: list[dict] = field(default_factory=list)
+    other_timers: int = 0
 
 
 class ConversationManager:
-    def __init__(self, mesh: Mesh) -> None:
+    def __init__(self, mesh: Mesh, timers=None) -> None:
         self.mesh = mesh
         self.agent = mesh.user
+        self.timers = timers   # the runner's TimerService (None in bare tests)
 
     def build(
         self,
@@ -98,6 +107,8 @@ class ConversationManager:
         # reads this in the info-pane footer)
         genesis = next((m for m in transcript
                         if (m.event or {}).get("type") == "created"), None)
+        recent_runs = self._recent_runs(chat_id)
+        timers, other_timers = self._timers(chat_id)
         return Delivery(
             agent=self.agent,
             chat_id=chat_id,
@@ -115,9 +126,41 @@ class ConversationManager:
             permissions=({k: getattr(v, "value", v)
                           for k, v in snap.permissions.__dict__.items()}
                          if snap.kind is ChatKind.GROUP else {}),
+            recent_runs=recent_runs,
+            timers=timers,
+            other_timers=other_timers,
         )
 
     # ------------------------------------------------------------- helpers
+    def _recent_runs(self, chat_id: str) -> list[dict]:
+        """This chat's tail of the agent's own run history (V87/V107) —
+        the same ``status/<agent>_runs.json`` the owner reads in Settings,
+        filtered to THIS chat so no other chat's activity rides along."""
+        try:
+            doc = self.mesh.tx.get_doc(
+                f"status/{self.agent}_runs.json", default={}) or {}
+            runs = doc.get("runs") if isinstance(doc, dict) else None
+            return [r for r in (runs or []) if isinstance(r, dict)
+                    and r.get("chat_id") == chat_id][-5:]
+        except Exception:  # noqa: BLE001 — self-awareness never blocks a run
+            return []
+
+    def _timers(self, chat_id: str) -> tuple[list[dict], int]:
+        """This chat's pending wake-ups (full, with ids — cancel_timer takes
+        them) + a bare COUNT of those scheduled elsewhere."""
+        if self.timers is None:
+            return [], 0
+        try:
+            mine, elsewhere = [], 0
+            for t in self.timers.snapshot():
+                if t.get("chat_id") == chat_id:
+                    mine.append(t)
+                else:
+                    elsewhere += 1
+            return mine, elsewhere
+        except Exception:  # noqa: BLE001
+            return [], 0
+
     def _trigger_context(self, msg: Message, reason: str) -> TriggerContext:
         sender = msg.from_
         acc = self.mesh.directory.get(sender)

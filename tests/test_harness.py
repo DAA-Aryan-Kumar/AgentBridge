@@ -652,6 +652,121 @@ def test_reap_orphan_run():
     docs["status/helper_run.json"] = {
         "state": "running", "chat_id": "c3", "waiting": True, "updated": "x"}
     assert reap_orphan_run(tx, "helper") is False
+    # V107: the orphan's last activity rides the history entry as "doing"
+    docs["status/helper_run.json"] = {
+        "state": "running", "chat_id": "c4", "updated": "x",
+        "activity": "Running a command"}
+    assert reap_orphan_run(tx, "helper") is True
+    hist = docs["status/helper_runs.json"]["runs"]
+    assert hist[-1]["doing"] == "Running a command"
+
+
+# ------------------------------------------- self-awareness (V87/V107, R-A)
+
+def test_history_records_what_a_stopped_run_was_doing():
+    """V107: the stop note REPLACES the activity line — the history keeps
+    what the run was doing so the agent's next-run context can say it. A
+    claim-time stop (nothing ran) and a normal finish record no 'doing'."""
+    from agentbridge.harness.feed import RunFeed
+
+    docs: dict[str, dict] = {}
+    tx = SimpleNamespace(
+        get_doc=lambda path, default=None: docs.get(path, default),
+        put_doc=lambda path, doc: docs.__setitem__(path, dict(doc)),
+    )
+    feed = RunFeed(tx, "helper", "c1")
+    feed.step("Reading the conversation")
+    feed.step("Searching for invoices")
+    feed.finish("stopped", "Stopped by your member")
+    runs = docs["status/helper_runs.json"]["runs"]
+    assert runs[-1]["state"] == "stopped"
+    assert runs[-1]["doing"] == "Searching for invoices"
+
+    feed = RunFeed(tx, "helper", "c1")     # claim-time stop: zero steps
+    feed.finish("stopped", "Stopped by your member")
+    runs = docs["status/helper_runs.json"]["runs"]
+    assert "doing" not in runs[-1]
+
+    feed = RunFeed(tx, "helper", "c1")     # a posted reply needs no 'doing'
+    feed.step("Writing the reply")
+    feed.finish("done", "Reply posted · 3s")
+    runs = docs["status/helper_runs.json"]["runs"]
+    assert runs[-1]["state"] == "done" and "doing" not in runs[-1]
+
+
+def test_stop_surfaces_into_the_next_runs_context(hrig):
+    """V107 end-to-end: a run stopped by the owner leaves a history entry,
+    and the NEXT run's delivery + rendered context carry the stop — the
+    agent finally KNOWS it was stopped instead of blindly re-attempting."""
+    from agentbridge.harness.prompt import PromptManager
+    from agentbridge.harness.responder import RunStopped
+
+    snap = hrig.owner.create_chat("Ops", members=["helper"])
+    hrig.owner.post(snap.id, "hey @helper, do the big thing")
+
+    def stopped(d):
+        raise RunStopped()
+
+    class StoppedMidStep(Scripted):
+        def respond(self, delivery, on_step=None):
+            if on_step:
+                on_step("Scanning the files")   # the run got somewhere first
+            return super().respond(delivery)
+
+    runner = hrig.make_runner(StoppedMidStep(stopped))
+    ripple(hrig, runner, snap.id)
+    turn(hrig, runner, snap.id)
+    assert agent_msgs(hrig.owner, snap.id) == []          # nothing posted
+    hist = runner.mesh.tx.get_doc("status/helper_runs.json")["runs"]
+    assert hist[-1]["state"] == "stopped"
+    assert hist[-1]["doing"] == "Scanning the files"
+
+    # the next trigger's delivery knows, and the context says it up top
+    responder = Scripted()
+    runner.responder = responder
+    hrig.owner.post(snap.id, "@helper still there?")
+    ripple(hrig, runner, snap.id)
+    turn(hrig, runner, snap.id)
+    d = responder.calls[-1]
+    assert d.recent_runs and d.recent_runs[-1]["state"] == "stopped"
+    ctx = PromptManager(hrig.home).for_agent(None).context_text(d)
+    assert "STOPPED by your responsible member" in ctx
+    assert "(while: Scanning the files)" in ctx
+    # the "still there?" run POSTED, so the next delivery's newest entry is
+    # done — the attention line retires the moment a run completes normally
+    hrig.owner.post(snap.id, "@helper one more")
+    ripple(hrig, runner, snap.id)
+    turn(hrig, runner, snap.id)
+    d = responder.calls[-1]
+    assert d.recent_runs[-1]["state"] == "done"
+    assert "STOPPED by your responsible member" not in \
+        PromptManager(hrig.home).for_agent(None).context_text(d)
+
+
+def test_delivery_lists_this_chats_timers_only(hrig):
+    """V87: the run's context lists THIS chat's pending wake-ups (with the
+    ids cancel_timer takes); other chats contribute only a count."""
+    from agentbridge.harness.prompt import PromptManager
+
+    snap = hrig.owner.create_chat("Here", members=["helper"])
+    other = hrig.owner.create_chat("There", members=["helper"])
+    responder = Scripted()
+    runner = hrig.make_runner(responder)
+    ripple(hrig, runner, snap.id)
+    at_ns = time.time_ns() + int(3600 * 1e9)
+    tid = runner.timers.set(snap.id, at_ns, "follow up on the invoices")
+    runner.timers.set(other.id, at_ns, "somewhere else entirely")
+
+    hrig.owner.post(snap.id, "hey @helper")
+    ripple(hrig, runner, snap.id)
+    turn(hrig, runner, snap.id)
+    d = responder.calls[-1]
+    assert [t["id"] for t in d.timers] == [tid]
+    assert d.other_timers == 1
+    ctx = PromptManager(hrig.home).for_agent(None).context_text(d)
+    assert f"(id {tid})" in ctx and "follow up on the invoices" in ctx
+    assert "somewhere else entirely" not in ctx           # never leaks over
+    assert "1 wake-up(s) scheduled in other chats" in ctx
 
 
 def test_settings_parse_and_clamp():

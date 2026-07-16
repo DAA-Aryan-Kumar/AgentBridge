@@ -14,13 +14,20 @@ from datetime import datetime, timedelta
 from ..core.timekit import new_id, utcnow_iso
 from ..store.db import Store
 
-__all__ = ["TimerService", "parse_at"]
+__all__ = ["TimerService", "parse_at", "when_local"]
 
 TIMERS_DOC = "harness/timers"
 MAX_TIMERS = 50  # per agent — a runaway scheduler can't amass an army
 # V55: the note is the agent's brief to its future self — room for a real
 # task description, not just a nudge (was 280)
 NOTE_CHARS = 2000
+
+
+def when_local(at_ns: int) -> str:
+    """A fire time as unambiguous local wall clock (V74: state the zone —
+    this machine's timezone may differ from the member being helped)."""
+    dt = datetime.fromtimestamp(int(at_ns) / 1e9).astimezone()
+    return dt.strftime("%Y-%m-%d %H:%M %Z (UTC%z)").strip()
 
 
 def parse_at(spec: str, *, now_s: float | None = None) -> int | None:

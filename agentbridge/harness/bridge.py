@@ -55,7 +55,8 @@ class BridgeServer:
                  deny_roots: list[Path] | None = None,
                  mesh=None, timers_out: list[dict] | None = None,
                  memory=None, chat_kind: str = "",
-                 global_memory: str = "dm", docs=None) -> None:
+                 global_memory: str = "dm", docs=None,
+                 timer_svc=None) -> None:
         self.broker = broker
         self.chat_id = chat_id
         self.workspace = workspace
@@ -65,6 +66,10 @@ class BridgeServer:
         self.deny_roots = list(deny_roots or [])
         self.mesh = mesh                 # capability tools bind to it (R19)
         self.timers = timers_out if timers_out is not None else []
+        # V87: the runner's own TimerService — cancel_timer acts on the
+        # DURABLE list (this agent's only; the service is per-agent by
+        # construction). None = the tool isn't offered (bare tests).
+        self.timer_svc = timer_svc
         self.memory = memory             # MemoryStore (R20); None = no tools
         self.chat_kind = chat_kind
         self.global_memory = global_memory
@@ -582,15 +587,7 @@ class BridgeServer:
             your future self — it starts fresh and sees only this note plus
             the chat, so include what to do, for whom, and what done looks
             like. Every timer is visible to your responsible member."""
-            from datetime import datetime
-
-            from .timers import parse_at
-
-            def _when(at_ns: int) -> str:
-                # V74: state the resolved wall-clock time + UTC offset so a
-                # tz mismatch between this machine and a member is unambiguous
-                dt = datetime.fromtimestamp(at_ns / 1e9).astimezone()
-                return dt.strftime("%Y-%m-%d %H:%M %Z (UTC%z)").strip()
+            from .timers import parse_at, when_local as _when
 
             if len(self.timers) >= MAX_TIMERS_PER_RUN:
                 return "timer limit for this run reached"
@@ -620,6 +617,38 @@ class BridgeServer:
             self.timers.append({"in_s": in_s, "note": text})
             fires = _when(time.time_ns() + int(in_s * 1e9))
             return f"scheduled: a wake-up in {in_s / 60:.0f} min (at {fires})"
+
+        if self.timer_svc is not None:
+            timer_svc = self.timer_svc
+
+            @mcp.tool(structured_output=False)
+            def cancel_timer(timer_id: str = "") -> str:
+                """Cancel one of your pending wake-ups for THIS chat — the
+                ids are in your context's wake-up list. A wake-up scheduled
+                earlier in this same run has no id yet and can't be
+                cancelled here."""
+                from .timers import when_local
+
+                tid = str(timer_id or "").strip()
+                if not tid:
+                    return ("give the timer id — your context lists this "
+                            "chat's wake-ups as (id t-...)")
+                pending = {t.get("id"): t for t in timer_svc.snapshot()}
+                t = pending.get(tid)
+                if t is None:
+                    return f"no pending wake-up with id {tid}"
+                if t.get("chat_id") != self.chat_id:
+                    # the context only ever shows THIS chat's ids; an id from
+                    # elsewhere stays that chat's business
+                    return ("that wake-up belongs to another chat — cancel "
+                            "it from there")
+                timer_svc.pop(tid)
+                note = " ".join(str(t.get("note") or "").split())[:80]
+                try:
+                    fires = when_local(int(t.get("at_ns", 0)))
+                except (ValueError, OSError, OverflowError):
+                    fires = "unknown"
+                return f"cancelled: the wake-up at {fires} ({note})"
 
         @mcp.tool(structured_output=False)
         def peer_diagnose(agent: str, command: str = "status") -> str:
