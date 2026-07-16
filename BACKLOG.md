@@ -1503,9 +1503,28 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
   new activity). Also: read-more/read-less for an agent's task message
   (currently expands all at once; read-more should stick until the task
   finishes). Add a concurrency LIMIT (agents are concurrent — confirmed).
-- [ ] **V92 Reactions polish** — notify the agent on a reaction (it may
+- [x] **V92 Reactions polish** — notify the agent on a reaction (it may
   ignore it); an agent READING a reaction should surface differently
-  from reading a message.
+  from reading a message. → **DONE R100 (v0.24.182)**. A reaction to
+  the agent's OWN message now raises its attention: the R60 breadcrumb
+  (`to` = the reacted message's author) becomes a trigger reason
+  `reaction`, bypassing the reply rule like `reply` does (it's directed
+  at you); the fold keeps dropping breadcrumbs for every viewer — the
+  HARNESS opts in via `messages_for(breadcrumbs=True)`. Surfaces read
+  differently end to end: the prompt's task block says FYI-grade nudge
+  ("most reactions need NO reply — answer with silence"), the context
+  trigger line names it (`@fable reacted 👍 to your message "…"`), the
+  livefeed shows "Noticing a reaction", and a silent outcome records
+  "Noticed the reaction — no reply needed". A substantive follow-up
+  posts STANDALONE (threading skips breadcrumbs — quoting an info
+  event renders empty; error notices too). Ledger keys the breadcrumb
+  id — each reaction fires at most once; routing/catch-up/joined_ns
+  gates all apply. Rig-verified with real claude: 👍 → silence + the
+  honest feed note; ❓ → a standalone follow-up. Accepted trade-off:
+  every reaction to an agent message costs one (usually silent) model
+  run — if that bites, a routing-style toggle follows. One wobble
+  noted: the ❓ follow-up opened with a narration-ish line (the
+  no-narration rail is model judgment, not V92 plumbing). Suite +2.
 - [x] **V93 Search "searching for" broken** — doesn't display what it's
   searching for. → **DONE R97 (v0.24.179)**. The web-search run-feed
   activity line was "Searching the web" with no query (grep already

@@ -17,7 +17,13 @@ retrieval, peer harness access + repair mutations, the Supabase cloud transport,
 a stress/soak pass with a 40× read-latency fix, and the R25 security review.
 
 - **Version:** `agentbridge/__init__.py` `__version__` (moved here from
-  `gui/__init__.py` in R26). Currently **v0.24.181** (R99: agent
+  `gui/__init__.py` in R26). Currently **v0.24.182** (R100: reactions
+  reach the agent — a reaction to its OWN message triggers a nudge run
+  (reason `reaction`; the harness opts into the R60 breadcrumbs via
+  `messages_for(breadcrumbs=True)`, viewers never see them); the
+  prompt frames it as an FYI where silence is normal, the feed reads
+  "Noticing a reaction"/"Noticed the reaction", and follow-ups post
+  standalone; R99: agent
   self-awareness — a stopped/interrupted run surfaces into the NEXT
   run's context ("your reply was never posted — don't resume unless
   asked", V107); every run's context carries the agent's recent runs
