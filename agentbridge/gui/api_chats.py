@@ -58,6 +58,9 @@ def bridge_state(app: GuiApp, req) -> dict:
         "caps": {"sse": True, "receipts": "delivered", "admins": True},
         "paused": bool(ctl.get("paused")),
         "user": app.user,
+        # V125: a blind session restore in flight — the frontend holds the
+        # boot surface instead of flashing the sign-in page
+        "restoring": bool(getattr(app, "restoring", False)),
         "connection": _connection(app),
         "app_lock": lock.status() if lock is not None
         else {"enabled": False, "locked": False, "autolock_min": 0},
@@ -137,6 +140,8 @@ def state(app: GuiApp, req) -> dict:
         mesh.tx.get_doc("control.json")
     out["paused"] = bool((ctl or {}).get("paused"))
     if mesh is None:
+        # V125: signed-out-with-a-pending-restore is NOT signed-out
+        out["restoring"] = bool(getattr(app, "restoring", False))
         # pre-auth: names only — profile fields need a viewer to filter for
         out["users"] = {
             n: {"name": n, "username": n, "kind": acc.kind.value,

@@ -28,6 +28,24 @@ __all__ = ["GuiApp"]
 _SESSION_FILE = "gui_session.json"
 
 
+def _breadcrumb(line: str) -> None:
+    """V125: restore's timeline lands in the SAME file as the restart
+    helper's (%TEMP%/agentbridge_restart.log), so a "the app signed out
+    after restart" report is one file to read. Best-effort — a log line
+    must never break auth."""
+    try:
+        import os
+        import tempfile
+        import time as _t
+
+        with open(Path(tempfile.gettempdir()) / "agentbridge_restart.log",
+                  "a", encoding="utf-8") as f:
+            f.write(f"{_t.strftime('%Y-%m-%d %H:%M:%S')} "
+                    f"[{os.getpid()}] {line}\n")
+    except Exception:  # noqa: BLE001
+        pass
+
+
 class GuiApp:
     """Owns the session, the Mesh, its sync thread, and live SSE subs."""
 
@@ -93,6 +111,16 @@ class GuiApp:
     def _session_path(self) -> Path:
         return self.home / _SESSION_FILE
 
+    @property
+    def restoring(self) -> bool:
+        """V125: a session exists but its restore is still blind (cold cloud
+        transport at boot). The frontend shows the boot/connecting surface
+        instead of the sign-in page — which read as "the app signed me out"
+        during every post-restart warm-up."""
+        return (self.mesh is None
+                and getattr(self, "_restore_retrying", False)
+                and self._session_path.exists())
+
     def restore(self) -> None:
         """Re-attach the signed-in user from the session file, if the account
         still exists and (under E2EE) this machine still holds its keys.
@@ -114,10 +142,13 @@ class GuiApp:
             names = []
         if not names:
             # can't SEE the directory (a mesh always has members) — transient
+            _breadcrumb("restore: directory unreadable (cold transport?) — "
+                        "session kept, retrying in background")
             self._schedule_restore_retry()
             return
         acc = self.directory0.get(name)
         if acc is None or not acc.active or acc.auth is None:
+            _breadcrumb(f"restore: account {name!r} gone — session cleared")
             self._session_path.unlink(missing_ok=True)   # authoritative: gone
             return
         if self.encrypt and (
@@ -131,12 +162,17 @@ class GuiApp:
             # fresh machine (no local bundle) likewise re-logs in. (The
             # keystore is a local, deterministic read, and the directory was
             # just proven healthy — this branch stays authoritative.)
+            _breadcrumb(f"restore: {name!r} must log in again (identity "
+                        "keys) — session cleared")
             self._session_path.unlink(missing_ok=True)
             return
         try:
             with self._lock:
                 self._adopt(self._build(name))
-        except Exception:  # noqa: BLE001 — a failed attach is transient too
+            _breadcrumb(f"restore: attached {name!r}")
+        except Exception as e:  # noqa: BLE001 — a failed attach is transient too
+            _breadcrumb(f"restore: attach failed ({type(e).__name__}) — "
+                        "retrying in background")
             self._schedule_restore_retry()
 
     def _schedule_restore_retry(self, *, every_s: float = 5.0,
@@ -193,6 +229,20 @@ class GuiApp:
 
     def login(self, name: str, password: str) -> dict:
         acc = self.directory0.get(name)
+        if acc is None:
+            # V125: a cold transport (boot warm-up, network blip) makes the
+            # directory unreadable — "Wrong username or password" would be a
+            # lie that reads as a broken account (live report: correct
+            # credentials refused for minutes after a restart). Say what is
+            # actually happening; the same "no members visible" rule as
+            # restore() keeps this from masking a real bad username.
+            try:
+                blind = not self.directory0.names()
+            except Exception:  # noqa: BLE001 — unreadable = blind
+                blind = True
+            if blind:
+                raise ValidationError(
+                    "Still connecting to your mesh — try again in a moment")
         if acc is None or not acc.active or acc.auth is None:
             # agents and deleted accounts fail exactly like a bad password
             raise ValidationError("Wrong username or password")

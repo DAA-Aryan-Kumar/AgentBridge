@@ -304,6 +304,51 @@ function renderLockPage(force = false) {
   passIn.focus();
 }
 
+// ---- V125 connecting page — the boot surface as a dynamic cover ------------
+// Shown while the app CAN'T yet know who you are: the server is down
+// mid-restart ("Restarting…"), or a session restore is blind on a cold
+// cloud transport ("Connecting to your mesh…"). One surface for both
+// (Aryan's call); V126's cold start reuses it. Without this, a restart
+// froze the window and then flashed the SIGN-IN page — reading as "the
+// app signed me out", with a sign-in attempt failing on the cold
+// directory on top. After a minute it offers the sign-in page as an
+// escape hatch: a dead network must never trap anyone on a spinner.
+function renderConnectingPage(note) {
+  let root = $("#connecting");
+  if (root) {
+    const txt = $("#conn-note-txt");
+    if (txt && note) txt.textContent = note;
+    return;
+  }
+  root = document.createElement("div");
+  root.id = "connecting";
+  document.body.appendChild(root);
+  root.innerHTML = `
+    <div class="auth-inner">
+      <div class="boot-glyph">
+        <svg viewBox="0 0 32 32" width="34" height="34"><path d="M4 22c3.5-8 20.5-8 24 0M4 22v-4M28 22v-4" stroke="white" stroke-width="3" fill="none" stroke-linecap="round"/></svg>
+      </div>
+      <div class="boot-title">AgentBridge</div>
+      <div class="conn-wait"><span class="spin-sm"></span>
+        <span id="conn-note-txt">${esc(note || "Connecting…")}</span></div>
+      <button class="lock-forgot" id="conn-escape" hidden>Taking long? Go to sign-in</button>
+    </div>`;
+  setTimeout(() => { const b = $("#conn-escape"); if (b) b.hidden = false; },
+             60000);
+  $("#conn-escape").addEventListener("click", () => {
+    Mesh.auth.connEscaped = true;   // don't re-raise over the chosen page
+    closeConnectingPage();
+    renderAuthPage(true);
+  });
+}
+
+function closeConnectingPage() {
+  const el = $("#connecting");
+  if (!el) return;
+  el.classList.add("auth-closing");
+  setTimeout(() => el.remove(), 260);
+}
+
 function closeLockPage() {
   const el = $("#lock");
   if (!el) return;
@@ -315,3 +360,5 @@ V.renderAuthPage = renderAuthPage;
 V.closeAuthPage = closeAuthPage;
 V.renderLockPage = renderLockPage;
 V.closeLockPage = closeLockPage;
+V.renderConnectingPage = renderConnectingPage;
+V.closeConnectingPage = closeConnectingPage;

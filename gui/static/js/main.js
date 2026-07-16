@@ -27,13 +27,30 @@ let prevAuth = { user: null, locked: false };
 // a manual lock raises the cover BEFORE its POST lands — the poll's heal
 // below must not eat that optimistic cover (set/cleared by lockNow)
 let lockPending = false;
+// V125: consecutive failed /api/state fetches = a restart's down window
+let downTicks = 0;
 
 async function refresh(rerender) {
   try {
     App.state = await api("/api/state");
   } catch {
+    // V125: the server staying unreachable is a restart's down window — a
+    // frozen page with no signal read as "restart app does not work" (live
+    // report: a second restart clicked 19s after the first came back).
+    // Two misses raise the boot surface; the lock page, when up, already
+    // covers everything. The first miss re-probes once in 3s — the poll
+    // CHAIN may still be a slow SSE-era tick away, and a ~20s restart
+    // window fit entirely between two ticks (verified live on a rig).
+    downTicks += 1;
+    if (downTicks >= 2 && !document.getElementById("lock")) {
+      V.renderConnectingPage("Restarting…");
+    } else if (downTicks === 1) {
+      setTimeout(() => { Promise.resolve(refresh(false)).catch(() => {}); },
+                 3000);
+    }
     return;  // server unreachable; next poll retries
   }
+  downTicks = 0;
   // V127: signed-out -> signed-in and locked -> unlocked count as activity.
   // Discrete state deltas only — the poll itself must never bump, or the
   // idle timer would stop working entirely.
@@ -276,7 +293,9 @@ window.addEventListener("hashchange", route);
       // V122: 45s cap — a restart's down window runs ~20s, and dropping the
       // cover onto a bare shell mid-boot read as "the app signed out".
       // V111: the lock page IS a real first view — fade onto it.
+      // V125: so is the connecting page (blind restore in progress).
       if (!Mesh.state && !document.getElementById("lock")
+          && !document.getElementById("connecting")
           && App.page === "chats" && Date.now() - t0 < 45000) {
         setTimeout(tick, 80); return;
       }

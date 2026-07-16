@@ -46,6 +46,45 @@ def test_signup_login_logout(rig):
     assert ok["ok"] and "recovery_code" not in ok  # keys already exist
 
 
+def test_restoring_flag_and_cold_directory_login(rig, monkeypatch):
+    """V125: a session file + a blind restore in flight reads as
+    `restoring` in both state payloads (the frontend holds the boot surface
+    instead of flashing the sign-in page), and a login while the directory
+    is unreadable says "still connecting" — never the wrong-password lie."""
+    rig.signup()
+    # a healthy directory keeps the honest bad-credentials answer
+    assert rig.post("/api/mesh/logout", password="hexagon")["ok"]
+    out = rig.post("/api/mesh/login", username="nosuch", password="x")
+    assert out["error"] == "Wrong username or password"
+    ok = rig.post("/api/mesh/login", username="aryan", password="hexagon")
+    assert ok["ok"]
+
+    # simulate the cold-transport boot: session on disk, mesh not attached,
+    # the background retry alive, directory unreadable
+    rig.app.close()                          # detaches; session file stays
+    rig.app._restore_retrying = True
+    assert (rig.home / "gui_session.json").exists()
+    assert rig.get("/api/state")["restoring"] is True
+    ms = rig.get("/api/mesh/state")
+    assert ms["user"] is None and ms["restoring"] is True
+
+    class _Blind:
+        def get(self, name):
+            return None
+
+        def names(self):
+            return []
+
+    monkeypatch.setattr(rig.app, "directory0", _Blind())
+    out = rig.post("/api/mesh/login", username="aryan", password="hexagon")
+    assert "Still connecting" in out["error"]
+
+    # the blindness ends: restoring drops, the auth page may stand
+    rig.app._restore_retrying = False
+    monkeypatch.undo()
+    assert rig.get("/api/state")["restoring"] is False
+
+
 def test_signup_refused_while_signed_in(rig):
     """V124: signup was a credential-free bypass around the V68 logout gate —
     a passer-by could swap the session (and this machine's agents) just by

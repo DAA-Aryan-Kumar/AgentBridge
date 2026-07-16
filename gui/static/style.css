@@ -378,6 +378,24 @@ body { display: flex; flex-direction: column; }
    mount, fade away on unlock (auth.js removes the node after the
    transition). Sits ABOVE #auth (they never co-show, but deterministic)
    and under #boot, so the boot cover fades onto a locked launch too. */
+/* V125 connecting page — the boot surface as a dynamic cover (server down
+   mid-restart, or a blind session restore on a cold cloud transport).
+   Sits BELOW the lock page: a locked boot shows the lock, not this. Like
+   #lock, the cover itself never animates IN (the compositor-frames rule);
+   the inner block carries the motion, the exit keeps the fade. */
+#connecting {
+  position: fixed; inset: 0; z-index: 150;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg); overflow-y: auto;
+  transition: opacity .26s ease;
+}
+#connecting.auth-closing { opacity: 0; pointer-events: none; }
+#connecting .auth-inner { animation: lock-rise .3s ease; }
+.conn-wait {
+  display: flex; align-items: center; gap: 8px; justify-content: center;
+  color: var(--text-dim); font-size: 13px; margin-top: 14px;
+}
+
 #lock {
   position: fixed; inset: 0; z-index: 160;
   display: flex; align-items: center; justify-content: center;

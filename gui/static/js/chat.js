@@ -104,8 +104,19 @@ async function renderChats(force) {
   // signed out: the dedicated full-page auth surface takes over (R53/V34).
   // listKey stays "auth" so the post-sign-in repaint isn't skipped by the
   // empty-state early-return (the old in-shell card had the same trap).
-  if (!ms.user) { Mesh.listKey = "auth"; V.renderAuthPage(); return; }
+  if (!ms.user) {
+    // V125: a blind session restore in flight is NOT signed-out — hold the
+    // boot surface instead of flashing the sign-in page (it read as "the
+    // app signed me out", and signing in now fails on the cold directory)
+    if (ms.restoring && !Mesh.auth.connEscaped) {
+      Mesh.listKey = "conn";
+      V.renderConnectingPage("Connecting to your mesh…");
+      return;
+    }
+    Mesh.listKey = "auth"; V.renderAuthPage(); V.closeConnectingPage(); return;
+  }
   V.closeAuthPage();   // signed in (any path): drop the overlay if it's up
+  V.closeConnectingPage();   // V125: restore healed — reveal the real app
   if (Mesh.chatId) {
     const pane = $("#details-pane");
     // closing the pane: hide it NOW (before the async chat re-render) so the

@@ -1777,6 +1777,16 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
   first paint, then move it behind the first served page. DECISION
   (Aryan 2026-07-16): reuse the SAME boot screen for this and V125 —
   one loading surface for cold start and post-restart reconnect.
+- [ ] **V130 login while signed in swaps the session (V124's twin)**
+  (found writing V125's login tests, 2026-07-16): POST /api/mesh/login
+  with ANY valid account's credentials while someone is signed in
+  detaches the session and adopts the caller's account — including
+  claim_machine_agents (this machine's agents transfer). V124 closed
+  the credential-free signup lane; the login lane still swaps with only
+  the ATTACKER's own password. V68's rationale (logout gates the only
+  in-app switch path) assumed the UI flow; the endpoint doesn't. Fix:
+  refuse login while a session exists ("Already signed in — sign out
+  first"), exactly like V124; the UI never offers signed-in login.
 - [ ] **V129 A run that dies without a finish write haunts the chat**
   (Aryan, screenshot 2026-07-16: DM shows "Reading the conversation
   (no updates for 10 min)" while the agent is online and idle — he had

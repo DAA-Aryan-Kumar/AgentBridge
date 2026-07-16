@@ -8,6 +8,12 @@
       "port": 7787
     },
     {
+      "name": "observer",
+      "runtimeExecutable": ".venv\\Scripts\\python.exe",
+      "runtimeArgs": ["-m", "http.server", "7799"],
+      "port": 7799
+    },
+    {
       "name": "agentbridge-rig",
       "runtimeExecutable": ".venv\\Scripts\\python.exe",
       "runtimeArgs": [

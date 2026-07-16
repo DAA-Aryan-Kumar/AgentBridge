@@ -12,6 +12,7 @@ import { V } from "./views.js";
 let source = null;
 let connected = false;
 let retryTimer = null;
+let lastKick = 0;   // V125: cooldown for the poll kicks below
 
 export function realtimeActive() {
   return connected;
@@ -52,6 +53,18 @@ export function startRealtime() {
     // resumes its normal cadence until the stream is back. A hard failure
     // (server gone) triggers a bounded manual retry.
     connected = false;
+    // V125: kick the poll so refresh() counts misses NOW, not up to 20s
+    // later (the slow safety tick). Every onerror kicks, on a cooldown:
+    // the first error fires while a restarting server is still DRAINING
+    // (it answers for a few seconds — verified live), so an edge-only
+    // kick succeeds and resets the miss counter; the browser's own
+    // reconnect attempts (state CONNECTING, ~3s apart) then keep kicking
+    // through the real outage until the cover is up.
+    const now = Date.now();
+    if (now - lastKick > 2500) {
+      lastKick = now;
+      Promise.resolve(V.refresh(false)).catch(() => {});
+    }
     if (source && source.readyState === EventSource.CLOSED) {
       stopRealtime();
       if (!retryTimer) {
