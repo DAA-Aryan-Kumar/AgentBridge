@@ -1459,14 +1459,29 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
   button + deny-enter + loading slider, "always allow" scope, always-
   approved list, agent-stops-reporting-after-grant) were the V85/V109
   overhaul — shipped R83/R84.
-- [ ] **V87 Agent short-term memory + self-awareness (cluster)** — the
+- [~] **V87 Agent short-term memory + self-awareness (cluster)** — the
   agent should see the typing indicator, its OWN tasks list, and
   "remember what it did recently" (short-term memory); access its
   wakeup/timer list (dismissing a timer notifies the agent; agent holds
   the timer list); "agents constantly forget the tools they have
   access to"; follow-ups on its own; fetch context from another chat.
+  **CORE SHIPPED R99 (v0.24.181, rig-verified with real claude):**
+  every run's context now carries the agent's recent runs in THIS chat
+  (its run-history tail — outcome + note per run) and this chat's
+  pending wake-ups with ids + exact local fire times, plus a bare
+  COUNT of wake-ups elsewhere (no cross-chat content ever rides a
+  run's context — the one invariant applied to self-awareness);
+  `cancel_timer(id)` bridge tool (chat-scoped, acts live on the
+  runner's durable timer list). REMAINING: typing-indicator
+  visibility (assess — value unclear at trigger time), the
+  tools-forgetting complaint (→ own round with V98), follow-ups on
+  its own (= V76), fetch context from another chat (privacy design
+  needed), owner-dismiss notifies the agent (rides V88 — the human
+  dismiss surface doesn't exist yet).
 - [ ] **V88 Timer polish (cluster)** — edit/delete a timer (agent AND
-  human); multiple timers formatted like pins; RECURRING timers
+  human — the AGENT-delete half shipped R99 as `cancel_timer`; the
+  human-side edit/delete GUI still doesn't exist); multiple timers
+  formatted like pins; RECURRING timers
   (days-of-week / day-of-month / date); a wakeup that fired while the
   agent was OFFLINE fires LATE with a "this is late, re-check relevance"
   warning + the agent checks the time; wakeup icon follows theme, no
@@ -1571,9 +1586,19 @@ the DM-vs-group discrepancy (V83); his personal chat holds polish items
   add-to-group gates don't, EXCEPT the V103 owner↔agent bond (own agent
   always connects, block overrides); D19 = agents never self-manage,
   owner-only; read-receipts symmetric booleans. Includes a summary table.
-- [ ] **V107 An agent should KNOW it was stopped** (18:20) — surface the
+- [x] **V107 An agent should KNOW it was stopped** (18:20) — surface the
   stop into the agent's next-run context (pairs with V87 short-term
-  memory).
+  memory). → **DONE R99 (v0.24.181)**. When the newest run-history
+  entry for the chat is `stopped` (or `interrupted`, the V129 reap),
+  the next run's context opens with an attention line: stopped by your
+  member at <time> (while: <what it was doing>) — "your reply was
+  never posted; do not resume or retry unless the conversation asks".
+  The history now records what a stopped/error run was DOING (the
+  stop note used to overwrite the activity line; claim-time stops
+  with zero steps record nothing). The line retires by itself the
+  moment a later run in that chat completes. Rig-verified with real
+  claude: mid-run stop → next run's context carried the line, reply
+  addressed it; suite +4.
 - [x] **V108 Ellipsis for long messages in permission prompts** (19:04) —
   3-dots/clamp when the quoted message is long. → **DONE R97
   (v0.24.179)**. A long quoted message/command in .ask-detail could

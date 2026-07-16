@@ -17,7 +17,13 @@ retrieval, peer harness access + repair mutations, the Supabase cloud transport,
 a stress/soak pass with a 40× read-latency fix, and the R25 security review.
 
 - **Version:** `agentbridge/__init__.py` `__version__` (moved here from
-  `gui/__init__.py` in R26). Currently **v0.24.180** (R98: an agent and
+  `gui/__init__.py` in R26). Currently **v0.24.181** (R99: agent
+  self-awareness — a stopped/interrupted run surfaces into the NEXT
+  run's context ("your reply was never posted — don't resume unless
+  asked", V107); every run's context carries the agent's recent runs
+  in that chat + its pending wake-ups with ids (other chats = a bare
+  count, never content); new `cancel_timer` bridge tool, chat-scoped,
+  live against the runner's durable timer list; R98: an agent and
   its own owner always connect for DMs regardless of the messaging
   audience — privacy._agent_owner_pair, block still wins — with
   docs/PRIVACY_MODEL.md + matching Settings copy, and the CoCo
