@@ -1,6 +1,6 @@
 """Accounts v2 (R7) — the user file IS the account.
 
-Model (docs/FORMAT2.md + memory `agentbridge-account-model`):
+Model:
 - ``name`` = immutable identity; ``handle`` = the mutable @-username
   (Telegram split — renames never churn logs, cursors, or memberships).
 - Machine-login ownership: a human's machine creates that machine's agents;

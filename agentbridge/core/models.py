@@ -1,4 +1,4 @@
-"""Core data model for format v2 (docs/FORMAT2.md).
+"""Core data model for format v2.
 
 Design rules:
 - Enums are ``str`` subclasses so records JSON-serialize without adapters.

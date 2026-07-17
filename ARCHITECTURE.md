@@ -1,21 +1,10 @@
-# AgentBridge — architecture reference (v2)
+# AgentBridge — architecture reference
 
 The deep technical reference for the **v2 backend rewrite** (`agentbridge/`):
 package layout, the mesh facade, the E2EE model, the agent harness stack, the
 transport abstraction, and the hard-won invariants that aren't visible from any
 single file. Read this before adding a feature so it follows the existing
 contracts instead of quietly breaking one.
-
-Companion docs, each with a different job — don't duplicate their content here:
-- **README.md** — 30-second pitch and quick start.
-- **WORKING_AGREEMENT.md** — how we work (the seven rules + per-round loop).
-- **REWRITE_PLAN.md** — the round-by-round checklist + decision log (D1–D19)
-  + per-round result summaries. The authoritative "what shipped when".
-- **docs/THREAT_MODEL.md** — what the E2EE layer does and does NOT protect.
-- **docs/FORMAT2.md** / **docs/DECISIONS.md** — on-disk format + library pins.
-- **HANDOFF.md** — point-in-time state for a fresh session ("where are we now").
-- **Project memory** (`~/.claude/projects/<this-project>/memory/`) — the
-  narrative history + deferred-work backlog.
 
 When this doc and the code disagree, **the code wins** — then fix this doc.
 
@@ -63,9 +52,6 @@ harness/         the agent runtime (see §7)   cli/   gui/   applink/   (connect
   server, and the agent harness all program against `mesh.Mesh`; none of them
   touches the transport or the store directly. This is what keeps the
   visibility invariant enforceable in exactly one place.
-- **`legacy/`** holds the retired v1 app (`mesh.py`, `agent_worker.py`,
-  `mesh_cli.py`, `bridge.py`, `handler_coco.py`, the migration tool + runbooks)
-  — reference only, not imported by v2. Archived in R26.
 - **`gui/`** (repo root, distinct from `agentbridge/gui/`) is the **static
   frontend** package (native ES modules under `static/js/`, §9) served by the
   v2 GUI server. No Python logic beyond the package marker.
@@ -76,7 +62,7 @@ harness/         the agent runtime (see §7)   cli/   gui/   applink/   (connect
 
 ---
 
-## 3. Data model & on-disk format (`core/models.py`, docs/FORMAT2.md)
+## 3. Data model & on-disk format (`core/models.py`)
 
 Everything JSON-serializes without adapters (enums subclass `str`). `from_dict`
 is **tolerant**: unknown keys are ignored (peers may run newer versions) and
@@ -241,7 +227,8 @@ risks live in docs/THREAT_MODEL.md ("What is NOT protected").
   blob put/get/size, `list_chat_ids`, `watch()` (a wake-up *hint* only). Plus a
   `cache_key` for store partitioning. **Adding a connector = implement the
   abstract surface + one `make_transport` scheme entry + fill in the
-  `TransportProfile` and pass the docs/SCALING.md §4 checklist.** The profile
+  `TransportProfile` and honor the same connector-economics contract used by
+  the built-in transports.** The profile
   (R76) DECLARES the connector's economics — `metered`, `supports_doc_delta`,
   idle/fallback poll cadences, reconcile interval, presence beat/staleness —
   and every cadence in the app reads from it (no caller hard-codes a poll
@@ -283,7 +270,7 @@ risks live in docs/THREAT_MODEL.md ("What is NOT protected").
   `make_transport` wraps around a **cloud** transport only (a folder read is
   already free). Warm = one full `snapshot_docs()` (docs + the cursor they
   are current at). The background daemon then follows the Replicache
-  poke→delta-pull→reconcile shape (docs/SCALING.md): realtime pokes wake an
+  poke→delta-pull→reconcile shape: realtime pokes wake an
   incremental `get_docs_delta(cursor)` pull; a **slow safety poll**
   (profile `idle_poll_s`, 45s on supabase) guards lost pokes; a full
   reconcile runs at boot + every `reconcile_s` (6h); a **hint watchdog**
@@ -459,10 +446,9 @@ outside the message log.
 ## 9. Frontend (`gui/static/js/`)
 
 **24 native ES modules, zero build step** — the browser imports them directly,
-so "run the app" and "see the current source" are the same action. Run
-`python check_frontend.py` after every frontend edit (must print **24/24**; it
-`node --check`s each module and verifies imports resolve — the only automated
-frontend check).
+so "run the app" and "see the current source" are the same action. Keep import
+resolution and browser loading honest after frontend edits; the frontend has no
+bundler layer to paper over broken module boundaries.
 
 Strict one-way layering:
 ```
@@ -547,6 +533,6 @@ re-render on every poll would reset scroll / steal focus.
 
 - `agentbridge/__init__.py` `__version__` is the app's source of truth; bump
   once per shipped round (a "round" = one coherent, live-verified change set).
-- Per-round loop (WORKING_AGREEMENT.md): implement → verify live in a scratch
-  room (never the primary rooms) → bump version → commit + push → update memory
-  + sync this doc / HANDOFF when the shape changed.
+- Per-change loop: implement → verify live in a scratch room (never the
+  primary rooms) → bump version → commit + push → sync this doc when the shape
+  changed.

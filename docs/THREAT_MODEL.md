@@ -1,7 +1,7 @@
 # AgentBridge threat model (R9)
 
 What the E2EE layer does and does NOT protect, stated plainly. Companion to
-`docs/DECISIONS.md` (D4/D5) and the code in `agentbridge/crypto/` +
+the code in `agentbridge/crypto/` +
 `agentbridge/mesh/{keyring,sealer}.py`.
 
 ## The setting
@@ -124,8 +124,8 @@ but we never rely on it for secrecy: the server only ever stores ciphertext.)
 
 ## File-blob encryption — SETTLED R13
 
-Attachment blobs are sealed under the chat's epoch keys (format in
-`docs/FORMAT2.md`): AAD binds `chat|blob|blob-id|epoch`, so a blob can't be
+Attachment blobs are sealed under the chat's epoch keys: AAD binds
+`chat|blob|blob-id|epoch`, so a blob can't be
 swapped under a different id, and a non-member holds no epoch copy to open
 it. **Provenance rides the signed message** naming the blob (`files[].sha256`
 inside the encrypted, signed body) — connectors verify the sha before
@@ -394,5 +394,5 @@ op; a DENY is surfaced to it as the tool result.
 ## Migration — R9.5 (retired R16.5)
 
 The v1→v2 migration tool ran the one R14 cutover; its legacy chats were
-exported to plain text and removed in R16.5. The tool and its runbook now
-live under `legacy/` for reference and no longer run.
+exported to plain text and removed in R16.5. The public repo no longer ships
+that migration tooling.

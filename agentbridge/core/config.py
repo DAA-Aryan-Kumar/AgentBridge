@@ -1,7 +1,7 @@
 """Config + resilient JSON file primitives.
 
-Successor to the load-bearing utilities in ``legacy/bridge.py`` (DEFAULT_HOME,
-read_json, atomic_write_json, ...). Two v1 lessons are baked in as defaults:
+Successor to the old bridge-layer utilities (`DEFAULT_HOME`, `read_json`,
+`atomic_write_json`, ...). Two v1 lessons are baked in as defaults:
 
 - **Atomic writes retry on PermissionError** — OneDrive locks files mid-sync;
   a one-shot ``os.replace`` surfaced raw PermissionErrors to users (the 8D

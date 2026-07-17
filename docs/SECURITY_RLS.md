@@ -1,9 +1,8 @@
 # Per-member Supabase RLS (R84) — trust model v2
 
 The design record and the runbook. Read this before touching the Supabase
-policies or the transport's auth path. Companion: `docs/SCALING.md` (the
-connector economics contract), `docs/supabase_schema.sql` §R84 (the SQL),
-`THREAT_MODEL.md`.
+policies or the transport's auth path. Companion: `docs/supabase_schema.sql`
+§R84 (the SQL) and `THREAT_MODEL.md`.
 
 ## 1. Why (the problem with v1)
 
@@ -153,9 +152,9 @@ bypasses row security`.
    its own credential locally — nothing to transfer.
 4. **Restart each machine's app** (About → Updates → Restart app) and
    check the Connection panel says `Member (…)`.
-5. **Verify**: `scripts/rls_probe.py` with a scratch `join`ed identity —
-   global lanes readable, a chat it isn't in invisible, a foreign root
-   invisible. Then `revoke` the scratch identity.
+5. **Verify** with a scratch `join`ed identity — global lanes readable, a
+   chat it is not in invisible, a foreign root invisible. Then `revoke` the
+   scratch identity.
 6. **Remove `SUPABASE_SECRET_KEY`** from both machines' `supabase.env`.
    Keep it ONLY wherever the owner administers from (it is now the
    offline root credential, like a CA key). Restart once more.

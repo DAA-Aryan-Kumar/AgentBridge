@@ -1,7 +1,7 @@
 """Transport interface — the ONLY layer that touches bytes-at-rest.
 
-A transport moves the logical records of docs/FORMAT2.md over some shared
-storage. Drivers: ``folder`` (OneDrive/Drive/SharePoint synced folder — files)
+A transport moves the logical records over some shared storage. Drivers:
+``folder`` (OneDrive/Drive/SharePoint synced folder — files)
 today, ``supabase`` (tables + storage + realtime) in R23. Everything above
 this layer is storage-agnostic.
 
