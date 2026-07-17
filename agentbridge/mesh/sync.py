@@ -165,15 +165,20 @@ class SyncEngine:
         one answers ``suggest_poll_s`` with its profile's slow safety poll
         (R76) — pokes keep message latency instant either way."""
         watcher = self.tx.watch()
+        last_hinted: bool | None = None
         try:
             while not self._stop.is_set():
                 try:
                     new = self.sync_once()
                 except Exception:  # noqa: BLE001 — transient: next tick retries
                     new = 0
+                if last_hinted is not None:
+                    self.tx.note_log_poll(changed=bool(new), hinted=last_hinted)
                 if new and on_new:
                     on_new(new)
-                watcher.wait(self.tx.suggest_poll_s(poll_s))
+                if self._stop.is_set():
+                    break
+                last_hinted = watcher.wait(self.tx.suggest_poll_s(poll_s))
         finally:
             watcher.close()
 

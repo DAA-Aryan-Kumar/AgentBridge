@@ -178,6 +178,32 @@ class FeedTransport(Transport):
     def watch(self): return Watcher()
 
 
+class ScriptedWatcher(Watcher):
+    def __init__(self, steps):
+        self.steps = list(steps)
+
+    def wait(self, timeout):
+        if not self.steps:
+            return False
+        hinted, action = self.steps.pop(0)
+        if action is not None:
+            action()
+        return hinted
+
+
+class NotingFeedTransport(FeedTransport):
+    def __init__(self):
+        super().__init__()
+        self.notes: list[tuple[bool, bool]] = []
+        self.watch_steps = []
+
+    def watch(self):
+        return ScriptedWatcher(self.watch_steps)
+
+    def note_log_poll(self, *, changed: bool, hinted: bool) -> None:
+        self.notes.append((changed, hinted))
+
+
 def feed_seed(tx, chat_id, sender, n):
     for i in range(n):
         tx.append_log(chat_id, f"{sender}@m",
@@ -257,6 +283,39 @@ def test_feed_join_recovers_history_below_the_cursor(tmp_path):
     member.add("old")                   # I get added to the chat
     assert eng.sync_once() == 4         # full catch-up despite the cursor
     assert store.message_count("old") == 4
+    store.close()
+
+
+def test_run_loop_reports_unhinted_log_changes_after_wait(tmp_path):
+    """V101: if a timed safety poll (not a watcher poke) finds messages, the
+    metered transport wrapper must hear about it so its hint watchdog can
+    shorten the degraded-realtime cadence."""
+    import threading
+
+    tx = NotingFeedTransport()
+    feed_seed(tx, "c1", "ann", 1)       # startup catch-up: not a hint sample
+    store = Store(tmp_path / "cache.sqlite")
+    eng = SyncEngine(tx, store)
+    tx.watch_steps = [
+        (False, lambda: tx.append_log(
+            "c1", "ann@m", {"id": "later", "ns": 99, "from": "ann"}
+        )),
+    ]
+    seen = []
+
+    def on_new(n):
+        seen.append(n)
+        if len(seen) >= 2:
+            eng.stop()
+
+    t = threading.Thread(
+        target=lambda: eng.run(poll_s=0.01, on_new=on_new), daemon=True
+    )
+    t.start()
+    t.join(5.0)
+    assert not t.is_alive()
+    assert seen == [1, 1]
+    assert tx.notes == [(True, False)]
     store.close()
 
 

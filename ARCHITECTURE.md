@@ -154,7 +154,7 @@ cache.
 | `PrivacyService` | the R6 matrix (who may see/reach whom), blocks, agent outbound rules; `visible_profile` is the projection every connector serves instead of raw account docs. On top of it the GUI's `user_json` keeps an agent's harness config (`settings` — model, routing, standing approvals, aux flags) owner-only (R49); `owners` stays public — the responsible member is accountability, not config |
 | `PresenceService` / `ReceiptsService` | online/last-seen heartbeat + the Sent/Delivered/Read ladder from per-member cursors: Read = `read_ns`, Delivered = the R33 `delivered_ns` fetch cursor (presence as the floor); `message_info` carries per-member Delivered/Read timestamps |
 | `Notifier` / `EventBus` | in-process pub/sub feeding the GUI SSE + the CLI long-poll; `consider()` is the one ping decision (membership, not-from-me, mute, read-state — mute + `read_ns` from ONE verified state read, R42) reused by the SSE `notify` lane and the CLI `watch` sinks |
-| `SyncEngine` | pulls new records per chat by byte-offset, in parallel, **never reading logs of chats this identity isn't in**; drops any record whose `from` ≠ the log's owner (ingestion sanity). On a change-feed transport (R30) a tick is ONE "what changed since cursor?" query (cursor persisted in the store; a newly-joined chat gets one full scan since its history may sit below the cursor); the run loop survives a failing pass (a cloud transport can throw after retries — next tick heals) |
+| `SyncEngine` | pulls new records per chat by byte-offset, in parallel, **never reading logs of chats this identity isn't in**; drops any record whose `from` ≠ the log's owner (ingestion sanity). On a change-feed transport (R30) a tick is ONE "what changed since cursor?" query (cursor persisted in the store; a newly-joined chat gets one full scan since its history may sit below the cursor). In the run loop, each post-watcher scan reports whether message logs changed with or without a hint to the transport wrapper, so metered transports can shorten degraded-realtime polls when log pokes are being lost. A failing pass never kills the loop (next tick heals). |
 
 `harden_startup()` (R25, called by connectors on sign-in) is an idempotent
 migration: it refolds pre-R25 chats to populate `tenure` and re-signs any
@@ -237,8 +237,10 @@ risks live in docs/THREAT_MODEL.md ("What is NOT protected").
   gracefully when absent: `get_docs(prefix)` (bulk read),
   `changed_logs(cursor)` + `has_change_feed` (global log feed, R30), and
   `snapshot_docs()`/`get_docs_delta(cursor)` (the docs delta feed, R76 —
-  the docs twin of the log feed; `suggest_poll_s(default)` lets a wrapper
-  answer live cadence to hint-woken loops).
+  the docs twin of the log feed). `suggest_poll_s(default)` lets a wrapper
+  answer live cadence to hint-woken loops; `note_log_poll(changed, hinted)`
+  lets `SyncEngine` feed log-side hint health back into the same economics
+  contract.
 - **`transport/folder.py`** — the synced-folder impl. Retries transient
   `PermissionError` (OneDrive mid-sync locks), tolerates half-synced files (BOM
   strip, partial trailing JSONL line not consumed), a memoized path-escape guard
@@ -275,7 +277,9 @@ risks live in docs/THREAT_MODEL.md ("What is NOT protected").
   (profile `idle_poll_s`, 45s on supabase) guards lost pokes; a full
   reconcile runs at boot + every `reconcile_s` (6h); a **hint watchdog**
   drops to `fallback_poll_s` (10s) for 10 min when a safety poll finds
-  changes no poke announced. Pre-migration (legacy schema) it full-pulls at
+  doc changes no poke announced, and the same suspect window now also listens
+  to unhinted message-log discoveries from `SyncEngine`. Pre-migration
+  (legacy schema) it full-pulls at
   the slow cadence with a fallback-rate floor against poke bursts — still
   ~30× cheaper than the old flat 4s loop that burned 21 GB/day (V84).
   Stability rules unchanged from R29: a FAILED refresh keeps serving the

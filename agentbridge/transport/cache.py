@@ -20,9 +20,9 @@ How the mirror works instead:
   that burned 21 GB/day on the metered free tier. A transport without the
   feed keeps full snapshots at the profile's (slow, when metered) cadence.
   A FAILED refresh keeps the last good snapshot: stale beats gone.
-- A hint WATCHDOG guards the slow cadence: when a safety poll finds changes
-  no poke announced, polls drop to the profile's fallback rate for a while
-  (realtime silently dead ≠ latency regression).
+- A hint WATCHDOG guards the slow cadence: when a safety poll finds doc or
+  message-log changes no poke announced, polls drop to the profile's fallback
+  rate for a while (realtime silently dead != latency regression).
 - Writes stay write-through and update the mirror synchronously, so a writer
   always sees its own writes immediately; a refresh never clobbers a doc
   written locally after the pull began (the recent-write guard).
@@ -89,7 +89,8 @@ class CachingTransport(Transport):
         self._cursor = 0                       # doc delta cursor (R76)
         self._last_full = 0.0                  # monotonic of last full pull
         self._suspect_until = 0.0              # hint watchdog (monotonic)
-        self._silent_strikes = 0               # consecutive unannounced polls
+        self._silent_strikes = 0               # consecutive unannounced doc polls
+        self._log_silent_strikes = 0           # same, for message-log polls
         self._doc_writes: dict[str, float] = {}   # path -> monotonic of write
         self._chat_writes: dict[str, float] = {}  # chat_id -> monotonic
         self._stop = threading.Event()
@@ -150,6 +151,18 @@ class CachingTransport(Transport):
         if time.monotonic() < self._suspect_until:
             return self.profile.fallback_poll_s
         return self.profile.idle_poll_s
+
+    def note_log_poll(self, *, changed: bool, hinted: bool) -> None:
+        """Feed message-log safety polls into the same hint-health window.
+
+        The mirror's delta loop only sees JSON docs. Supabase log rows have
+        their own change feed, so a realtime outage could leave message
+        delivery on the slow idle poll forever unless SyncEngine reports
+        unhinted records here. Keep an independent strike counter so quiet doc
+        polls do not erase consecutive silent log discoveries.
+        """
+        if self.profile.metered:
+            self._watchdog(changed, hinted, lane="logs")
 
     def _ensure_warm(self) -> bool:
         """Mirror ready? Warm it on first use; if warming FAILS (offline),
@@ -287,7 +300,7 @@ class CachingTransport(Transport):
             if watcher is not None:
                 watcher.close()
 
-    def _watchdog(self, changed: bool, hinted: bool) -> None:
+    def _watchdog(self, changed: bool, hinted: bool, *, lane: str = "docs") -> None:
         """Hint health (R76): pokes are being LOST when safety polls keep
         finding changes nobody announced — then polls drop to the fallback
         rate for a while. It takes TWO consecutive silent polls to trip:
@@ -296,13 +309,17 @@ class CachingTransport(Transport):
         silent poll must not put the whole process on the fast leash
         (v0.24.154 — the live fleet sat suspect forever on probe writes).
         A real outage with steady activity still trips within two poll
-        windows; silent classes (presence) never count (see _refresh_delta)."""
+        windows; silent classes (presence) never count (see _refresh_delta).
+        ``lane`` keeps doc and message-log strikes independent while sharing
+        the same suspect window/cadence."""
+        attr = "_log_silent_strikes" if lane == "logs" else "_silent_strikes"
         if changed and not hinted:
-            self._silent_strikes += 1
-            if self._silent_strikes >= 2:
+            strikes = getattr(self, attr) + 1
+            setattr(self, attr, strikes)
+            if strikes >= 2:
                 self._suspect_until = time.monotonic() + _SUSPECT_S
         else:
-            self._silent_strikes = 0
+            setattr(self, attr, 0)
 
     def _refresh_tick(self) -> bool:
         """Delta when possible; full when due (reconcile), forced (no feed /

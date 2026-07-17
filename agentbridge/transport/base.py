@@ -97,6 +97,17 @@ class Transport(ABC):
         wrapper answers from its profile + live hint health (cache.py)."""
         return default
 
+    def note_log_poll(self, *, changed: bool, hinted: bool) -> None:
+        """Observe one message-log scan after a watcher wait.
+
+        Free transports ignore this. Metered wrappers may use it to detect a
+        quiet realtime channel: if timed safety polls keep finding messages
+        that no hint announced, the wrapper can temporarily shorten its poll
+        cadence. The sync engine deliberately skips its startup catch-up so a
+        cold boot never looks like a lost hint.
+        """
+        pass
+
     # ------------------------------------------------------------------ docs
     @abstractmethod
     def get_doc(self, path: str, default: Any = None) -> Any:

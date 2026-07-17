@@ -569,6 +569,22 @@ def test_watchdog_needs_two_consecutive_silent_polls(delta_mirror):
     assert tx.suggest_poll_s(4.0) == 45.0
 
 
+def test_log_poll_signal_uses_the_same_suspect_window(delta_mirror):
+    """Message-log polls feed hint health too. They keep their own strike
+    counter, so a quiet doc tick cannot mask two unhinted message discoveries
+    during a realtime outage."""
+    inner, tx = delta_mirror
+    tx.note_log_poll(changed=True, hinted=False)
+    assert tx.suggest_poll_s(4.0) == 45.0
+    tx._watchdog(changed=False, hinted=False)       # quiet docs do not reset logs
+    tx.note_log_poll(changed=True, hinted=False)
+    assert tx.suggest_poll_s(4.0) == 10.0
+    tx._suspect_until = 0.0
+    tx.note_log_poll(changed=True, hinted=True)     # a hinted log tick resets
+    tx.note_log_poll(changed=True, hinted=False)
+    assert tx.suggest_poll_s(4.0) == 45.0
+
+
 def test_suggest_poll_adapts_to_hint_health(delta_mirror):
     inner, tx = delta_mirror
     assert tx.suggest_poll_s(4.0) == 45.0          # metered + hints healthy
