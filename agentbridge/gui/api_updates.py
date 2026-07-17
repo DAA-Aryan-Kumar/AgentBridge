@@ -255,10 +255,14 @@ def app_restart(app, req, mesh) -> dict:
     # descendant — the 05:02 helper died mid-run exactly this way, leaving
     # the fleet down. CREATE_BREAKAWAY_FROM_JOB (0x01000000) escapes the
     # job; a job that forbids breakaway refuses the spawn, so fall back.
-    try:
-        subprocess.Popen(cmd, creationflags=flags | 0x01000000, **spawn)
-    except OSError:
-        subprocess.Popen(cmd, creationflags=flags, **spawn)
+    # creationflags is Windows-only — macOS/Linux use a plain Popen.
+    if sys.platform == "win32":
+        try:
+            subprocess.Popen(cmd, creationflags=flags | 0x01000000, **spawn)
+        except OSError:
+            subprocess.Popen(cmd, creationflags=flags, **spawn)
+    else:
+        subprocess.Popen(cmd, **spawn)
     # shut down AFTER this response has flushed to the client
     threading.Timer(0.8, server.shutdown).start()
     return {"ok": True, "note": "Restarting — back in a few seconds"}
