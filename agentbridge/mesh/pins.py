@@ -180,6 +180,22 @@ class KeyPinStore:
 
             self._mutate(apply)
 
+    def forget(self, name: str) -> None:
+        """Remove trust state for an identity that was never published.
+
+        Account creation uses this only while rolling back a failed transport
+        write. Published or deleted identities keep their pins permanently.
+        """
+        with self._lock:
+            def apply(doc: dict) -> None:
+                doc.setdefault("pins", {}).pop(name, None)
+                doc["alerts"] = [
+                    a for a in doc.setdefault("alerts", [])
+                    if a.get("name") != name
+                ]
+
+            self._mutate(apply)
+
     def auto_verify_local(self, load_bundle, pubs_of) -> list[str]:
         """R54 (V31): pins whose PRIVATE bundle lives on this machine verify
         themselves. The out-of-band ceremony guards against a substituted

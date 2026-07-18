@@ -150,7 +150,7 @@ cache.
 |---|---|
 | `MessagingService` | every mutating message op + the read choke-point `messages_for`; each public method gates via `_require_member` before touching anything (write gates too, not just reads) |
 | `MembershipService` | chats/DMs/self-chats, the multi-admin model, create/add/remove/leave/rename/permissions/delete — emits signed info events then refolds; `authz` gate before every mutation |
-| `AccountsService` | account lifecycle (scrypt auth for humans; agents never authenticate — machine identity), profile/status, agent create/adopt/delete; all agent edits owner-gated via `_writable_target` |
+| `AccountsService` | account lifecycle (scrypt auth for humans; agents never authenticate — machine identity), profile/status, agent create/adopt/delete; creation persists the private bundle + TOFU pin before publishing the account row and rolls both back if publication fails; all agent edits owner-gated via `_writable_target` |
 | `PrivacyService` | the R6 matrix (who may see/reach whom), blocks, agent outbound rules; `visible_profile` is the projection every connector serves instead of raw account docs. On top of it the GUI's `user_json` keeps an agent's harness config (`settings` — model, routing, standing approvals, aux flags) owner-only (R49); `owners` stays public — the responsible member is accountability, not config |
 | `PresenceService` / `ReceiptsService` | online/last-seen heartbeat + the Sent/Delivered/Read ladder from per-member cursors: Read = `read_ns`, Delivered = the R33 `delivered_ns` fetch cursor (presence as the floor); `message_info` carries per-member Delivered/Read timestamps |
 | `Notifier` / `EventBus` | in-process pub/sub feeding the GUI SSE + the CLI long-poll; `consider()` is the one ping decision (membership, not-from-me, mute, read-state — mute + `read_ns` from ONE verified state read, R42) reused by the SSE `notify` lane and the CLI `watch` sinks |
@@ -540,6 +540,9 @@ re-render on every poll would reset scroll / steal focus.
   on Windows and `.venv/bin/python3` on macOS/POSIX, detach with the native
   process flags, and log to `~/.agentbridge/launcher.log`. A packaged app should
   still replace these development wrappers with a signed OS-native launcher.
+  On macOS, a repeated launch first focuses an existing Edge/Chrome window for
+  the same local origin (hash route ignored); it opens a new app window only
+  when none exists. The restart helper itself relaunches with `--no-browser`.
 - **PowerShell text round-trips corrupt source** (UTF-16+BOM, mangled em-dashes).
   Edit `.py`/`.js` only with proper tools; bump the version with Edit.
 - **`meta.json` is last-writer-wins** but rebuildable — a raced/clobbered write

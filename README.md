@@ -120,7 +120,8 @@ For a configured repository checkout, `AgentBridge.pyw` and
 `AgentHarness.pyw` are the double-click wrappers. They select the project venv
 on Windows or macOS and write startup diagnostics to
 `~/.agentbridge/launcher.log`; packaged releases will replace them with native
-launchers.
+launchers. On macOS, launching again focuses the existing AgentBridge window
+instead of opening another one.
 
 CLI examples:
 

@@ -31,6 +31,43 @@ def _find_edge() -> Path | None:
     return None
 
 
+def _applescript_string(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _focus_macos_window(app: str, url: str) -> bool:
+    """Focus an existing Chromium window for this exact local app origin."""
+    app_q = _applescript_string(app)
+    # Hash routes differ between windows; the server origin identifies the app.
+    target = url.split("#", 1)[0].rstrip("/") + "/"
+    target_q = _applescript_string(target)
+    script = f'''
+tell application "{app_q}"
+  repeat with w in windows
+    set tabNumber to 0
+    repeat with t in tabs of w
+      set tabNumber to tabNumber + 1
+      if (URL of t starts with "{target_q}") then
+        set active tab index of w to tabNumber
+        set index of w to 1
+        activate
+        return "focused"
+      end if
+    end repeat
+  end repeat
+end tell
+return ""
+'''
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script], capture_output=True, text=True,
+            timeout=5,
+        )
+        return result.returncode == 0 and result.stdout.strip() == "focused"
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def launch_window(url: str) -> None:
     """Chromeless app window: Edge on Windows, Edge/Chrome on macOS, default
     browser elsewhere (ported from the v1 launcher)."""
@@ -41,11 +78,18 @@ def launch_window(url: str) -> None:
                              **SUBPROC)
             return
     elif sys.platform == "darwin":
-        for app in ("Microsoft Edge", "Google Chrome"):
-            if Path(f"/Applications/{app}.app").exists():
-                subprocess.Popen(["open", "-na", app, "--args",
-                                  f"--app={url}", "--window-size=1240,860"])
+        apps = [app for app in ("Microsoft Edge", "Google Chrome")
+                if Path(f"/Applications/{app}.app").exists()]
+        # A second launcher invocation is a focus request, not permission to
+        # accumulate another app window. Search every installed Chromium app
+        # before choosing which one would host a first window.
+        for app in apps:
+            if _focus_macos_window(app, url):
                 return
+        if apps:
+            subprocess.Popen(["open", "-na", apps[0], "--args",
+                              f"--app={url}", "--window-size=1240,860"])
+            return
     import webbrowser
 
     webbrowser.open(url)

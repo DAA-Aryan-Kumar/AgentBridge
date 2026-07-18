@@ -222,3 +222,9 @@ row security`.
   current schema and verifying group + DM genesis; persistent failure requires
   comparing the dashboard's installed `ab_docs_member_insert` definition with
   `docs/supabase_schema.sql`.
+- R109 recheck (2026-07-18): agent creation's global `users/` row succeeds
+  under the live member credential, including from the visible Settings form,
+  but the minimal chat-genesis row still returns 42501. The agent path now also
+  persists and pins its local identity before publication and rolls that state
+  back on denial. V137 therefore remains specifically a dashboard-installed
+  chat policy problem; no service-key application fallback was introduced.

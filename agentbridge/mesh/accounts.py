@@ -32,6 +32,7 @@ from .keyring import KeyStore
 from .membership import MembershipService
 from .messaging import MessagingService
 from .paths import P
+from .pins import key_fingerprint
 
 __all__ = ["AccountsService", "RESERVED_NAMES"]
 
@@ -96,9 +97,7 @@ class AccountsService:
                 "recovery": crypto.wrap_bundle(bundle, recovery_code),
             },
         }
-        self.tx.put_doc(P.user(name), doc)
-        self.keystore.save(name, bundle)  # unlocked on the creating machine
-        self.directory.pin_keys(name, sign_pub, agree_pub)  # R27
+        self._publish_identity(name, doc, bundle, sign_pub, agree_pub)
         return Account.from_dict(doc), recovery_code
 
     def create_agent(
@@ -132,15 +131,48 @@ class AccountsService:
             "agent": {"owner": owner, "machine": self.machine,
                       "harness": harness or {}},
         }
-        self.tx.put_doc(P.user(name), doc)
-        self.keystore.save(name, bundle)
-        self.directory.pin_keys(name, sign_pub, agree_pub)  # R27
-        # R54 (V31): this box just minted the keys — nothing to compare
-        # out-of-band, so the pin is born Verified (harden_startup backfills
-        # pre-R54 agents the same way)
-        if self.directory.pins is not None:
-            self.directory.pins.mark_verified(name)
+        self._publish_identity(
+            name, doc, bundle, sign_pub, agree_pub, verify_local=True)
         return Account.from_dict(doc)
+
+    def _publish_identity(
+        self,
+        name: str,
+        doc: dict,
+        bundle: bytes,
+        sign_pub: str,
+        agree_pub: str,
+        *,
+        verify_local: bool = False,
+    ) -> None:
+        """Persist private identity state before publishing its account row.
+
+        A visible agent without its private key cannot sign events or unwrap
+        chat keys. Prepare the machine-local key and trust pin first; if the
+        transport refuses the account row, remove only state minted by this
+        attempt so retrying the same name starts cleanly.
+        """
+        pins = self.directory.pins
+        prior_fp = pins.fingerprint(name) if pins is not None else ""
+        self.keystore.save(name, bundle)
+        try:
+            self.directory.pin_keys(name, sign_pub, agree_pub)
+            if pins is not None:
+                expected = key_fingerprint(name, sign_pub, agree_pub)
+                if pins.fingerprint(name) != expected:
+                    raise ValidationError(
+                        f"@{name} has conflicting local identity keys"
+                    )
+                # R54: an agent minted on this machine verifies itself. Human
+                # fingerprints keep their existing out-of-band semantics.
+                if verify_local:
+                    pins.mark_verified(name)
+            self.tx.put_doc(P.user(name), doc)
+        except Exception:
+            self.keystore.forget(name)
+            if pins is not None and not prior_fp:
+                pins.forget(name)
+            raise
 
     def _require_free(self, name: str) -> None:
         if not valid_name(name):

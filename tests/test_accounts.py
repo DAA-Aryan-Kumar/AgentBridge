@@ -4,6 +4,7 @@ import pytest
 
 from agentbridge.core.errors import PermissionDenied, ValidationError
 from agentbridge.core.models import MsgKind, Role, UserKind
+from agentbridge.mesh.paths import P
 from agentbridge.mesh.service import Mesh
 from agentbridge.transport.folder import FolderTransport
 
@@ -52,6 +53,38 @@ def test_create_agent_machine_login_ownership(world):
     assert acc.about == "Aryan's Claude on mach1"   # the default about
     assert acc.auth is None                          # agents never authenticate
     assert aryan.directory.owner_of("claude") == "aryan"
+
+
+def test_create_agent_prepares_keys_before_publish_and_rolls_back(
+    world, monkeypatch
+):
+    meshes, _ = world
+    aryan = meshes["aryan"]
+    original_put = aryan.tx.put_doc
+    observed = {"ready": False}
+
+    def refuse_agent(path, doc):
+        if path == P.user("helper"):
+            keys = doc["keys"]
+            assert aryan.keystore.load("helper") is not None
+            assert aryan.key_pins.fingerprint(
+                "helper", keys["sign_pub"], keys["agree_pub"])
+            observed["ready"] = True
+            raise PermissionError("simulated RLS denial")
+        return original_put(path, doc)
+
+    monkeypatch.setattr(aryan.tx, "put_doc", refuse_agent)
+    with pytest.raises(PermissionError, match="RLS denial"):
+        aryan.accounts.create_agent("helper")
+
+    assert observed["ready"]
+    assert aryan.keystore.load("helper") is None
+    assert aryan.key_pins.fingerprint("helper") == ""
+    assert aryan.directory.get("helper") is None
+
+    # The failed attempt leaves the name and local identity state reusable.
+    monkeypatch.setattr(aryan.tx, "put_doc", original_put)
+    assert aryan.accounts.create_agent("helper").active
 
 
 # ---------------------------------------------------------------------- auth
